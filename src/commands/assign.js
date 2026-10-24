@@ -15,8 +15,9 @@ import {
 import { TRACK_ASSIGN_ACTION } from "./track.js";
 
 const SUGGEST_ASSIGN_ACTION = "assign:suggest";
-// One people picker per role, each with its own action_id.
-const PICK_ACTIONS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `assign:pick:${role}`]));
+// A button per role opens a form to choose that role's people.
+const CHOOSE_ACTIONS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `assign:choose:${role}`]));
+const PEOPLE_VIEW = "assign:people";
 const SUGGEST_SKIP_ACTION = "assign:suggest-skip";
 
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
@@ -35,8 +36,9 @@ const HANDOFFS = [
 
 // `@LUMA assign developer @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way. The reply mentions
-// them with what to do next. Without anyone mentioned, `@LUMA assign
-// developer` replies with a people picker for that role.
+// them with what to do next. Without anyone mentioned, `@LUMA assign`
+// replies with a button per role (or just the one named), which opens a form
+// with that role's people filled in, to add or remove people.
 //
 // There is nothing to review until a pull request is linked, so reviewers
 // can be added ahead of time: until then the reply names no one, so they are
@@ -54,12 +56,9 @@ export default {
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
-    // A role and no one mentioned: a people picker for that role.
-    if (role && !command.mentions.length) {
-      const task = await loadTask(env, command.channel, command.threadTs);
-      if (!task) return NOT_A_TASK;
-      return peoplePicker(task, role);
-    }
+    // No one mentioned: a button for the role named, or for each role, that
+    // opens a form to choose its people.
+    if (!command.mentions.length) return roleButtons(role ? [role] : Object.keys(ROLES));
     if (!role) {
       const examples = Object.keys(ROLES)
         .map((name) => `\`@LUMA assign ${name} @person\``)
@@ -80,13 +79,13 @@ export default {
     }
     return `${mentions(command.mentions)} ${REQUESTS[role]}`;
   },
+  views: { [PEOPLE_VIEW]: savePeople },
   actions: {
     ...Object.fromEntries(
-      Object.entries(PICK_ACTIONS).map(([role, actionId]) => [
+      Object.entries(CHOOSE_ACTIONS).map(([role, actionId]) => [
         actionId,
-        async (payload, context) => {
-          context.waitUntil(pickPeople(payload, context.env, role));
-        },
+        // Opening a form must happen within Slack's three seconds of the click.
+        (payload, { env }) => openPeopleForm(payload, env, role),
       ]),
     ),
     [SUGGEST_ASSIGN_ACTION]: async (payload, context) => {
@@ -98,50 +97,84 @@ export default {
   },
 };
 
-// A people picker for a role, showing who is assigned now. Choosing sets the
-// role to the people chosen.
-function peoplePicker(task, role) {
-  const prompt = `Who should be the ${ROLES[role].toLowerCase()}?`;
+function roleButtons(roles) {
+  const prompt = roles.length === 1 ? `Who should be the ${ROLES[roles[0]].toLowerCase()}?` : "Who works on this task?";
   return {
     text: prompt,
     blocks: [
+      { type: "section", text: mrkdwn(prompt) },
       {
-        type: "section",
-        block_id: role,
-        text: mrkdwn(prompt),
-        accessory: {
-          type: "multi_users_select",
-          action_id: PICK_ACTIONS[role],
-          placeholder: plainText(`Choose ${ROLES[role].toLowerCase()}s`),
-          ...(task.people[role].length && { initial_users: task.people[role] }),
-        },
+        type: "actions",
+        elements: roles.map((role) => ({
+          type: "button",
+          action_id: CHOOSE_ACTIONS[role],
+          text: plainText(ROLES[role]),
+          value: role,
+        })),
       },
     ],
   };
 }
 
-// Sets a role to the people chosen in its picker, then removes the picker.
-// Those newly added are asked as `@LUMA assign` would ask them; those
-// removed aren't told, since the task card shows it. The picker is a reply
-// in the task's thread.
-async function pickPeople(payload, env, role) {
+// Opens the form for a role's people, filled in with who's assigned now. The
+// buttons are a reply in the task's thread.
+async function openPeopleForm(payload, env, role) {
   const channel = payload.channel.id;
   const ts = payload.message.thread_ts;
-  const chosen = payload.actions[0].selected_users ?? [];
   const task = await loadTask(env, channel, ts);
   if (!task) return;
+  await callSlack(env, "views.open", {
+    trigger_id: payload.trigger_id,
+    view: {
+      type: "modal",
+      callback_id: PEOPLE_VIEW,
+      private_metadata: JSON.stringify({ channel, ts, role, promptTs: payload.message.ts }),
+      title: plainText(ROLES[role]),
+      submit: plainText("Save"),
+      close: plainText("Cancel"),
+      blocks: [
+        {
+          type: "input",
+          block_id: "people",
+          // Saving with no one clears the role.
+          optional: true,
+          label: plainText(`${ROLES[role]}s for ${task.title}`.slice(0, 2000)),
+          element: {
+            type: "multi_users_select",
+            action_id: "value",
+            placeholder: plainText(`Choose ${ROLES[role].toLowerCase()}s`),
+            ...(task.people[role].length && { initial_users: task.people[role] }),
+          },
+        },
+      ],
+    },
+  });
+}
 
-  const added = chosen.filter((id) => !task.people[role].includes(id));
-  task.people[role] = chosen;
-  await saveTask(env, channel, ts, task);
+// Sets the role to the people saved, then removes the buttons. Those newly
+// added are asked as `@LUMA assign` would ask them; those removed aren't
+// told, since the task card shows it.
+function savePeople(payload, context) {
+  const { channel, ts, role, promptTs } = JSON.parse(payload.view.private_metadata);
+  const chosen = payload.view.state.values.people.value.selected_users ?? [];
+  context.waitUntil(
+    (async () => {
+      const { env } = context;
+      const task = await loadTask(env, channel, ts);
+      if (!task) return;
+      const added = chosen.filter((id) => !task.people[role].includes(id));
+      task.people[role] = chosen;
+      await saveTask(env, channel, ts, task);
 
-  let text = null;
-  if (added.length && REQUESTS[role]) text = `${mentions(added)} ${REQUESTS[role]}`;
-  if (added.length && role === "reviewer" && task.prs.length) {
-    text = `${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`;
-  }
-  if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
-  await callSlack(env, "chat.delete", { channel, ts: payload.message.ts });
+      let text = null;
+      if (added.length && REQUESTS[role]) text = `${mentions(added)} ${REQUESTS[role]}`;
+      if (added.length && role === "reviewer" && task.prs.length) {
+        text = `${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`;
+      }
+      if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+      await callSlack(env, "chat.delete", { channel, ts: promptTs });
+    })(),
+  );
 }
 
 // For a message in a task's thread that mentions people with a phrase that

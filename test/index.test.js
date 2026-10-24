@@ -489,22 +489,21 @@ test("@LUMA assign without a role asks for one", async (t) => {
   );
 });
 
-test("@LUMA assign with a role and no one mentioned shows that role's picker", async (t) => {
-  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
-  await send("/slack/events", threadEvent("<@UBOT> assign reviewer"));
-  const reply = calls.at(-1).args;
-  assert.equal(reply.text, "Who should be the reviewer?");
-  assert.deepEqual(
-    reply.blocks.map((block) => [block.block_id, block.accessory.type, block.accessory.action_id, block.accessory.initial_users]),
-    [["reviewer", "multi_users_select", "assign:pick:reviewer", ["URIA"]]],
-  );
-});
-
-test("@LUMA assign with no role asks for one, rather than showing every role", async (t) => {
-  const calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> assign"));
-  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
-  assert.match(calls[0].args.text, /^Say which role to assign: /);
+test("@LUMA assign without anyone mentioned offers a button per role", async (t) => {
+  for (const [text, roles, prompt] of [
+    ["<@UBOT> assign", ["developer", "reviewer", "tester"], "Who works on this task?"],
+    ["<@UBOT> assign reviewer", ["reviewer"], "Who should be the reviewer?"],
+  ]) {
+    const calls = mockSlack(t);
+    await send("/slack/events", threadEvent(text));
+    const reply = calls.at(-1).args;
+    assert.equal(reply.text, prompt, text);
+    assert.deepEqual(
+      reply.blocks[1].elements.map((button) => [button.action_id, button.text.text]),
+      roles.map((role) => [`assign:choose:${role}`, role[0].toUpperCase() + role.slice(1)]),
+      text,
+    );
+  }
 });
 
 test("@LUMA unassign with a role removes people from that role only", async (t) => {
@@ -3417,50 +3416,75 @@ test("Track and assign asks the developers in the new task's thread", async (t) 
   assert.equal(ask.text, "<@UREX>, <@UBOB> please start working on this.");
 });
 
-// Someone changing a role's people picker in the task's thread.
-const pick = (role, users) =>
+
+// Clicking a role's button under `@LUMA assign`, in the task's thread.
+const chooseRole = (role) =>
   interaction({
     type: "block_actions",
+    trigger_id: "trigger-5",
     user: { id: "UPICKER" },
     channel: { id: "CDEV" },
     message: { ts: "100.8", thread_ts: "100.1" },
-    actions: [{ action_id: `assign:pick:${role}`, block_id: role, selected_users: users }],
+    actions: [{ action_id: `assign:choose:${role}`, value: role }],
   });
 
-test("picking people sets the role and asks the ones newly added", async (t) => {
+// Saving the people form.
+const savePeopleForm = (role, users) =>
+  interaction({
+    type: "view_submission",
+    user: { id: "UPICKER" },
+    view: {
+      callback_id: "assign:people",
+      private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1", role, promptTs: "100.8" }),
+      state: { values: { people: { value: { selected_users: users } } } },
+    },
+  });
+
+test("a role's button opens a form with its people filled in", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE,UBOB" })] } });
+  await send("/slack/interactions", chooseRole("developer"));
+  const { trigger_id: trigger, view } = calls.find((call) => call.method === "views.open").args;
+  assert.equal(trigger, "trigger-5");
+  assert.equal(view.callback_id, "assign:people");
+  assert.equal(view.title.text, "Developer");
+  assert.equal(view.submit.text, "Save");
+  const [field] = view.blocks;
+  assert.equal(field.optional, true, "saving with no one clears the role");
+  assert.equal(field.label.text, "Developers for Fix login");
+  assert.equal(field.element.type, "multi_users_select");
+  assert.deepEqual(field.element.initial_users, ["UALICE", "UBOB"]);
+});
+
+test("saving the form sets the role, asks those added and removes the buttons", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE,UBOB" })] } });
   // UBOB is removed, UREX added.
-  await send("/slack/interactions", pick("developer", ["UALICE", "UREX"]));
+  const response = await send("/slack/interactions", savePeopleForm("developer", ["UALICE", "UREX"]));
+  assert.equal(response.status, 200);
   assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.developers, "UALICE,UREX");
   const ask = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(ask.thread_ts, "100.1");
   assert.equal(ask.text, "<@UREX> please start working on this.");
-  // The picker goes once used.
-  assert.deepEqual(calls.at(-1), {
-    method: "chat.delete",
-    args: { channel: "CDEV", ts: "100.8" },
-    headers: calls.at(-1).headers,
-    previews: calls.at(-1).previews,
-  });
+  assert.deepEqual(calls.at(-1).args, { channel: "CDEV", ts: "100.8" });
+  assert.equal(calls.at(-1).method, "chat.delete");
 });
 
-test("removing people from a picker tells no one", async (t) => {
+test("saving with people only removed tells no one", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ testers: "UTESS" })] } });
-  await send("/slack/interactions", pick("tester", []));
+  await send("/slack/interactions", savePeopleForm("tester", []));
   assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.testers, "");
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
   assert.equal(calls.at(-1).method, "chat.delete");
 });
 
-test("reviewers picked are asked to review only once a PR is linked", async (t) => {
+test("reviewers saved are asked to review only once a PR is linked", async (t) => {
   let calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
-  await send("/slack/interactions", pick("reviewer", ["URIA"]));
+  await send("/slack/interactions", savePeopleForm("reviewer", ["URIA"]));
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
 
   const root = rootMessage();
   root.metadata.event_payload.prs = PR;
   calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
-  await send("/slack/interactions", pick("reviewer", ["URIA"]));
+  await send("/slack/interactions", savePeopleForm("reviewer", ["URIA"]));
   assert.equal(
     calls.find((call) => call.method === "chat.postMessage").args.text,
     `<@URIA>, please review <${PR}|project-helper/42>.`,
