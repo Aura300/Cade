@@ -1,8 +1,9 @@
 import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
-import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
+import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import {
   PRIORITIES,
+  REQUESTS,
   noPeople,
   readTaskForm,
   setPinned,
@@ -239,6 +240,16 @@ export async function createTask(env, task, origin) {
     createdBy: task.createdBy,
   });
   await setPinned(env, message.channel, message.ts, true);
+  // Tracked with "Track and assign": the developers may not be in the
+  // requirement thread, so the task's thread asks them, as `@LUMA assign`
+  // would.
+  if (origin.developers?.length) {
+    await callSlack(env, "chat.postMessage", {
+      channel: message.channel,
+      thread_ts: message.ts,
+      text: `${mentions(origin.developers)} ${REQUESTS.developer}`,
+    });
+  }
   await syncTask(env, message.channel, message.ts, task);
 
   const { permalink } = await callSlack(env, "chat.getPermalink", {

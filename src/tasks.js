@@ -33,6 +33,13 @@ export const ROLES = {
 
 export const NOT_A_TASK = "This thread is not a tracked task.";
 
+// What Luma asks of people when they are assigned to a role. Reviewers are
+// asked once there's a pull request to review instead (see pr.js).
+export const REQUESTS = {
+  developer: "please start working on this.",
+  tester: "please test this.",
+};
+
 // Returns the first role named in `text` ("developers" works too), or null.
 export function parseRole(text) {
   const words = text.toLowerCase().split(/\s+/).filter((word) => !word.startsWith("<@"));

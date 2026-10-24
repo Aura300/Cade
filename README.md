@@ -134,8 +134,10 @@ only you see:
 - once it's tracked, **Assign as developer** (or **Assign and move to In
   progress**) assigns them to its task, as in the task's thread.
 
-Only developer hand-offs are offered there; reviews and testing are asked
-for in the task's thread.
+Either way the task's thread in `#aura300-dev` gets "@rex please start
+working on this.", as `@LUMA assign developer` would post, since developers
+aren't always in the client's channel. Only developer hand-offs are offered
+there; reviews and testing are asked for in the task's thread.
 
 To remove a requirement, send **`@LUMA remove`** (or `@LUMA delete`) in its
 thread. It asks for confirmation the same way as deleting a task, then
@@ -218,6 +220,11 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   them and the task card shows who it is; only a status change is posted,
   as "@you moved the task to 🔵 In progress". A message with a PR link gets
   the PR question below instead.
+- `@LUMA assign` on its own replies with a people picker for each role
+  (Developer, Reviewer, Tester), showing who's assigned now;
+  `@LUMA assign developer` shows just that role's. Changing a picker sets
+  that role to the people chosen: those added are asked as below, those
+  removed aren't told, and the pickers stay in the thread to change again.
 - `@LUMA assign developer @person [@person …]`, for exact control, adds
   people as developers;
   `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the

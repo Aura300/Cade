@@ -489,13 +489,25 @@ test("@LUMA assign without a role asks for one", async (t) => {
   );
 });
 
-test("@LUMA assign without mentions replies with usage", async (t) => {
-  const calls = mockSlack(t);
+test("@LUMA assign without anyone mentioned shows people pickers", async (t) => {
+  // One role named: one picker, showing who's there now.
+  let calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
   await send("/slack/events", threadEvent("<@UBOT> assign reviewer"));
-  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
-  assert.equal(
-    calls[0].args.text,
-    "Mention who to assign, for example `@LUMA assign reviewer @person`.",
+  let reply = calls.at(-1).args;
+  assert.equal(reply.text, "Who should be the reviewer?");
+  assert.deepEqual(
+    reply.blocks.slice(1).map((block) => [block.block_id, block.accessory.type, block.accessory.action_id, block.accessory.initial_users]),
+    [["reviewer", "multi_users_select", "assign:pick:reviewer", ["URIA"]]],
+  );
+
+  // No role: one picker per role.
+  calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE" })] } });
+  await send("/slack/events", threadEvent("<@UBOT> assign"));
+  reply = calls.at(-1).args;
+  assert.equal(reply.text, "Who works on this task?");
+  assert.deepEqual(
+    reply.blocks.slice(1).map((block) => [block.block_id, block.accessory.initial_users]),
+    [["developer", ["UALICE"]], ["reviewer", undefined], ["tester", undefined]],
   );
 });
 
@@ -2762,8 +2774,8 @@ test("removing a PR leaves the status alone", async (t) => {
   assert.equal(calls[1].args.metadata.event_payload.status, "IN_REVIEW");
 });
 
-const assignValue = (role, people, moveTo = null) =>
-  JSON.stringify({ channel: "CDEV", ts: "100.1", role, people, moveTo });
+const assignValue = (role, people, moveTo = null, fromRequirement = false) =>
+  JSON.stringify({ channel: "CDEV", ts: "100.1", role, people, moveTo, fromRequirement });
 
 const clickAssign = (actionId, value) =>
   interaction({
@@ -3184,8 +3196,9 @@ test("asking a developer to start on a tracked requirement offers to assign them
     question.text,
     "You asked <@UREX> to work on this. Assign them as developer of <https://slack.example/p100|Fix login> and move the task to :large_blue_circle: In progress?",
   );
-  // The button changes the task in the dev channel.
-  assert.equal(question.blocks[1].elements[0].value, assignValue("developer", ["UREX"], "IN_PROGRESS"));
+  // The button changes the task in the dev channel, and says it came from
+  // the requirement thread.
+  assert.equal(question.blocks[1].elements[0].value, assignValue("developer", ["UREX"], "IN_PROGRESS", true));
 });
 
 test("a task tracked with Track and assign is announced in the requirement thread", async (t) => {
@@ -3348,4 +3361,106 @@ test("the ready to review message doesn't link to the team's task", async (t) =>
   assert.ok(!review.text.includes("slack.example/p100"));
   // No link to look up for it.
   assert.ok(!calls.some((call) => call.method === "chat.getPermalink" && call.args.channel === "CDEV"));
+});
+
+test("asking someone to look into a tracked incident offers to assign them, in either thread", async (t) => {
+  for (const [channel, overrides] of [
+    // The incident's thread in the external channel.
+    ["CEXTERNAL", { ts: "200.5", thread_ts: "200.1" }],
+    // The incident's task thread in the incidents channel.
+    ["CINC", {}],
+  ]) {
+    const calls = mockSlack(t, threads(incidentRoot(), incidentTask("TODO")));
+    await send("/slack/events", threadReply("<@UREX> please look into it", { channel, ...overrides }), {}, incidentEnv);
+    const question = calls.find((call) => call.method === "chat.postEphemeral")?.args;
+    assert.ok(question, channel);
+    assert.match(question.text, /^You asked <@UREX> to work on this\. Assign them as developer/, channel);
+    // The button assigns them to the task in the incidents channel.
+    assert.equal(JSON.parse(question.blocks[1].elements[0].value).channel, "CINC", channel);
+  }
+});
+
+test("assigning from the requirement thread asks the developer in the task's thread", async (t) => {
+  for (const [moveTo, text] of [
+    [null, "<@UREX> please start working on this."],
+    ["IN_PROGRESS", "<@UREX> please start working on this.\n<@UACTOR> moved the task to :large_blue_circle: In progress."],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [requirementTask("TODO")] } });
+    recordResponses(t);
+    await send("/slack/interactions", clickAssign("assign:suggest", assignValue("developer", ["UREX"], moveTo, true)));
+    const post = calls.find((call) => call.method === "chat.postMessage").args;
+    assert.equal(post.channel, "CDEV");
+    assert.equal(post.thread_ts, "100.1");
+    assert.equal(post.text, text, moveTo ?? "no move");
+  }
+});
+
+test("assigning from the task's own thread still doesn't ask them again", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus("IN_REVIEW")] } });
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("developer", ["UREX"])));
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+});
+
+test("Track and assign asks the developers in the new task's thread", async (t) => {
+  const calls = mockSlack(t, { ...createdTask, "conversations.replies": { messages: [requirementRoot()] } });
+  await send(
+    "/slack/interactions",
+    interaction(
+      titleOnlySubmission("Export reports", {
+        channel: "CEXTERNAL",
+        threadTs: "200.1",
+        requirement: true,
+        priority: "High",
+        developers: ["UREX", "UBOB"],
+      }),
+    ),
+  );
+  const ask = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").args;
+  assert.equal(ask.channel, "CDEV");
+  assert.equal(ask.text, "<@UREX>, <@UBOB> please start working on this.");
+});
+
+// Someone changing a role's people picker in the task's thread.
+const pick = (role, users) =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UPICKER" },
+    channel: { id: "CDEV" },
+    message: { ts: "100.8", thread_ts: "100.1" },
+    actions: [{ action_id: `assign:pick:${role}`, block_id: role, selected_users: users }],
+  });
+
+test("picking people sets the role and asks the ones newly added", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE,UBOB" })] } });
+  // UBOB is removed, UREX added.
+  await send("/slack/interactions", pick("developer", ["UALICE", "UREX"]));
+  assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.developers, "UALICE,UREX");
+  const ask = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(ask.thread_ts, "100.1");
+  assert.equal(ask.text, "<@UREX> please start working on this.");
+  // The picker stays as it is, to change again later.
+  assert.ok(!calls.some((call) => call.method === "chat.update" && call.args.ts === "100.8"));
+});
+
+test("removing people from a picker tells no one", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ testers: "UTESS" })] } });
+  await send("/slack/interactions", pick("tester", []));
+  assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.testers, "");
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+});
+
+test("reviewers picked are asked to review only once a PR is linked", async (t) => {
+  let calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/interactions", pick("reviewer", ["URIA"]));
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+
+  const root = rootMessage();
+  root.metadata.event_payload.prs = PR;
+  calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/interactions", pick("reviewer", ["URIA"]));
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    `<@URIA>, please review <${PR}|project-helper/42>.`,
+  );
 });

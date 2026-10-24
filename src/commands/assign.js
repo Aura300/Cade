@@ -1,10 +1,22 @@
 import { roleOf } from "../channels.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
-import { NOT_A_TASK, ROLES, STATUSES, loadTask, parseRole, prLink, saveTask, statusName } from "../tasks.js";
+import {
+  NOT_A_TASK,
+  REQUESTS,
+  ROLES,
+  STATUSES,
+  loadTask,
+  parseRole,
+  prLink,
+  saveTask,
+  statusName,
+} from "../tasks.js";
 import { TRACK_ASSIGN_ACTION } from "./track.js";
 
 const SUGGEST_ASSIGN_ACTION = "assign:suggest";
+// One people picker per role, each with its own action_id.
+const PICK_ACTIONS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `assign:pick:${role}`]));
 const SUGGEST_SKIP_ACTION = "assign:suggest-skip";
 
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
@@ -21,15 +33,11 @@ const HANDOFFS = [
   ],
 ];
 
-// What Luma asks of people when they are assigned to each role.
-const REQUESTS = {
-  developer: "please start working on this.",
-  tester: "please test this.",
-};
-
 // `@LUMA assign developer @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way. The reply mentions
-// them with what to do next.
+// them with what to do next. Without anyone mentioned, `@LUMA assign
+// developer` replies with a people picker for that role, and `@LUMA assign`
+// with one for each role.
 //
 // There is nothing to review until a pull request is linked, so reviewers
 // can be added ahead of time: until then the reply names no one, so they are
@@ -47,14 +55,17 @@ export default {
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
+    // No one mentioned: people pickers, for the role named or for every role.
+    if (!command.mentions.length) {
+      const task = await loadTask(env, command.channel, command.threadTs);
+      if (!task) return NOT_A_TASK;
+      return peoplePickers(task, role ? [role] : Object.keys(ROLES));
+    }
     if (!role) {
       const examples = Object.keys(ROLES)
         .map((name) => `\`@LUMA assign ${name} @person\``)
         .join(", ");
       return `Say which role to assign: ${examples}.`;
-    }
-    if (!command.mentions.length) {
-      return `Mention who to assign, for example \`@LUMA assign ${role} @person\`.`;
     }
 
     const task = await loadTask(env, command.channel, command.threadTs);
@@ -71,6 +82,14 @@ export default {
     return `${mentions(command.mentions)} ${REQUESTS[role]}`;
   },
   actions: {
+    ...Object.fromEntries(
+      Object.entries(PICK_ACTIONS).map(([role, actionId]) => [
+        actionId,
+        async (payload, context) => {
+          context.waitUntil(pickPeople(payload, context.env, role));
+        },
+      ]),
+    ),
     [SUGGEST_ASSIGN_ACTION]: async (payload, context) => {
       context.waitUntil(acceptAssignment(payload, context.env));
     },
@@ -79,6 +98,52 @@ export default {
     },
   },
 };
+
+// A people picker per role, showing who is assigned now. Changing one sets
+// that role to the people chosen; the message stays, so assignments can be
+// changed again later.
+function peoplePickers(task, roles) {
+  const prompt = roles.length === 1 ? `Who should be the ${ROLES[roles[0]].toLowerCase()}?` : "Who works on this task?";
+  return {
+    text: prompt,
+    blocks: [
+      { type: "section", text: mrkdwn(prompt) },
+      ...roles.map((role) => ({
+        type: "section",
+        block_id: role,
+        text: mrkdwn(`*${ROLES[role]}*`),
+        accessory: {
+          type: "multi_users_select",
+          action_id: PICK_ACTIONS[role],
+          placeholder: plainText(`Choose ${ROLES[role].toLowerCase()}s`),
+          ...(task.people[role].length && { initial_users: task.people[role] }),
+        },
+      })),
+    ],
+  };
+}
+
+// Sets a role to the people chosen in its picker. Those newly added are
+// asked as `@LUMA assign` would ask them; those removed aren't told, since
+// the task card shows it. The picker is a reply in the task's thread.
+async function pickPeople(payload, env, role) {
+  const channel = payload.channel.id;
+  const ts = payload.message.thread_ts;
+  const chosen = payload.actions[0].selected_users ?? [];
+  const task = await loadTask(env, channel, ts);
+  if (!task) return;
+
+  const added = chosen.filter((id) => !task.people[role].includes(id));
+  task.people[role] = chosen;
+  await saveTask(env, channel, ts, task);
+
+  let text = null;
+  if (added.length && REQUESTS[role]) text = `${mentions(added)} ${REQUESTS[role]}`;
+  if (added.length && role === "reviewer" && task.prs.length) {
+    text = `${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`;
+  }
+  if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+}
 
 // For a message in a task's thread that mentions people with a phrase that
 // hands them the task, asks whoever wrote it, privately, whether to assign
@@ -132,7 +197,10 @@ export async function suggestAssignment(event, env, botUserId) {
       : `${asked} Move the task to ${status}?`;
     button = people.length ? `Assign and move to ${name}` : `Move to ${name}`;
   }
-  const value = JSON.stringify({ channel: target.channel, ts: target.ts, role, people, moveTo });
+  // Asked from the requirement thread, the people may not be in it, so the
+  // task's thread asks them too.
+  const fromRequirement = place === "external";
+  const value = JSON.stringify({ channel: target.channel, ts: target.ts, role, people, moveTo, fromRequirement });
   await callSlack(env, "chat.postEphemeral", {
     channel: event.channel,
     thread_ts: event.thread_ts,
@@ -226,11 +294,12 @@ const ASKED = {
 };
 
 // Assigns the suggested people and moves the task on as the question said,
-// and removes the private question. The person clicking wrote the message
-// that asked them, so the thread only hears about a status change; the task
-// card shows who was assigned.
+// and removes the private question. In the task's thread, the person
+// clicking wrote the message that asked them, so the thread only hears about
+// a status change; the task card shows who was assigned. Asked from the
+// requirement thread, the task's thread asks them as `@LUMA assign` would.
 async function acceptAssignment(payload, env) {
-  const { channel, ts, role, people, moveTo } = JSON.parse(payload.actions[0].value);
+  const { channel, ts, role, people, moveTo, fromRequirement } = JSON.parse(payload.actions[0].value);
   const task = await loadTask(env, channel, ts);
   const added = task ? people.filter((id) => !task.people[role].includes(id)) : [];
   // The task may have moved on since the question was asked.
@@ -243,9 +312,11 @@ async function acceptAssignment(payload, env) {
     // this keeps it right if that ever changes.
     if (moved) await reflectOnRequirement(env, ts, task, { status: clientStatus(task.status) });
 
-    if (moved) {
-      const text = `<@${payload.user.id}> moved the task to ${STATUSES[moveTo]}.`;
-      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+    const lines = [];
+    if (fromRequirement && added.length && REQUESTS[role]) lines.push(`${mentions(added)} ${REQUESTS[role]}`);
+    if (moved) lines.push(`<@${payload.user.id}> moved the task to ${STATUSES[moveTo]}.`);
+    if (lines.length) {
+      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
     }
   }
   // An ephemeral message can only be changed through its response_url.
