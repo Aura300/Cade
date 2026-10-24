@@ -4,6 +4,9 @@ import { NOT_A_TASK, STATUSES, loadTask, parsePullRequest, prLink, saveTask } fr
 
 const REVIEWERS_ACTION = "pr:reviewers";
 const SUGGEST_LINK_ACTION = "pr:suggest-link";
+// Slack needs each button in a row to have its own action_id, so "Just link"
+// has one too; its value says what to do, as for the other button.
+const SUGGEST_LINK_ONLY_ACTION = "pr:suggest-link-only";
 const SUGGEST_SKIP_ACTION = "pr:suggest-skip";
 
 // Slack sends links as <https://…> or <https://…|label>; pasted text may also
@@ -63,6 +66,9 @@ export default {
       context.waitUntil(chooseReviewers(payload, context.env));
     },
     [SUGGEST_LINK_ACTION]: async (payload, context) => {
+      context.waitUntil(acceptSuggestion(payload, context.env));
+    },
+    [SUGGEST_LINK_ONLY_ACTION]: async (payload, context) => {
       context.waitUntil(acceptSuggestion(payload, context.env));
     },
     [SUGGEST_SKIP_ACTION]: async (payload) => {
@@ -127,9 +133,9 @@ export async function suggestPullRequests(event, env, botUserId) {
 
   const question = suggestion(unlinked, urls, reviewers);
   const base = { channel: event.channel, ts: event.thread_ts };
-  const button = (label, fields, style) => ({
+  const button = (label, fields, style, actionId = SUGGEST_LINK_ACTION) => ({
     type: "button",
-    action_id: SUGGEST_LINK_ACTION,
+    action_id: actionId,
     text: plainText(label),
     ...(style && { style }),
     value: JSON.stringify({ ...base, urls: [], reviewers: [], ...fields }),
@@ -140,7 +146,7 @@ export async function suggestPullRequests(event, env, botUserId) {
     : reviewers.length
       ? [
           button(reviewers.length === 1 ? "Link and add reviewer" : "Link and add reviewers", { urls: unlinked, reviewers }, "primary"),
-          button("Just link", { urls: unlinked }),
+          button("Just link", { urls: unlinked }, undefined, SUGGEST_LINK_ONLY_ACTION),
         ]
       : [button(`Link ${prs}`, { urls: unlinked }, "primary")];
 

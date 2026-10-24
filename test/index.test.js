@@ -56,6 +56,16 @@ async function send(path, body, headers = {}, environment = env) {
 const interaction = (payload) =>
   new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
 
+// The action_ids used more than once in a message's blocks.
+function duplicateActionIds(blocks) {
+  const ids = blocks.flatMap((block) => [
+    ...(block.elements ?? []).map((element) => element.action_id),
+    block.accessory?.action_id,
+    block.element?.action_id && `${block.block_id}:${block.element.action_id}`,
+  ]).filter(Boolean);
+  return ids.filter((id, i) => ids.indexOf(id) !== i);
+}
+
 // Replaces fetch with a fake Slack API. `responses` maps a method name to its
 // result; every call is recorded with its decoded arguments. Link preview
 // settings are recorded as `previews` rather than with the arguments. Requests to the
@@ -72,6 +82,15 @@ function mockSlack(t, responses = {}) {
     const args = Object.fromEntries(init.body);
     for (const name of ["view", "blocks", "metadata"]) {
       if (args[name]) args[name] = JSON.parse(args[name]);
+    }
+    // Slack rejects a message whose blocks reuse an action_id, with
+    // invalid_blocks.
+    for (const blocks of [args.blocks, args.view?.blocks]) {
+      const reused = duplicateActionIds(blocks ?? []);
+      if (reused.length) {
+        calls.push({ method, args, headers: init.headers, previews: {} });
+        return Response.json({ ok: false, error: "invalid_blocks", reused });
+      }
     }
     const previews = { links: args.unfurl_links, media: args.unfurl_media };
     delete args.unfurl_links;
@@ -2838,6 +2857,11 @@ test("a pasted PR that mentions people offers them as reviewers too", async (t) 
     `You posted <${PR}|project-helper/42> and mentioned <@UREX>. Link it to this task and add <@UREX> as reviewer?`,
   );
   const [both, link, skip] = question.blocks[1].elements;
+  // Each button has its own action_id, as Slack requires.
+  assert.deepEqual(
+    [both, link, skip].map((button) => button.action_id),
+    ["pr:suggest-link", "pr:suggest-link-only", "pr:suggest-skip"],
+  );
   assert.equal(both.text.text, "Link and add reviewer");
   assert.equal(both.value, suggestionValue({ urls: [PR], reviewers: ["UREX"] }));
   assert.equal(link.text.text, "Just link");
@@ -3035,4 +3059,23 @@ test("Assign after they were assigned anyway, or Not now, just removes the quest
     assert.ok(!calls.some((call) => ["chat.update", "chat.postMessage"].includes(call.method)), actionId);
     assert.equal(sent.length, 1, actionId);
   }
+});
+
+test("Just link works like the other link button", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
+  recordResponses(t);
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UACTOR" },
+      channel: { id: "CDEV" },
+      container: { is_ephemeral: true },
+      response_url: RESPONSE_URL,
+      actions: [{ action_id: "pr:suggest-link-only", value: suggestionValue({ urls: [PR] }) }],
+    }),
+  );
+  const update = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(update.metadata.event_payload.prs, PR);
+  assert.equal(update.metadata.event_payload.reviewers, "URIA");
 });
