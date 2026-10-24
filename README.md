@@ -220,11 +220,11 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   them and the task card shows who it is; only a status change is posted,
   as "@you moved the task to 🔵 In progress". A message with a PR link gets
   the PR question below instead.
-- `@LUMA assign developer` (or `reviewer`, `tester`) without anyone
-  mentioned replies with a people picker for that role, showing who's
-  assigned now. Choosing sets the role to the people chosen and removes
-  the picker: those added are asked as below, and those removed aren't
-  told.
+- `@LUMA assign` without anyone mentioned replies with **Developer**,
+  **Reviewer** and **Tester** buttons (`@LUMA assign developer` shows just
+  that one). A button opens a form with that role's people filled in, to
+  add or remove people. **Save** sets the role and removes the buttons:
+  those added are asked as below, and those removed aren't told.
 - `@LUMA assign developer @person [@person …]`, for exact control, adds
   people as developers;
   `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the
