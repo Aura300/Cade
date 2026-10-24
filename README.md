@@ -35,6 +35,8 @@ Other scripts:
 | `npm run config` | Checks `luma.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
+| `npm run sheet:create` | Creates the Google Sheet and its web app with clasp, and gives the Worker its address and secret |
+| `npm run sheet:update` | Pushes `google-sheet/Code.gs` and redeploys it to the same address |
 
 ## How it works
 
@@ -104,7 +106,8 @@ pins. The Google Sheet, if set, is a record kept alongside (`sheet.js`,
 | `src/intents.js` | Recognising intents in plain messages |
 | `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/sheet.js` | Writing rows to the Google Sheet |
-| `scripts/` | `config`, `dev` and `slack-app`, behind the npm scripts above |
+| `google-sheet/` | The Sheet's Apps Script (`Code.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
+| `scripts/` | `config`, `dev`, `slack-app` and `sheet-app`, behind the npm scripts above |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
 | `test/index.test.js` | The tests |
 

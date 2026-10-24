@@ -31,7 +31,7 @@ values).
 | --- | --- | --- | --- |
 | `channels` | **Required** | One entry per group: `{ "name", "external", "tasks", "incidents" }`. `name` is the group's name (its tab in the Sheet); `external` is the client's channel, `tasks` the dev channel, `incidents` (optional) the incidents channel. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `sheetUrl` | Optional | The Google Sheet's web app URL (`https://script.google.com/…/exec`). Without it, nothing is written to a Sheet. | Deploying the Sheet's Apps Script as a web app: [google-sheet/README.md](google-sheet/README.md) step 4. |
+| `sheetUrl` | Optional | The Google Sheet's web app URL (`https://script.google.com/…/exec`). Without it, nothing is written to a Sheet. | Set for you by `npm run sheet:create` (step 8). |
 
 Start from `luma.config.example.json`. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
@@ -42,13 +42,14 @@ Start from `luma.config.example.json`. `npm run config` checks the file
 | --- | --- | --- | --- |
 | `SLACK_SIGNING_SECRET` | **Required** | Lets Luma check that requests really come from Slack. | Set for you by `npm run slack:create` (step 5). Otherwise: the app's page at <https://api.slack.com/apps> → **Basic Information** → **App Credentials** → **Signing Secret**. |
 | `SLACK_BOT_TOKEN` | **Required** | Lets Luma read and post as the app (`xoxb-…`). | After installing the app (step 6): its page → **OAuth & Permissions** → **Bot User OAuth Token**. `npm run slack:create` asks for it and stores it. |
-| `SHEET_SECRET` | Only with `sheetUrl` | Stops anyone else writing to your Sheet. | A random value you make, such as `openssl rand -hex 32`, set both here and as the `SECRET` script property in Apps Script: [google-sheet/README.md](google-sheet/README.md) step 3. |
+| `SHEET_SECRET` | Only with `sheetUrl` | Stops anyone else writing to your Sheet. | Generated and set for you by `npm run sheet:create` (step 8), which also puts it in `google-sheet/Secret.gs` for the script. |
 
 ### Used once during setup, never stored
 
 | Credential | What it's for | How to get it |
 | --- | --- | --- |
 | Cloudflare login | Deploying and setting secrets with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** in `CLOUDFLARE_API_TOKEN`. |
+| Google login | Creating or updating the Sheet's script (`npm run sheet:create`, `sheet:update`). | `npx clasp login` (step 8). |
 | `SLACK_CONFIG_TOKEN` | Creating or updating the Slack app (`npm run slack:create`, `slack:update`). Set only for that command. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
 
 `npm run dev` (see [README.md](README.md)) uses the same config file and asks for the
@@ -191,23 +192,25 @@ until the file is right.
 ## 8. Optional: the Google Sheet
 
 Slack's free plan keeps 90 days of history; the Sheet keeps a record of every
-task. Follow [google-sheet/README.md](google-sheet/README.md), then add its
-web app URL to `luma.config.json`:
+task. It needs a Google account.
 
-```json
-{
-  "timezone": "Asia/Colombo",
-  "sheetUrl": "https://script.google.com/macros/s/…/exec",
-  "channels": [ … ]
-}
-```
+1. **(person)** `npx clasp login`, and turn on the Apps Script API at
+   <https://script.google.com/home/usersettings> (once per account).
+2. Create it:
 
-and upload it, then store the secret, which stays out of the file:
+   ```sh
+   npm run sheet:create
+   ```
 
-```sh
-npm run config
-npx wrangler secret put SHEET_SECRET
-```
+   **Expect:** a new spreadsheet with its script, deployed as a web app; the
+   Worker gets its address (`sheetUrl`, added to `luma.config.json` and
+   uploaded) and its secret (`SHEET_SECRET`).
+3. **(person)** Open the script link it prints, choose `authorize`, click
+   **Run** and allow it.
+
+**If it fails** with the Apps Script API: turn it on (step 1) and run it
+again. Details, doing it by hand, and troubleshooting are in
+[google-sheet/README.md](google-sheet/README.md).
 
 ## 9. Check it works
 
@@ -232,6 +235,7 @@ npm install
 npm test
 npm run deploy
 SLACK_CONFIG_TOKEN=… npm run slack:update   # only if slack/manifest.json changed
+npm run sheet:update                        # only if google-sheet/Code.gs changed
 ```
 
 If Slack says the app needs reinstalling after an update, reinstall it from

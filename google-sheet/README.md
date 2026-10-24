@@ -23,64 +23,66 @@ column. Times are in `TIMEZONE` (a Worker secret; UTC if unset).
 
 ## Setup
 
-1. **Create the sheet.** In Google Sheets, create a new spreadsheet, for
-   example "LUMA tasks".
-2. **Add the script.** In the sheet, open **Extensions → Apps Script**.
-   Replace the contents of `Code.gs` with the contents of
-   [`Code.gs`](Code.gs) from this folder, then click **Save**. You don't need
-   to create any tabs; the script adds one per channel pair (for example
-   **acme** and **test**) the first time it writes to it.
+From the project directory:
 
-   If you created the script separately at script.google.com instead, it
-   isn't attached to the sheet. Add a script property `SPREADSHEET_ID` (in
-   step 3) set to the sheet's ID, the long part of its URL between `/d/` and
-   `/edit`.
-3. **Choose a secret.** This stops anyone else from writing to the sheet.
-   Generate a random value, for example:
+1. **Log in to Google (person).** `npx clasp login` opens a browser to
+   allow clasp, Google's Apps Script command line, to manage your scripts.
+2. **Turn on the Apps Script API (person, once per Google account)** at
+   <https://script.google.com/home/usersettings>.
+3. **Create the Sheet:**
 
    ```sh
-   openssl rand -hex 32
+   npm run sheet:create                        # titled "Luma tasks"
+   npm run sheet:create -- --title "Acme tasks"
    ```
 
-   In Apps Script, open **Project Settings** (gear icon) → **Script
-   Properties** → **Add script property**. Set **Property** to `SECRET` and
-   **Value** to the generated value, then click **Save script properties**.
-4. **Deploy the web app.** Click **Deploy → New deployment**, click the gear
-   next to **Select type** and choose **Web app**, then set:
-   - **Execute as:** Me
-   - **Who has access:** Anyone
-
-   Click **Deploy**, approve the permissions Google asks for, and copy the
-   **Web app URL** (it ends in `/exec`). "Anyone" lets the Worker reach the
-   URL without a Google login; the secret is what protects it.
-5. **Give the Worker the URL and secret** from the project directory. Add
-   the Web app URL to `luma.config.json` as `"sheetUrl"` and upload it, and
-   store the secret, which stays out of the file:
-
-   ```sh
-   npm run config                        # uploads sheetUrl as SHEET_URL
-   npx wrangler secret put SHEET_SECRET  # the same value as the SECRET property
-   ```
-
-6. **Let LUMA read names.** The Slack app made by `npm run slack:create`
-   already has the `users:read` scope it needs. Without it the
-   sheet shows user IDs such as `U0BUKTZA8VB` instead of names.
+   It creates a spreadsheet with `Code.gs` attached, generates a random
+   secret into `Secret.gs` next to it, deploys the script as a web app
+   (running as you, reachable by anyone: the secret is what protects it),
+   then gives the Worker the web app's address (`sheetUrl` in
+   `luma.config.json`, uploaded with `npm run config`) and the secret
+   (`SHEET_SECRET`). `Secret.gs` stays out of git; it's only in your Apps
+   Script project and this folder. The script's IDs are saved to
+   `.sheet-app.json` in the project root.
+4. **Approve the script (person).** Open the script link it prints, choose
+   the `authorize` function at the top, click **Run**, and allow access to
+   the spreadsheet. Until then, the web app can't write to it.
 
 Then create or update a task in a test channel; its row should appear in
-the **test** tab within a few seconds.
+the group's tab within a few seconds. People's names need the Slack scope
+`users:read`, which the app made by `npm run slack:create` has; without it
+the sheet shows user IDs such as `U0BUKTZA8VB`.
+
+### By hand
+
+In Google Sheets, create a spreadsheet and open **Extensions → Apps
+Script**. Replace `Code.gs` with this folder's [`Code.gs`](Code.gs), and add
+a file `Secret.gs` containing `const SECRET = "…";` with a random value
+(such as from `openssl rand -hex 32`). Under **Project Settings**, tick
+**Show "appsscript.json"** and replace it with this folder's
+[`appsscript.json`](appsscript.json). Run `authorize` once, then **Deploy →
+New deployment → Web app** and copy its URL (ending `/exec`). Put the URL in
+`luma.config.json` as `sheetUrl`, run `npm run config`, and store the same
+secret with `npx wrangler secret put SHEET_SECRET`.
 
 ## Updating the script
 
-If `Code.gs` changes, paste the new version in Apps Script, then use
-**Deploy → Manage deployments → Edit (pencil) → Version: New version →
-Deploy**. This keeps the same URL, so the Worker needs no change.
+If `Code.gs` changes:
+
+```sh
+npm run sheet:update
+```
+
+It pushes the script and redeploys the same deployment, so the address, and
+the Worker, stay as they are. By hand: paste the new `Code.gs`, then
+**Deploy → Manage deployments → Edit → Version: New version → Deploy**.
 
 ## Troubleshooting
 
 The Worker logs `Could not sync task to sheet` with the reason in
-**Workers & Pages → project-helper → Logs**:
+`npx wrangler tail` (or **Workers & Pages → your Worker → Logs**):
 
-- `unauthorized`: `SHEET_SECRET` doesn't match the `SECRET` script property.
+- `unauthorized`: `SHEET_SECRET` doesn't match `SECRET` in `Secret.gs`.
 - `Sheet returned HTTP 401/403`: the web app's access isn't set to
   **Anyone**.
 - No log at all: `SHEET_URL` or `SHEET_SECRET` isn't set, so syncing is off.
@@ -90,7 +92,8 @@ even though the script ran. The Worker counts the request as delivered in
 that case, so a wrong secret may not appear in its logs. If rows don't
 appear, open **Executions** in Apps Script: each update shows as a `doPost`
 **Web App** run, and the sheet only changes when `SECRET` matches
-`SHEET_SECRET`.
+`SHEET_SECRET`. An "authorization required" error there means step 4 is
+still to do.
 
 Tasks that existed before the sheet was set up appear the next time they
 change.

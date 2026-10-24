@@ -3729,3 +3729,30 @@ test("handlers' intents are registered in order: PR links, then reviewer, tester
     ["pr-link", "hand-off:reviewer", "hand-off:tester", "hand-off:developer"],
   );
 });
+
+test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetUrl", async () => {
+  const { deploymentIdIn, secretFile, webAppUrl, withSheetUrl } = await import("../scripts/sheet-app.mjs");
+  const secret = "a".repeat(64);
+  assert.match(secretFile(secret), new RegExp(`^// .*\\nconst SECRET = "${secret}";\\n$`));
+  assert.throws(() => secretFile("short"), /long and hex/);
+
+  // clasp prints the HEAD deployment too; the new one is wanted.
+  const output = "Deployed AKfycbHEAD000000000000000000000 @HEAD\nDeployed AKfycbNEW1111111111111111111111-x @1\n";
+  assert.equal(deploymentIdIn(output), "AKfycbNEW1111111111111111111111-x");
+  assert.equal(deploymentIdIn("nothing here"), undefined);
+  assert.equal(webAppUrl("AKfycbNEW1"), "https://script.google.com/macros/s/AKfycbNEW1/exec");
+
+  // Other settings in luma.config.json are kept.
+  const config = JSON.parse(withSheetUrl('{"timezone":"UTC","channels":[]}', "https://script.google.com/macros/s/X/exec"));
+  assert.deepEqual(config, { timezone: "UTC", channels: [], sheetUrl: "https://script.google.com/macros/s/X/exec" });
+});
+
+test("Code.gs checks requests against SECRET from Secret.gs, not a script property", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const code = await readFile(new URL("../google-sheet/Code.gs", import.meta.url), "utf8");
+  assert.match(code, /body\.secret !== SECRET/);
+  assert.ok(!code.includes("getScriptProperties"), "no script properties left to set by hand");
+  assert.match(code, /function authorize\(\)/);
+  const ignore = await readFile(new URL("../google-sheet/.claspignore", import.meta.url), "utf8");
+  assert.deepEqual(ignore.split("\n").filter((line) => line.startsWith("!")), ["!Code.gs", "!Secret.gs", "!appsscript.json"]);
+});

@@ -1,11 +1,12 @@
-// Receives task updates from the project-helper Worker and keeps one tab per
+// Receives task updates from the Luma Worker and keeps one tab per
 // channel pair up to date, named after the pair (for example "acme" and
 // "test"). Each task has one row, updated on every change; deleted tasks stay,
 // with the status "Deleted". Filter the Status column to see completed tasks.
 //
 // Each request is { secret, project, row }: `project` is the pair's name and
-// `row` is keyed by column header, with "Task ID" identifying the task. Set the
-// SECRET script property to the same value as the Worker's SHEET_SECRET.
+// `row` is keyed by column header, with "Task ID" identifying the task.
+// `secret` must match SECRET, defined in Secret.gs next to this file, which
+// `npm run sheet:create` makes along with the Worker's SHEET_SECRET.
 
 const HEADERS = [
   "Title",
@@ -25,8 +26,9 @@ const HEADERS = [
 
 function doPost(e) {
   const body = JSON.parse(e.postData.contents);
-  const secret = PropertiesService.getScriptProperties().getProperty("SECRET");
-  if (!secret || body.secret !== secret) return reply({ ok: false, error: "unauthorized" });
+  if (typeof SECRET === "undefined" || !SECRET || body.secret !== SECRET) {
+    return reply({ ok: false, error: "unauthorized" });
+  }
   if (!body.project) return reply({ ok: false, error: "missing project" });
 
   // Two updates for the same task can arrive at once.
@@ -65,11 +67,9 @@ function findRow(sheet, id) {
 // Creates the pair's tab with a bold, frozen header row the first time it is
 // used.
 function sheetFor(name) {
-  // A script opened from the sheet (Extensions → Apps Script) writes to that
-  // sheet; a standalone script needs the SPREADSHEET_ID script property.
-  const id = PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID");
-  const book = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
-  if (!book) throw new Error("Set the SPREADSHEET_ID script property");
+  // The script is attached to its spreadsheet (as Extensions → Apps Script
+  // and `npm run sheet:create` both make it).
+  const book = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = book.getSheetByName(name);
   if (!sheet) {
     sheet = book.insertSheet(name);
@@ -84,4 +84,10 @@ function reply(result) {
   return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(
     ContentService.MimeType.JSON,
   );
+}
+
+// Run once in the Apps Script editor after creating the script, to approve
+// its access to this spreadsheet; the web app can't ask for it itself.
+function authorize() {
+  Logger.log(`Authorized for ${SpreadsheetApp.getActiveSpreadsheet().getName()}.`);
 }

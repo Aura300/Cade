@@ -8,3 +8,7 @@ node_modules/
 .dev.vars
 # Your settings, uploaded with npm run config.
 luma.config.json
+# The Sheet: its secret, made by npm run sheet:create, and clasp's project files.
+google-sheet/Secret.gs
+google-sheet/.clasp.json
+.sheet-app.json

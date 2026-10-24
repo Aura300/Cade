@@ -8,9 +8,12 @@
     "test": "node --test",
     "slack:create": "node scripts/slack-app.mjs create",
     "slack:update": "node scripts/slack-app.mjs update",
-    "config": "node scripts/config.mjs"
+    "config": "node scripts/config.mjs",
+    "sheet:create": "node scripts/sheet-app.mjs create",
+    "sheet:update": "node scripts/sheet-app.mjs update"
   },
   "devDependencies": {
+    "@google/clasp": "^3.4.1",
     "wrangler": "^4.152.0"
   }
 }
