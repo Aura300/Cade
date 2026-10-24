@@ -3772,3 +3772,10 @@ test("the setup prompt keeps tokens away from the agent", async () => {
   const guide = await readFile(new URL("../GETTING_STARTED.md", import.meta.url), "utf8");
   assert.match(guide, /npm run setup/);
 });
+
+test("npm run slack:create asks for both tokens hidden", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const script = await readFile(new URL("../scripts/slack-app.mjs", import.meta.url), "utf8");
+  assert.match(script, /askHidden\("Bot token/);
+  assert.doesNotMatch(script, /createInterface/);
+});

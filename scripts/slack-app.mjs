@@ -15,7 +15,6 @@
 // later updates know which app to change.
 import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { askHidden } from "./prompt.mjs";
 
@@ -131,9 +130,7 @@ export async function create(args) {
     console.log("Store it with: npx wrangler secret put SLACK_BOT_TOKEN");
     return;
   }
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  const botToken = (await prompt.question("Paste the bot token here (or press Enter to do it later): ")).trim();
-  prompt.close();
+  const botToken = await askHidden("Bot token (xoxb-…, hidden), or press Enter to do it later: ");
   if (!botToken) {
     console.log("Store it later with: npx wrangler secret put SLACK_BOT_TOKEN");
     return;
