@@ -217,10 +217,20 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   work too); `@LUMA pr remove <link>` unlinks it. Linked PRs show on the
   task message on one line, as *reponame/number* linking to each PR, just
   above who tracked it. GitHub, GitLab and Bitbucket links are recognised.
-  Linking asks the task's reviewers to review it. With no reviewer yet,
+  Linking moves a task that's To do or In progress to 🟣 In review (tasks
+  further on stay where they are), and asks the task's reviewers to review
+  it. With no reviewer yet,
   Luma asks who should review it, with a people picker; choosing people
   assigns them as reviewers and asks them. A reviewer assigned after a PR
   is linked is asked straight away.
+- PR links pasted into a task's thread without `@LUMA pr add` aren't lost:
+  Luma asks whoever posted them, in a message only they can see, whether to
+  link them, with **Link PRs** and **Not now**. **Link PRs** works just like
+  `@LUMA pr add`; either button removes the question. PRs already linked
+  aren't asked about. If the message also mentions people who aren't
+  reviewers yet, Luma offers to add them as reviewers too (**Link and add
+  reviewer** or **Just link**; or just **Add reviewer** when the PRs are
+  already linked), and asks them to review.
 - `@LUMA delete` (or `@LUMA remove`) replies with a prominent **Cancel**
   button and a plain **Delete task** button. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once

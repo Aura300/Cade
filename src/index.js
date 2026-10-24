@@ -1,4 +1,5 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
+import { suggestPullRequests } from "./commands/pr.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
 import { actions, views } from "./commands/registry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
@@ -69,6 +70,9 @@ async function handleEvent(body, request, context) {
         });
       })(),
     );
+  } else {
+    // Pull requests pasted into a task's thread can be linked with a click.
+    context.waitUntil(suggestPullRequests(envelope.event, context.env, botUserId));
   }
   return respond();
 }

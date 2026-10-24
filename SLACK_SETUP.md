@@ -200,9 +200,11 @@ Try these in the test channels first.
 | `@LUMA status client review` in the incident's task thread | The incident thread gets **Approve** / **Not approve**, mentioning the reporter |
 | `@LUMA remove` in a tracked requirement's thread | Luma refuses and links to the task's thread to untrack it first |
 | `@LUMA remove` in an untracked requirement's thread | **Cancel** / **Delete requirement** buttons; confirming deletes the requirement message and Luma's replies |
-| In a task's thread with no reviewer: `@LUMA pr add https://github.com/…/pull/42` | The task message shows **PRs:** *repo/42* above "Tracked by", and Luma asks who should review it |
+| In a task's thread with no reviewer: `@LUMA pr add https://github.com/…/pull/42` | The task message shows **PRs:** *repo/42* above "Tracked by" and 🟣 In review, and Luma asks who should review it |
 | Pick someone in that picker | They become **Reviewer** and are asked to review the PR |
 | `@LUMA assign reviewer @someone` on a task with no PR | They're added without being notified |
+| Paste another PR link in the task's thread, without `@LUMA` | Only you see "Link it to this task?" with **Link PR** / **Not now**; **Link PR** links it like `@LUMA pr add` |
+| Paste a PR link and mention someone who isn't a reviewer | The question offers **Link and add reviewer**; clicking it adds them and asks them to review |
 | `@LUMA pr remove` with the same link | The PRs line goes away |
 | `@LUMA delete` | **Cancel** / **Delete task** buttons; confirming deletes the task and posts "untracked" in the original external thread |
 
