@@ -2449,25 +2449,51 @@ test("/luma tasks outside every group shows each group in turn", async (t) => {
   );
 });
 
-test("/luma tasks with a group's name shows that group from anywhere", async (t) => {
-  const { later } = await tasksCommand(t, "tasks TEST", "CDEV", pinsIn({
-    CDEV: [historyTask("100.1", { developers: "UACTOR" })],
-    CTESTDEV: [historyTask("100.2", { reviewers: "UACTOR" })],
-  }));
-  assert.equal(later.text, "You have 1 open test task.");
-  assert.match(later.blocks[2].text.text, /^\*Reviewing \(1\)\*/);
-});
-
-test("/luma tasks with an unknown group says which ones there are", async (t) => {
-  const { now, calls, later } = await tasksCommand(t, "tasks mars", "CDEV", pinsIn({}));
-  assert.deepEqual(JSON.parse(now), {
-    response_type: "ephemeral",
-    text: '"mars" is not a group. Use `/luma tasks aura300` or `/luma tasks test`.',
+test("/luma tasks with a role shows only that role", async (t) => {
+  const pins = pinsIn({
+    CDEV: [
+      historyTask("100.1", { title: "Build it", developers: "UACTOR" }),
+      historyTask("100.2", { title: "Review it", reviewers: "UACTOR" }),
+      historyTask("100.3", { title: "Both", developers: "UACTOR", testers: "UACTOR" }),
+    ],
   });
-  assert.equal(calls.length, 0);
-  assert.equal(later, undefined);
+  for (const [word, heading, text, lines] of [
+    ["development", "Developing", "You have 2 open aura300 developing tasks.", 2],
+    ["dev", "Developing", "You have 2 open aura300 developing tasks.", 2],
+    ["Review", "Reviewing", "You have 1 open aura300 reviewing task.", 1],
+    ["testing", "Testing", "You have 1 open aura300 testing task.", 1],
+    ["test", "Testing", "You have 1 open aura300 testing task.", 1],
+  ]) {
+    const { later } = await tasksCommand(t, `tasks ${word}`, "CDEV", pins);
+    assert.equal(later.text, text, word);
+    assert.equal(later.blocks[0].text.text, `Your aura300 tasks: ${heading}`, word);
+    // Just the one role's section.
+    assert.equal(later.blocks.length, 2, word);
+    assert.equal(later.blocks[1].text.text.split("\n").length, lines + 1, word);
+    assert.match(later.blocks[1].text.text, new RegExp(`^\\*${heading} \\(${lines}\\)\\*`), word);
+  }
 });
 
+test("/luma tasks with a role and no such tasks says so", async (t) => {
+  const { later } = await tasksCommand(t, "tasks review", "CDEV", pinsIn({
+    CDEV: [historyTask("100.1", { developers: "UACTOR" })],
+  }));
+  assert.equal(later.text, "You have no open aura300 reviewing tasks.");
+  assert.equal(later.blocks[0].text.text, "Your aura300 tasks: Reviewing");
+});
+
+test("/luma tasks with anything else says what it takes", async (t) => {
+  // Group names are not taken any more: the channel picks the group.
+  for (const word of ["mars", "aura300"]) {
+    const { now, calls, later } = await tasksCommand(t, `tasks ${word}`, "CDEV", pinsIn({}));
+    assert.deepEqual(JSON.parse(now), {
+      response_type: "ephemeral",
+      text: `"${word}" is not a role. Use \`/luma tasks\` for all your tasks, or \`/luma tasks development\`, \`review\` or \`testing\` for one role.`,
+    });
+    assert.equal(calls.length, 0);
+    assert.equal(later, undefined);
+  }
+});
 test("someone with no open tasks in the group is told so", async (t) => {
   const { later } = await tasksCommand(t, "tasks", "CDEV", pinsIn({
     CDEV: [historyTask("100.1", { developers: "UBOB" })],

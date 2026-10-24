@@ -146,11 +146,13 @@ you're assigned to, grouped by what you do on each:
   and the soonest due date;
 - each linking to its task's thread, with its status, priority and due date.
 
-In a group's channel (its external, dev or incidents channel) the list
-covers that group: its dev and incidents tasks. In any other channel it
-shows every group, one after the other. `/luma tasks aura300` shows one
-group from anywhere. Slack doesn't allow slash commands in threads, so use
-it from the channel.
+**`/luma tasks development`** (or `dev`), **`/luma tasks review`** and
+**`/luma tasks testing`** (or `test`) show just that role.
+
+The channel decides the group: in a group's channel (its external, dev or
+incidents channel) the list covers that group, its dev and incidents tasks.
+In any other channel it shows every group, one after the other. Slack
+doesn't allow slash commands in threads, so use it from the channel.
 
 The list isn't posted or kept anywhere: ask again for a fresh one. Done
 tasks are left out. Open tasks are the pinned ones (Luma unpins a task when

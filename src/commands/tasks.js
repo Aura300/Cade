@@ -12,70 +12,81 @@ const DOING = {
 // A section's text can hold 3,000 characters, so long lists are cut short.
 const MAX_LISTED = 15;
 
+// The words `/luma tasks <role>` takes for each role.
+const ROLE_WORDS = {
+  developer: ["development", "developing", "developer", "dev"],
+  reviewer: ["review", "reviewing", "reviewer"],
+  tester: ["testing", "test", "tester"],
+};
+
 // `/luma tasks` in any channel lists the open tasks you are assigned to, by
 // group (channel pair): each group's dev channel's and incidents channel's.
 // They are grouped by your role (developing, reviewing, testing), incidents
 // first, then by priority and due date, each linking to its thread. Done
-// tasks are left out.
+// tasks are left out. `/luma tasks development` (or `review`, `testing`)
+// shows only that role.
 //
 // In a group's channel the list shows that group; elsewhere it shows every
-// group. `/luma tasks aura300` shows the group named. The list is shown only
-// to you, in the channel you asked in, and is not kept: ask again for a fresh
-// one. (Slack does not allow slash commands in threads.)
+// group. The list is shown only to you, in the channel you asked in, and is
+// not kept: ask again for a fresh one. (Slack does not allow slash commands
+// in threads.)
 export default {
   name: "tasks",
-  description: "Show your open tasks by role, only to you",
+  description: "Show your open tasks by role, only to you (`development`, `review` or `testing` for one)",
   slashUsage: "/luma tasks",
   async slash(command, context) {
-    const groups = findGroups(context.env, command);
-    if (!groups) return askForGroup(context.env, command.text);
+    const roles = findRoles(command.text);
+    if (!roles) return askForRole(command.text);
+    const own = findPair(context.env, command.channel);
+    const groups = own ? [own] : channelPairs(context.env);
     // Reading the channels can take longer than Slack waits for a slash
     // command's answer, so the list follows through its response_url.
     context.waitUntil(
-      (async () => respondLater(command.responseUrl, await taskLists(context.env, command.user, groups)))(),
+      (async () =>
+        respondLater(command.responseUrl, await taskLists(context.env, command.user, groups, roles)))(),
     );
   },
 };
 
-// The group named in the command, ignoring case; else the channel's group;
-// else every group. Null when the name is not a group.
-function findGroups(env, command) {
-  const name = command.text.trim().split(/\s+/)[0]?.toLowerCase();
-  const pairs = channelPairs(env);
-  if (name) {
-    const named = pairs.find((pair) => pair.name.toLowerCase() === name);
-    return named ? [named] : null;
-  }
-  const own = findPair(env, command.channel);
-  return own ? [own] : pairs;
+// The role named in the command, as a list, or every role when none is
+// named. Null when the word is not a role.
+function findRoles(text) {
+  const word = text.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!word) return Object.keys(ROLES);
+  const role = Object.keys(ROLE_WORDS).find((name) => ROLE_WORDS[name].includes(word));
+  return role ? [role] : null;
 }
 
-function askForGroup(env, text) {
-  const names = channelPairs(env).map((pair) => `\`/luma tasks ${pair.name}\``);
-  return `"${escapeSlack(text.trim())}" is not a group. Use ${names.join(" or ")}.`;
+function askForRole(text) {
+  return `"${escapeSlack(text.trim())}" is not a role. Use \`/luma tasks\` for all your tasks, or \`/luma tasks development\`, \`review\` or \`testing\` for one role.`;
 }
 
 // One list per group, one after the other.
-async function taskLists(env, user, groups) {
+async function taskLists(env, user, groups, roles) {
   // Links are built from the workspace's address.
   const { url } = await callSlack(env, "auth.test", {});
-  const lists = await Promise.all(groups.map((group) => taskList(env, user, group, url)));
+  const lists = await Promise.all(groups.map((group) => taskList(env, user, group, roles, url)));
   return {
     text: lists.map((list) => list.text).join(" "),
     blocks: lists.flatMap((list, i) => (i ? [{ type: "divider" }, ...list.blocks] : list.blocks)),
   };
 }
 
-async function taskList(env, user, group, url) {
-  const tasks = await assignedTasks(env, user, group, url);
-  const header = { type: "header", text: { type: "plain_text", text: `Your ${group.name} tasks` } };
+async function taskList(env, user, group, roles, url) {
+  const tasks = (await assignedTasks(env, user, group, url)).filter((entry) =>
+    entry.roles.some((role) => roles.includes(role)),
+  );
+  // One role's list says which: "Your aura300 tasks: Reviewing".
+  const which = roles.length === 1 ? `: ${DOING[roles[0]]}` : "";
+  const header = { type: "header", text: { type: "plain_text", text: `Your ${group.name} tasks${which}` } };
+  const kind = roles.length === 1 ? `${DOING[roles[0]].toLowerCase()} ` : "";
   if (!tasks.length) {
-    const text = `You have no open ${group.name} tasks.`;
+    const text = `You have no open ${group.name} ${kind}tasks.`;
     return { text, blocks: [header, { type: "section", text: mrkdwn("You have no open tasks.") }] };
   }
 
   const blocks = [header];
-  for (const role of Object.keys(ROLES)) {
+  for (const role of roles) {
     const mine = tasks.filter((entry) => entry.roles.includes(role)).sort(byUrgency);
     const lines = mine.slice(0, MAX_LISTED).map(line);
     if (mine.length > MAX_LISTED) lines.push(`_…and ${mine.length - MAX_LISTED} more._`);
@@ -86,7 +97,7 @@ async function taskList(env, user, group, url) {
       ),
     });
   }
-  const count = `${tasks.length} open ${group.name} ${tasks.length === 1 ? "task" : "tasks"}`;
+  const count = `${tasks.length} open ${group.name} ${kind}${tasks.length === 1 ? "task" : "tasks"}`;
   return { text: `You have ${count}.`, blocks };
 }
 

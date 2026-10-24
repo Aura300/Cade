@@ -133,7 +133,7 @@ of the text to pick the command.
    | Command | `/luma` |
    | Request URL | `https://project-helper.aura300.workers.dev/slack/commands` |
    | Short Description | `Start a requirement, report an incident, track a task or list your tasks` |
-   | Usage Hint | `requirement \| incident \| track \| tasks` |
+   | Usage Hint | `requirement \| incident \| track \| tasks [development\|review\|testing]` |
    | Escape channels, users, and links | Off |
 
 4. Click **Save**. Adding the command also adds the `commands` scope, so
@@ -176,7 +176,7 @@ Try these in the test channels first.
 | `/luma tasks` in `#test-dev` | "Only visible to you": your open test tasks, by Developing, Reviewing and Testing, incidents first |
 | Click a task in that list | Its thread opens |
 | `/luma tasks` in a channel outside the pairs | Your tasks in every group, one after another |
-| `/luma tasks aura300` anywhere | Just the aura300 tasks |
+| `/luma tasks review` in `#test-dev` | Just the test tasks you're reviewing |
 | `/luma requirement` in `#aura300-external` | A form asks for the requirement name, due date and priority; submitting posts it as a new message showing **In discussion** with that priority and due date |
 | `@LUMA priority low` and `@LUMA due 15/12/2026` in that requirement's thread | The requirement message shows the new priority and due date |
 | `@LUMA track` in that requirement's thread | The form asks only for the title, starting with the requirement's name, and shows its priority and due date; submitting changes the requirement message to 🔵 In progress with a link to the task |
