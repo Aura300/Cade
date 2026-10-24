@@ -77,6 +77,18 @@ export function escapeSlack(value) {
     .replace(/>/g, "&gt;");
 }
 
+// Answers a slash command after the fact, through the response_url Slack
+// sent with it, which works for 30 minutes. An ephemeral answer is shown only
+// to the person who sent the command.
+export async function respondLater(responseUrl, body) {
+  const response = await fetch(responseUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ response_type: "ephemeral", ...body }),
+  });
+  if (!response.ok) throw new Error(`Slack response_url returned HTTP ${response.status}`);
+}
+
 // Replies are either plain text or a message body such as { text, blocks }.
 export function messageBody(reply) {
   return typeof reply === "string" ? { text: reply } : reply;

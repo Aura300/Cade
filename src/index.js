@@ -64,9 +64,7 @@ async function handleEvent(body, request, context) {
         if (!reply) return;
         await callSlack(context.env, "chat.postMessage", {
           channel: command.channel,
-          // A direct message is a conversation, so replies only go in a
-          // thread when the message was in one.
-          thread_ts: command.direct ? command.threadTs : command.threadTs ?? command.ts,
+          thread_ts: command.threadTs ?? command.ts,
           ...messageBody(reply),
         });
       })(),

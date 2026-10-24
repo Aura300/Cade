@@ -78,9 +78,11 @@ app already uses for other purposes.
 | `chat:write` | Posting tasks, replies and announcements; editing and deleting Luma's messages |
 | `channels:history` | Reading messages in public channels (`@LUMA` commands, task details) |
 | `groups:history` | The same for private channels |
-| `im:history` | Reading messages people send Luma directly (`tasks`) |
-| `pins:read` | Finding the open tasks for `tasks`, which are the pinned ones, and the task list to replace |
-| `pins:write` | Pinning open tasks and requirements and unpinning done ones, and pinning each person's task list |
+| `pins:read` | Finding the open tasks for `/luma tasks`, which are the pinned ones |
+| `pins:write` | Pinning open tasks and requirements and unpinning done ones |
+
+If you added `im:history` for an earlier version of `tasks`, you can remove
+it.
 | `users:read` | Writing people's names, not user IDs, to the Google Sheet |
 | `commands` | The `/luma` slash command (added automatically in step 5) |
 
@@ -105,16 +107,11 @@ the **Cancel** / **Delete task** buttons all use it.
 3. Under **Subscribe to bot events**, click **Add Bot User Event** and add:
    - `message.channels`
    - `message.groups`
-   - `message.im`
 4. Click **Save Changes**.
 
-This is how Luma receives `@LUMA` commands, and messages sent to it directly.
-
-### Let people message Luma
-
-Open **App Home** in the sidebar. Under **Show Tabs**, turn on **Messages
-Tab** and tick **Allow users to send Slash commands and messages from the
-messages tab**. People can then open Luma in Slack and type `tasks`.
+This is how Luma receives `@LUMA` commands. If you added `message.im`, or
+turned on the App Home **Messages Tab**, for an earlier version of `tasks`,
+you can remove them.
 
 > A Slack app has only one Interactivity Request URL and one Events Request
 > URL. If either was already set to another service, that service will stop
@@ -136,7 +133,7 @@ of the text to pick the command.
    | Command | `/luma` |
    | Request URL | `https://project-helper.aura300.workers.dev/slack/commands` |
    | Short Description | `Start a requirement, report an incident, track a task or list your tasks` |
-   | Usage Hint | `requirement \| incident \| track \| tasks <group>` |
+   | Usage Hint | `requirement \| incident \| track \| tasks` |
    | Escape channels, users, and links | Off |
 
 4. Click **Save**. Adding the command also adds the `commands` scope, so
@@ -176,11 +173,10 @@ Try these in the test channels first.
 | --- | --- |
 | `@LUMA help` in either channel | A reply listing all commands |
 | `/luma help` | The same list, shown only to you |
-| Open Luma's **Messages** tab and type `tasks test` | Your open tasks in the test channels, grouped by Developing, Reviewing and Testing, incidents first, pinned, with when it was updated |
-| `tasks test` again | A new pinned list for test replaces the earlier one |
-| `tasks aura300`, then `tasks test` | Two pinned lists, one per group |
-| `tasks` on its own | Luma asks which group |
-| `/luma tasks test` in any channel | "Sending your test tasks…", then the list arrives in your messages with Luma |
+| `/luma tasks` in `#test-dev` | "Only visible to you": your open test tasks, by Developing, Reviewing and Testing, incidents first |
+| Click a task in that list | Its thread opens |
+| `/luma tasks` in a channel outside the pairs | Your tasks in every group, one after another |
+| `/luma tasks aura300` anywhere | Just the aura300 tasks |
 | `/luma requirement` in `#aura300-external` | A form asks for the requirement name, due date and priority; submitting posts it as a new message showing **In discussion** with that priority and due date |
 | `@LUMA priority low` and `@LUMA due 15/12/2026` in that requirement's thread | The requirement message shows the new priority and due date |
 | `@LUMA track` in that requirement's thread | The form asks only for the title, starting with the requirement's name, and shows its priority and due date; submitting changes the requirement message to 🔵 In progress with a link to the task |

@@ -137,36 +137,25 @@ in the Google Sheet.
 
 ### Your tasks
 
-Message Luma directly (open Luma in Slack, **Messages** tab) and type
-**`tasks aura300`**, naming the group (the channel pair, such as `aura300`
-or `test`). `/luma tasks aura300` and `@LUMA tasks aura300` work anywhere
-too. Without a group, or with one Luma doesn't know, it replies with the
-groups to choose from.
-
-Luma sends your open tasks in that group's dev and incidents channels to
-your messages with it, grouped by what you do on each:
+**`/luma tasks`** in any channel shows you, and only you, the open tasks
+you're assigned to, grouped by what you do on each:
 
 - **Developing**, **Reviewing** and **Testing**, in that order, with
   "Nothing assigned" for a role you have no tasks in;
 - incidents first in each group, labelled **Incident:**, then by priority
   and the soonest due date;
-- each linking to its task thread, with its status, priority and due date;
-- and, at the bottom, when it was last updated.
+- each linking to its task's thread, with its status, priority and due date.
 
-Each group has one list, pinned in your messages with Luma: asking for a
-group's tasks again posts a new list at the end of the conversation, pins
-it, and deletes that group's earlier list, so each pinned list is that
-group's latest. Other groups' lists, your own messages and pins, and Luma's
-other replies stay. Luma finds the lists from the conversation's pins, not
-by reading its messages.
+In a group's channel (its external, dev or incidents channel) the list
+covers that group: its dev and incidents tasks. In any other channel it
+shows every group, one after the other. `/luma tasks aura300` shows one
+group from anywhere. Slack doesn't allow slash commands in threads, so use
+it from the channel.
 
-Done tasks are left out. Open tasks are the pinned ones (Luma unpins a task
-when it is Done), so Luma reads only the pins of the group's dev and
-incidents channels. A task someone unpins by hand won't appear until it is
-pinned again.
-
-In a direct message with Luma there's no need to mention it, so
-`tasks aura300` on its own works.
+The list isn't posted or kept anywhere: ask again for a fresh one. Done
+tasks are left out. Open tasks are the pinned ones (Luma unpins a task when
+it is Done), so Luma reads only the pins of the dev and incidents channels.
+A task someone unpins by hand won't appear until it is pinned again.
 
 ### Incidents
 
