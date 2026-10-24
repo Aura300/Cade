@@ -725,7 +725,7 @@ test("picking a status from the menu updates the task and the menu", async (t) =
 test("@LUMA delete and @LUMA remove ask for confirmation", async (t) => {
   for (const name of ["delete", "remove"]) {
     const calls = mockSlack(t, {
-      "conversations.replies": { messages: [rootMessage()] },
+      "conversations.replies": { messages: [ownTask()] },
     });
     await send("/slack/events", threadEvent(`<@UBOT> ${name}`));
 
@@ -781,7 +781,7 @@ test("confirming deletion removes Luma's replies and then the task", async (t) =
   const calls = mockSlack(t, {
     "conversations.replies": (args) =>
       args.limit === "1"
-        ? { messages: [rootMessage()] }
+        ? { messages: [ownTask()] }
         : {
             messages: [
               { ts: "100.1", bot_id: "BLUMA" },
@@ -1460,29 +1460,6 @@ test("@LUMA priority in an external thread Luma did not start says so", async (t
   assert.match(calls[1].args.text, /^This thread is not a requirement\. Use `\/luma requirement`/);
 });
 
-test("deleting a task returns its requirement to discussion", async (t) => {
-  const calls = mockSlack(t, {
-    "conversations.replies": (args) =>
-      args.ts === "200.1"
-        ? { messages: [requirementRoot({ task: true })] }
-        : args.limit === "1"
-          ? { messages: [requirementTask()] }
-          : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
-  });
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      user: { id: "UACTOR" },
-      actions: [{ action_id: "delete:confirm", value: deleteRequest }],
-    }),
-  );
-  const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
-  assert.equal(update.args.metadata.event_payload.status, "DISCUSSION");
-  assert.equal(update.args.metadata.event_payload.task_ts, "");
-  assert.match(update.args.blocks[2].elements[0].text, /\nNot tracked yet\./);
-});
-
 test("parseDate accepts DD/MM/YYYY and YYYY-MM-DD real dates only", () => {
   assert.equal(parseDate("1/2/2027"), "01/02/2027");
   assert.equal(parseDate("01-02-2027"), "01/02/2027");
@@ -1713,28 +1690,6 @@ test("picking from the menu or date picker changes what the picker's thread is a
   }
 });
 
-test("deleting a task keeps the requirement's priority and due date", async (t) => {
-  const calls = mockSlack(t, {
-    "conversations.replies": (args) =>
-      args.ts === "200.1"
-        ? { messages: [requirementRoot({ task: true })] }
-        : args.limit === "1"
-          ? { messages: [requirementTask()] }
-          : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
-  });
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      user: { id: "UACTOR" },
-      actions: [{ action_id: "delete:confirm", value: deleteRequest }],
-    }),
-  );
-  const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
-  assert.equal(update.args.metadata.event_payload.priority, "High");
-  assert.equal(update.args.metadata.event_payload.due_date, "31/10/2026");
-});
-
 // A client clicking Approve or Not approve in the requirement thread.
 const reviewClick = (actionId) =>
   interaction({
@@ -1886,16 +1841,21 @@ test("@LUMA remove in a requirement thread asks for confirmation", async (t) => 
   assert.equal(cancel.action_id, "delete:cancel");
 });
 
-test("a tracked requirement cannot be removed", async (t) => {
+test("removing a tracked requirement asks to delete its task too", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot({ task: true })] } });
   await send(
     "/slack/events",
-    threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+    threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", user: "UCLIENT", ts: "200.5", thread_ts: "200.1" }),
   );
-  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
+  const prompt = calls.at(-1).args;
   assert.equal(
-    calls[1].args.text,
-    "This requirement is tracked as <https://slack.example/p100|Fix login>. Untrack it first: send `@LUMA remove` in <https://slack.example/p100|the task's thread>.",
+    prompt.text,
+    "<@UCLIENT>, delete the requirement *Export reports* and its task <https://slack.example/p100|Fix login> in <#CDEV>? This cannot be undone.",
+  );
+  const [, confirm] = prompt.blocks[1].elements;
+  assert.equal(
+    confirm.confirm.text.text,
+    '"Export reports", its task "Fix login", and Luma\'s replies in both threads will be deleted.',
   );
 });
 
@@ -1935,21 +1895,6 @@ test("confirming a requirement's deletion removes Luma's replies and then the re
   // Requirements are not in the sheet, there is no other thread to tell, and
   // whoever confirmed sees it go.
   assert.ok(!calls.some((call) => ["sheet", "chat.postMessage", "chat.postEphemeral"].includes(call.method)));
-});
-
-test("a requirement tracked after the delete buttons were posted is kept, and the requester told why", async (t) => {
-  const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot({ task: true })] } });
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      user: { id: "UCLIENT" },
-      actions: [{ action_id: "delete:confirm", value: requirementDelete }],
-    }),
-  );
-  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postEphemeral"]);
-  assert.equal(calls[1].args.user, "UCLIENT");
-  assert.match(calls[1].args.text, /Untrack it first: send `@LUMA remove`/);
 });
 
 // The aura300 pair with an incidents channel; the test pair has none.
@@ -2200,27 +2145,6 @@ test("other status changes leave the requirement's pin alone", async (t) => {
   const calls = mockSlack(t, threads(requirementRoot({ task: true }), requirementTask("TODO")));
   await send("/slack/events", threadEvent("<@UBOT> status in review"));
   assert.ok(!calls.some((call) => call.method.startsWith("pins.")));
-});
-
-test("deleting a requirement's task pins the requirement again", async (t) => {
-  const calls = mockSlack(t, {
-    "conversations.replies": (args) =>
-      args.ts === "200.1"
-        ? { messages: [requirementRoot({ task: true, status: "DONE" })] }
-        : args.limit === "1"
-          ? { messages: [requirementTask("DONE")] }
-          : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
-  });
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      user: { id: "UACTOR" },
-      actions: [{ action_id: "delete:confirm", value: deleteRequest }],
-    }),
-  );
-  const pin = calls.find((call) => call.method === "pins.add");
-  assert.deepEqual(pin.args, { channel: "CEXTERNAL", timestamp: "200.1" });
 });
 
 test("tasks with no requirement pin only themselves", async (t) => {
@@ -3368,4 +3292,45 @@ test("Client review on a task with no PRs shows no PRs line", async (t) => {
   await send("/slack/events", threadEvent("<@UBOT> status client review"));
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   assert.ok(!review.blocks[0].text.text.includes("*PRs:*"));
+});
+
+test("confirming removes the task first, then the requirement", async (t) => {
+  const calls = mockSlack(t, {
+    "conversations.replies": (args) => {
+      if (args.limit === "1") return { messages: [args.ts === "200.1" ? requirementRoot({ task: true }) : requirementTask()] };
+      return { messages: [{ ts: args.ts, bot_id: "BLUMA" }, { ts: `${args.ts.split(".")[0]}.3`, bot_id: "BLUMA" }] };
+    },
+  });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLIENT" },
+      actions: [{ action_id: "delete:confirm", value: requirementDelete }],
+    }),
+  );
+  const deletes = calls.filter((call) => call.method === "chat.delete").map((call) => [call.args.channel, call.args.ts]);
+  assert.deepEqual(deletes, [
+    ["CDEV", "100.3"],
+    ["CDEV", "100.1"],
+    ["CEXTERNAL", "200.3"],
+    ["CEXTERNAL", "200.1"],
+  ]);
+  // The requirement isn't put back to In discussion or pinned again, since
+  // it's going too, and nothing is posted anywhere.
+  assert.ok(!calls.some((call) => call.method === "chat.update" || call.method === "pins.add"));
+  assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral"].includes(call.method)));
+});
+
+test("a task from a requirement or incident can't be removed from its own thread", async (t) => {
+  for (const [root, environment, channel, text] of [
+    [requirementTask(), env, "CDEV", "This task belongs to a requirement. Remove it from <https://slack.example/source|its thread> with `@LUMA remove`, which removes both."],
+    [incidentTask(), incidentEnv, "CINC", "This task belongs to an incident. Remove it from <https://slack.example/source|its thread> with `@LUMA remove`, which removes both."],
+  ]) {
+    if (channel === "CINC") root.metadata.event_payload.source_incident = "true";
+    const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+    await send("/slack/events", threadEvent("<@UBOT> remove", { channel }), {}, environment);
+    assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"], channel);
+    assert.equal(calls[1].args.text, text);
+  }
 });

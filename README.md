@@ -120,8 +120,9 @@ changes what follows who knows it:
 When it's agreed, send **`@LUMA track`** in the requirement's thread. The
 form asks only for the task title, starting with the requirement's name, and
 shows the priority and due date the task will take from the requirement.
-The requirement then links to the task. Deleting the task puts the
-requirement back to In discussion, keeping its priority and due date.
+The requirement then links to the task. The two stay together: removing
+the requirement removes its task (see below), and the task can't be
+removed from the dev channel on its own.
 
 Asking a developer to start in the requirement thread works too: write
 "@rex please start working on this" there, and Luma asks you, in a message
@@ -138,9 +139,10 @@ for in the task's thread.
 
 To remove a requirement, send **`@LUMA remove`** (or `@LUMA delete`) in its
 thread. It asks for confirmation the same way as deleting a task, then
-deletes the requirement message and Luma's replies. A tracked requirement
-can't be removed: untrack it first with `@LUMA remove` in the task's thread
-in `#aura300-dev`, and Luma's reply links there.
+deletes the requirement message and Luma's replies. If it has been
+tracked, its task goes too: the question names the task, and confirming
+deletes the task in `#aura300-dev` first (like `@LUMA delete` there), then
+the requirement.
 
 Assign and unassign are for tasks only, and only tracked tasks are recorded
 in the Google Sheet.
@@ -233,8 +235,7 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   unpins the task; moving it from `DONE` to any other status pins it again,
   so the channel's pins list shows the open tasks. A requirement or
   incident is pinned in the external channel the same way: from when it is
-  posted until its task is Done, and again if the task is reopened or
-  deleted. When a task reaches Client review or Done, Luma posts "@you
+  posted until its task is Done, and again if the task is reopened. When a task reaches Client review or Done, Luma posts "@you
   marked a task as Done: *title*" in the requirement thread straight away,
   linking back to the task (Client review comes with the client's Approve
   buttons). When the client approves, nothing more is posted there.
@@ -267,14 +268,17 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   Luma posts only what's new: the task moving to 🟣 In review, a review
   request for reviewers your message didn't mention, or, with no reviewer
   at all, who should review.
-- `@LUMA delete` (or `@LUMA remove`) replies with a prominent **Cancel**
+- `@LUMA delete` (or `@LUMA remove`) is for the team's own tasks, from
+  `/luma track`. A task tracked from a requirement or incident is removed
+  from its requirement or incident thread instead, which removes both;
+  here Luma replies with a link to that thread. For the team's own task,
+  it replies with a prominent **Cancel**
   button and a plain **Delete task** button. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once
   confirmed, Luma deletes the task message and all of its own replies in the
   thread, which also removes the pin. Slack only lets a bot delete its own
   messages, so people's replies stay in the thread under a "This message was
-  deleted" placeholder. The requirement it was tracked from goes back to
-  "Not tracked yet"; nothing is posted in its thread.
+  deleted" placeholder.
 
 Each command updates the root message and Luma confirms in the thread. The
 mention works whatever the bot is named.

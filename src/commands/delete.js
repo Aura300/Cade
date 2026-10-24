@@ -1,7 +1,7 @@
 import { roleOf } from "../channels.js";
-import { NOT_A_REQUIREMENT, loadRequirement, updateRequirement } from "../requirements.js";
+import { NOT_A_REQUIREMENT, loadRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, loadTask, setPinned, syncTask } from "../tasks.js";
+import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
 
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
@@ -19,11 +19,11 @@ const KINDS = {
 // cancel it. Confirming deletes the root message and Luma's replies in its
 // thread.
 //
-// Whoever confirmed sees the messages go, so nothing more is said. A
-// requirement the deleted task was tracked from goes back to In discussion,
-// keeping the client's priority and due date. A requirement with a tracked task
-// cannot be deleted, since the task is the team's: it must be untracked
-// first, with `@LUMA remove` in the task's thread in the dev channel.
+// Whoever confirmed sees the messages go, so nothing more is said. A task
+// tracked from a requirement or incident is removed with it, from its
+// thread, so the two never part: removing a requirement that has been
+// tracked deletes its task as well, which the question says, and the task
+// can't be removed from the dev channel on its own.
 //
 // A bot token can only delete the bot's own messages, so people's replies
 // stay behind under Slack's "This message was deleted" placeholder.
@@ -40,9 +40,15 @@ export default {
     const { noun, load, missing } = KINDS[kind];
     const item = await load(env, command.channel, command.threadTs);
     if (!item) return missing;
-    if (item.task) return stillTracked(item);
+    if (kind === "task" && item.source) return belongsToRequirement(item);
 
-    const question = `<@${command.user}>, delete the ${noun} *${escapeSlack(item.title)}*? This cannot be undone.`;
+    // A tracked requirement takes its task with it.
+    const task = item.task;
+    const also = task ? ` and its task <${task.link}|${escapeSlack(task.title)}> in <#${task.channel}>` : "";
+    const question = `<@${command.user}>, delete the ${noun} *${escapeSlack(item.title)}*${also}? This cannot be undone.`;
+    const deleted = task
+      ? `"${item.title}", its task "${task.title}", and Luma's replies in both threads will be deleted.`
+      : `"${item.title}" and Luma's replies in its thread will be deleted.`;
     const value = JSON.stringify({
       kind,
       channel: command.channel,
@@ -72,9 +78,7 @@ export default {
               value,
               confirm: {
                 title: plainText(`Delete ${noun}?`),
-                text: plainText(
-                  `"${item.title}" and Luma's replies in its thread will be deleted.`.slice(0, 300),
-                ),
+                text: plainText(deleted.slice(0, 300)),
                 confirm: plainText("Delete"),
                 deny: plainText(`Keep ${noun}`),
                 style: "danger",
@@ -129,32 +133,14 @@ async function deleteTask(env, channel, ts, user) {
   // Deleting a message also removes its pin.
   await callSlack(env, "chat.delete", { channel, ts });
   console.log("Task deleted", { ts, user });
-
-  // The requirement's message shows it's no longer tracked, so nothing is
-  // posted in its thread.
-  if (task.source) {
-    await updateRequirement(env, task.source, (requirement) =>
-      requirement.task?.ts === ts
-        ? { ...requirement, status: "DISCUSSION", task: undefined }
-        : null,
-    );
-    // Back in discussion, so pinned again even if the task was Done.
-    await setPinned(env, task.source.channel, task.source.threadTs, true);
-  }
 }
 
 async function deleteRequirement(env, channel, ts, user) {
   const requirement = await loadRequirement(env, channel, ts);
   if (!requirement) return;
+  // Its task first, even if it was tracked after the question was asked.
   if (requirement.task) {
-    // It was tracked after the buttons were posted.
-    await callSlack(env, "chat.postEphemeral", {
-      channel,
-      thread_ts: ts,
-      user,
-      text: stillTracked(requirement),
-    });
-    return;
+    await deleteTask(env, requirement.task.channel, requirement.task.ts, user);
   }
 
   await deleteReplies(env, channel, ts);
@@ -162,9 +148,10 @@ async function deleteRequirement(env, channel, ts, user) {
   console.log("Requirement deleted", { ts, user });
 }
 
-function stillTracked(requirement) {
-  const { link, title } = requirement.task;
-  return `This requirement is tracked as <${link}|${escapeSlack(title)}>. Untrack it first: send \`@LUMA remove\` in <${link}|the task's thread>.`;
+function belongsToRequirement(task) {
+  const noun = task.source.incident ? "an incident" : "a requirement";
+  const thread = task.source.link ? `<${task.source.link}|its thread>` : "its thread";
+  return `This task belongs to ${noun}. Remove it from ${thread} with \`@LUMA remove\`, which removes both.`;
 }
 
 // Deletes Luma's replies in a thread. They go first, so the root is not left
