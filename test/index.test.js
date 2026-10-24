@@ -13,6 +13,7 @@ import {
   putTask,
 } from "../src/db.js";
 import { formatDueDate } from "../src/tasks.js";
+import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
 
 const SIGNING_SECRET = "test-signing-secret";
@@ -2167,6 +2168,10 @@ const historyTask = (ts, { developers = [], reviewers = [], testers = [], ...fie
   return record;
 };
 
+// What `/cade tasks` says it takes, after saying what was wrong.
+const TASKS_USAGE =
+  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+
 // Slash command answers sent later go to RESPONSE_URL.
 const RESPONSE_URL = "https://hooks.slack.com/commands/T1/1/abc";
 
@@ -2174,7 +2179,7 @@ const RESPONSE_URL = "https://hooks.slack.com/commands/T1/1/abc";
 // task root messages) in the database, and returns its immediate answer, the
 // calls made, and the answer sent later through the response_url.
 async function tasksCommand(t, text, channel, stored = {}, environment = env) {
-  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+  const calls = mockSlack(t, { ...slackUsers, "auth.test": { url: "https://acme.slack.com/" } });
   for (const [where, messages] of Object.entries(stored)) {
     for (const record of messages) await putTask(env, where, record.ts, record.task);
   }
@@ -2307,7 +2312,7 @@ test("/cade tasks with anything else says what it takes", async (t) => {
     const { now, calls, later } = await tasksCommand(t, `tasks ${word}`, "CDEV", {});
     assert.deepEqual(JSON.parse(now), {
       response_type: "ephemeral",
-      text: `"${word}" is not a role. Use \`/cade tasks\` for all your tasks, or \`/cade tasks development\`, \`review\` or \`testing\` for one role.`,
+      text: `"${word}" is not a role. ${TASKS_USAGE}`,
     });
     assert.equal(calls.length, 0);
     assert.equal(later, undefined);
@@ -3983,4 +3988,149 @@ test("an incident Slack refused is tracked as a task once the cron posts it", as
   assert.equal(task.source.threadTs, "200.1");
   assert.equal(task.source.incident, true);
   assert.equal((await savedRequirement()).task.channel, "CINC");
+});
+
+// /cade tasks options: a person, everyone, status and due date filters.
+
+// A date `days` from today (UTC, as the test env has no TIMEZONE), as
+// DD/MM/YYYY.
+const dueIn = (days) => {
+  const date = new Date(Date.parse(`${todayIn(env)}T00:00:00Z`) + days * 86400000);
+  return date.toISOString().slice(0, 10).split("-").reverse().join("/");
+};
+
+test("/cade tasks @person shows their tasks, headed with their name", async (t) => {
+  const { calls, later } = await tasksCommand(t, "tasks <@UBOB|bob>", "CDEV", {
+    CDEV: [
+      historyTask("100.1", { title: "Bob's", developers: ["UBOB"] }),
+      historyTask("100.2", { title: "Mine", developers: ["UACTOR"] }),
+      historyTask("100.3", { title: "Both", reviewers: ["UBOB", "UACTOR"] }),
+    ],
+  });
+  assert.deepEqual(calls.map((call) => call.method).sort(), ["auth.test", "users.info"]);
+  assert.equal(later.text, "<@UBOB> has 2 open aura300 tasks.");
+  assert.equal(later.blocks[0].text.text, "Bob's aura300 tasks");
+  assert.match(later.blocks[1].text.text, /^\*Developing \(1\)\*\n• <[^|]+\|Bob's>/);
+  assert.match(later.blocks[2].text.text, /^\*Reviewing \(1\)\*\n• <[^|]+\|Both>/);
+
+  // Naming yourself is the same as naming no one.
+  const mine = await tasksCommand(t, "tasks <@UACTOR>", "CDEV", { CDEV: [historyTask("100.1", { developers: ["UACTOR"] })] });
+  assert.equal(mine.later.text, "You have 1 open aura300 task.");
+
+  const none = await tasksCommand(t, "tasks review <@UBOB>", "CDEV", { CDEV: [historyTask("100.1", { developers: ["UBOB"] })] });
+  assert.equal(none.later.text, "<@UBOB> has no open aura300 reviewing tasks.");
+  assert.equal(none.later.blocks[1].text.text, "<@UBOB> has no open tasks.");
+});
+
+test("/cade tasks -all shows everyone's tasks by status, with who works on them", async (t) => {
+  const { later } = await tasksCommand(t, "tasks -all", "CDEV", {
+    CDEV: [
+      historyTask("100.1", { title: "Unassigned" }),
+      historyTask("100.2", { title: "Shared", developers: ["UALICE"], testers: ["UBOB", "UALICE"], status: "IN_TESTING" }),
+      historyTask("100.3", { title: "Finished", developers: ["UALICE"], status: "DONE" }),
+    ],
+  });
+  assert.equal(later.text, "There are 2 open aura300 tasks.");
+  // Links left out, as other tests check them.
+  assert.deepEqual(
+    later.blocks.map((block) => block.text.text.replace(/<https:[^|]+\|/g, "<")),
+    [
+      "All aura300 tasks",
+      "*To do (1)*\n• <Unassigned>  ·  :white_circle: To do  ·  :large_orange_circle: High  ·  Due 31/10/2026  ·  _Unassigned_",
+      "*In testing (1)*\n• <Shared>  ·  :large_orange_circle: In testing  ·  :large_orange_circle: High  ·  Due 31/10/2026  ·  <@UALICE>, <@UBOB>",
+    ],
+  );
+});
+
+test("/cade tasks -status shows only those statuses, Done included when named", async (t) => {
+  const stored = {
+    CDEV: [
+      historyTask("100.1", { title: "Started", developers: ["UACTOR"], status: "IN_PROGRESS" }),
+      historyTask("100.2", { title: "Waiting", developers: ["UACTOR"] }),
+      historyTask("100.3", { title: "Finished", developers: ["UACTOR"], status: "DONE" }),
+    ],
+  };
+  const progress = await tasksCommand(t, "tasks -status=in-progress", "CDEV", stored);
+  assert.equal(progress.later.text, "You have 1 aura300 task: In progress.");
+  // The filter is shown under the header.
+  assert.equal(progress.later.blocks[1].elements[0].text, "In progress");
+  assert.match(progress.later.blocks[2].text.text, /\|Started>/);
+
+  const several = await tasksCommand(t, "tasks -status=done,to-do", "CDEV", stored);
+  assert.equal(several.later.text, "You have 2 aura300 tasks: Done, To do.");
+
+  const none = await tasksCommand(t, "tasks -status=client-review", "CDEV", stored);
+  assert.equal(none.later.text, "You have no aura300 tasks: Client review.");
+  assert.equal(none.later.blocks[2].text.text, "You have no matching tasks.");
+});
+
+test("/cade tasks -due compares due dates with today, tomorrow or a date", async (t) => {
+  const stored = {
+    CDEV: [
+      historyTask("100.1", { title: "Late", developers: ["UACTOR"], dueDate: dueIn(-1) }),
+      historyTask("100.2", { title: "Today", developers: ["UACTOR"], dueDate: dueIn(0) }),
+      historyTask("100.3", { title: "Tomorrow", developers: ["UACTOR"], dueDate: dueIn(1) }),
+      historyTask("100.4", { title: "Someday", developers: ["UACTOR"], dueDate: "" }),
+    ],
+    // Immediate counts as today.
+    CINC: [historyTask("100.5", { title: "Down", developers: ["UACTOR"], dueDate: "Immediate" })],
+  };
+  const titles = (later) =>
+    later.blocks.filter((block) => block.type === "section").flatMap((block) =>
+      [...block.text.text.matchAll(/\|([^>]+)>/g)].map(([, title]) => title),
+    ).sort();
+  for (const [filter, expected, label] of [
+    ["-due<@today", ["Late"], "Due before today"],
+    ["-due=@today", ["Down", "Today"], "Due today"],
+    ["-due<=@today", ["Down", "Late", "Today"], "Due by today"],
+    ["-due=@tomorrow", ["Tomorrow"], "Due tomorrow"],
+    ["-due>@today", ["Tomorrow"], "Due after today"],
+    [`-due>=${dueIn(1)}`, ["Tomorrow"], `Due from ${dueIn(1)}`],
+    [`-due=${dueIn(-1).split("/").reverse().join("-")}`, ["Late"], `Due ${dueIn(-1)}`],
+    ["-due=none", ["Someday"], "No due date"],
+  ]) {
+    const { later } = await tasksCommand(t, `tasks ${filter}`, "CDEV", stored, incidentEnv);
+    assert.deepEqual(titles(later), expected, filter);
+    assert.equal(later.blocks[1].elements[0].text, label, filter);
+  }
+});
+
+test("/cade tasks options combine, in any order", async (t) => {
+  const { later } = await tasksCommand(t, "tasks -due&lt;@today <@UBOB> dev -status=in-progress", "CDEV", {
+    CDEV: [
+      historyTask("100.1", { title: "Match", developers: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(-2) }),
+      historyTask("100.2", { title: "Not late", developers: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(2) }),
+      historyTask("100.3", { title: "Reviewing", reviewers: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(-2) }),
+      historyTask("100.4", { title: "To do", developers: ["UBOB"], dueDate: dueIn(-2) }),
+    ],
+  });
+  assert.equal(later.text, "<@UBOB> has 1 aura300 developing task: In progress  ·  Due before today.");
+  assert.equal(later.blocks[0].text.text, "Bob's aura300 tasks: Developing");
+  assert.match(later.blocks[2].text.text, /\|Match>/);
+});
+
+test("/cade tasks says what's wrong with options it can't use", () => {
+  for (const [text, start] of [
+    ["-status=blocked", '"-status=blocked" isn\'t a status filter.'],
+    ["-status", '"-status" isn\'t a status filter.'],
+    ["-due=soon", '"-due=soon" isn\'t a due date filter.'],
+    ["-due=31/02/2027", '"-due=31/02/2027" isn\'t a due date filter.'],
+    ["-due<none", '"-due&lt;none" isn\'t a due date filter.'],
+    ["-mine", '"-mine" isn\'t an option.'],
+    ["-all dev", "`-all` shows everyone's tasks, so it can't take a role or a person."],
+    ["-all <@UBOB>", "`-all` shows everyone's tasks, so it can't take a role or a person."],
+    ["<@UBOB> <@UALICE>", "Name one person at a time."],
+    ["dev review", "Name one role at a time."],
+  ]) {
+    assert.equal(parseTaskFilters(text).error, `${start} ${TASKS_USAGE}`, text);
+  }
+  // A dash Slack made of a typed --, and upper case, are fine.
+  assert.equal(parseTaskFilters("—ALL").all, true);
+  assert.deepEqual(parseTaskFilters("--status=In-Progress").statuses, ["IN_PROGRESS"]);
+});
+
+test("today is in the configured time zone", () => {
+  const lateEvening = new Date("2026-10-24T20:00:00Z");
+  assert.equal(todayIn({}, lateEvening), "2026-10-24");
+  assert.equal(todayIn({ TIMEZONE: "Asia/Colombo" }, lateEvening), "2026-10-25");
 });

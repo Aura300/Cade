@@ -396,6 +396,21 @@ you're assigned to, grouped by what you do on each:
 **`/cade tasks development`** (or `dev`), **`/cade tasks review`** and
 **`/cade tasks testing`** (or `test`) show just that role.
 
+These can be added, in any order and together:
+
+| Option | Shows |
+| --- | --- |
+| `@person` | Their tasks instead of yours, the same way. |
+| `-all` | Everyone's tasks, unassigned ones too, grouped by status, each with who works on it. Not with a role or a person. |
+| `-status=in-progress` | Only that status: `todo`, `in-progress`, `in-review`, `in-testing`, `client-review` or `done`. Several with commas, as `-status=in-review,in-testing`. Done tasks show only when asked for. |
+| `-due=@today` | Due today. Instead of `=`: `<` before, `<=` by, `>` after, `>=` from. Instead of `@today`: `@tomorrow`, or a date as `31/10/2026` or `2026-10-31`. |
+| `-due=none` | No due date. |
+
+For example, `/cade tasks -due<@today` shows your overdue tasks, and
+`/cade tasks @person -status=in-review` what they're reviewing. Incidents,
+due Immediate, count as due today, and "today" is in your `timezone`
+setting. A list with filters says which under its heading.
+
 The channel decides the group: in a group's channel (its external, dev or
 incidents channel) the list covers that group, its dev and incidents tasks.
 In any other channel it shows every group, one after the other. Slack

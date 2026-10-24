@@ -48,15 +48,16 @@ export async function markTaskDeleted(env, channel, ts) {
     .run();
 }
 
-// The posted tasks in `channel` that are not Done, as { ts, task }, oldest
-// first.
-export async function openTasks(env, channel) {
+// The posted tasks in `channel` with one of `statuses`, as { ts, task },
+// oldest first.
+export async function tasksWithStatus(env, channel, statuses) {
   const { results } = await env.DB.prepare(
     `SELECT * FROM tasks
-     WHERE channel = ? AND ts IS NOT NULL AND status != 'DONE' AND deleted_at IS NULL
+     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL
+       AND status IN (${statuses.map(() => "?").join(", ")})
      ORDER BY ts`,
   )
-    .bind(channel)
+    .bind(channel, ...statuses)
     .all();
   return results.map((row) => ({ ts: row.ts, task: taskFromRow(row) }));
 }

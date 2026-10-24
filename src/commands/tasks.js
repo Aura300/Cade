@@ -1,7 +1,8 @@
 import { channelPairs, findPair } from "../channels.js";
-import { callSlack, escapeSlack, mrkdwn, respondLater } from "../slack.js";
-import { openTasks } from "../db.js";
-import { PRIORITIES, ROLES, STATUSES } from "../tasks.js";
+import { tasksWithStatus } from "../db.js";
+import { userNames } from "../sheet.js";
+import { callSlack, escapeSlack, mentions, mrkdwn, respondLater } from "../slack.js";
+import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
 
 // What each role is doing, as the list's headings.
 const DOING = {
@@ -20,12 +21,23 @@ const ROLE_WORDS = {
   tester: ["testing", "test", "tester"],
 };
 
+// Open tasks: every status but Done.
+const OPEN = Object.keys(STATUSES).filter((status) => status !== "DONE");
+
+const USAGE =
+  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+
 // `/cade tasks` in any channel lists the open tasks you are assigned to, by
 // group (channel pair): each group's dev channel's and incidents channel's.
 // They are grouped by your role (developing, reviewing, testing), incidents
 // first, then by priority and due date, each linking to its thread. Done
-// tasks are left out. `/cade tasks development` (or `review`, `testing`)
-// shows only that role.
+// tasks are left out. It takes, in any order (see parseTaskFilters):
+//   development, review, testing   only that role
+//   @person                        their tasks instead of yours
+//   -all                           everyone's tasks, by status
+//   -status=in-progress,…          only those statuses (Done too, if named)
+//   -due=…, -due<…, -due>=…        by due date: a date, @today, @tomorrow,
+//                                  or none
 //
 // In a group's channel the list shows that group; elsewhere it shows every
 // group. The list is shown only to you, in the channel you asked in, and is
@@ -33,84 +45,240 @@ const ROLE_WORDS = {
 // in threads.)
 export default {
   name: "tasks",
-  description: "Show your open tasks by role, only to you (`development`, `review` or `testing` for one)",
+  description:
+    "Show open tasks, only to you: yours by role, `@person`'s, or `-all`; filter with `-status=in-progress` or `-due<@today`",
   slashUsage: "/cade tasks",
   section: "work",
   async slash(command, context) {
-    const roles = findRoles(command.text);
-    if (!roles) return askForRole(command.text);
+    const filters = parseTaskFilters(command.text);
+    if (filters.error) return filters.error;
     const own = findPair(context.env, command.channel);
     const groups = own ? [own] : channelPairs(context.env);
     // Reading the channels can take longer than Slack waits for a slash
     // command's answer, so the list follows through its response_url.
     context.waitUntil(
       (async () =>
-        respondLater(command.responseUrl, await taskLists(context.env, command.user, groups, roles)))(),
+        respondLater(command.responseUrl, await taskLists(context.env, command.user, groups, filters)))(),
     );
   },
 };
 
-// The role named in the command, as a list, or every role when none is
-// named. Null when the word is not a role.
-function findRoles(text) {
-  const word = text.trim().split(/\s+/)[0]?.toLowerCase();
-  if (!word) return Object.keys(ROLES);
-  const role = Object.keys(ROLE_WORDS).find((name) => ROLE_WORDS[name].includes(word));
-  return role ? [role] : null;
+// Reads the command's words into { roles, user, all, statuses, due }, or
+// { error } saying what's wrong. `user` is the person named, if any; `due`
+// is { op, value } where op is =, <, <=, > or >=, and value a date as
+// YYYY-MM-DD, "@today", "@tomorrow" or "none".
+export function parseTaskFilters(text) {
+  // Slack sends <, > and & encoded, and may turn a typed -- into a dash.
+  const words = text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .split(/\s+/)
+    .filter(Boolean);
+  const filters = { roles: Object.keys(ROLES), user: null, all: false, statuses: OPEN, due: null };
+  const fail = (message) => ({ error: `${message} ${USAGE}` });
+  let role = null;
+  for (const word of words) {
+    const person = /^<@([UW][A-Z0-9]+)(?:\|[^>]*)?>$/.exec(word);
+    const option = /^(?:--?|[—–])([a-z]+)(.*)$/i.exec(word);
+    if (person) {
+      if (filters.user && filters.user !== person[1]) return fail("Name one person at a time.");
+      filters.user = person[1];
+    } else if (option) {
+      const name = option[1].toLowerCase();
+      const rest = option[2];
+      if (name === "all" && !rest) {
+        filters.all = true;
+      } else if (name === "status") {
+        const statuses = readStatuses(rest);
+        if (!statuses) return fail(`"${escapeSlack(word)}" isn't a status filter.`);
+        filters.statuses = statuses;
+      } else if (name === "due") {
+        const due = readDue(rest);
+        if (!due) return fail(`"${escapeSlack(word)}" isn't a due date filter.`);
+        filters.due = due;
+      } else {
+        return fail(`"${escapeSlack(word)}" isn't an option.`);
+      }
+    } else {
+      const found = Object.keys(ROLE_WORDS).find((name) => ROLE_WORDS[name].includes(word.toLowerCase()));
+      if (!found) return fail(`"${escapeSlack(word)}" is not a role.`);
+      if (role && role !== found) return fail("Name one role at a time.");
+      role = found;
+    }
+  }
+  if (filters.all && (role || filters.user)) {
+    return fail("`-all` shows everyone's tasks, so it can't take a role or a person.");
+  }
+  if (role) filters.roles = [role];
+  return filters;
 }
 
-function askForRole(text) {
-  return `"${escapeSlack(text.trim())}" is not a role. Use \`/cade tasks\` for all your tasks, or \`/cade tasks development\`, \`review\` or \`testing\` for one role.`;
+// "=in-progress,todo" as status keys, or null.
+function readStatuses(rest) {
+  const match = /^=(.+)$/.exec(rest);
+  if (!match) return null;
+  const statuses = match[1]
+    .split(",")
+    .map((value) => value.toUpperCase().replace(/-/g, "_"))
+    .map((status) => (status === "TO_DO" ? "TODO" : status));
+  return statuses.every((status) => STATUSES[status]) ? [...new Set(statuses)] : null;
+}
+
+// "<@today" as { op: "<", value: "@today" }, or null.
+function readDue(rest) {
+  const match = /^(<=|>=|=|<|>)(.+)$/.exec(rest);
+  if (!match) return null;
+  const [, op, raw] = match;
+  const value = raw.toLowerCase();
+  if (value === "@today" || value === "@tomorrow") return { op, value };
+  if (value === "none") return op === "=" ? { op, value } : null;
+  const iso = readDate(raw);
+  return iso ? { op, value: iso } : null;
+}
+
+// DD/MM/YYYY or YYYY-MM-DD as YYYY-MM-DD, or "" if it isn't a real date.
+function readDate(text) {
+  let match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  let year, month, day;
+  if (match) [, day, month, year] = match;
+  else if ((match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text))) [, year, month, day] = match;
+  else return "";
+  const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const date = new Date(`${iso}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(iso) ? iso : "";
 }
 
 // One list per group, one after the other.
-async function taskLists(env, user, groups, roles) {
+async function taskLists(env, viewer, groups, filters) {
   // Links are built from the workspace's address.
   const { url } = await callSlack(env, "auth.test", {});
-  const lists = await Promise.all(groups.map((group) => taskList(env, user, group, roles, url)));
+  const user = filters.user ?? viewer;
+  // Someone else's list is headed with their name.
+  const name = user === viewer ? null : await userNames(env, [user]);
+  const lists = await Promise.all(
+    groups.map((group) => taskList(env, { ...filters, user, name }, group, url)),
+  );
   return {
     text: lists.map((list) => list.text).join(" "),
     blocks: lists.flatMap((list, i) => (i ? [{ type: "divider" }, ...list.blocks] : list.blocks)),
   };
 }
 
-async function taskList(env, user, group, roles, url) {
-  const tasks = (await assignedTasks(env, user, group, url)).filter((entry) =>
-    entry.roles.some((role) => roles.includes(role)),
+async function taskList(env, filters, group, url) {
+  const due = dueTest(env, filters.due);
+  const found = (await groupTasks(env, group, filters.statuses, url)).filter((entry) =>
+    due(entry.task.dueDate),
   );
-  // One role's list says which: "Your acme tasks: Reviewing".
-  const which = roles.length === 1 ? `: ${DOING[roles[0]]}` : "";
-  const header = { type: "header", text: { type: "plain_text", text: `Your ${group.name} tasks${which}` } };
-  const kind = roles.length === 1 ? `${DOING[roles[0]].toLowerCase()} ` : "";
-  if (!tasks.length) {
-    const text = `You have no open ${group.name} ${kind}tasks.`;
-    return { text, blocks: [header, { type: "section", text: mrkdwn("You have no open tasks.") }] };
-  }
-
-  const blocks = [header];
-  for (const role of roles) {
-    const mine = tasks.filter((entry) => entry.roles.includes(role)).sort(byUrgency);
-    const lines = mine.slice(0, MAX_LISTED).map(line);
-    if (mine.length > MAX_LISTED) lines.push(`_…and ${mine.length - MAX_LISTED} more._`);
-    blocks.push({
-      type: "section",
-      text: mrkdwn(
-        `*${DOING[role]}${mine.length ? ` (${mine.length})` : ""}*\n${lines.join("\n") || "_Nothing assigned._"}`,
-      ),
-    });
-  }
-  const count = `${tasks.length} open ${group.name} ${kind}${tasks.length === 1 ? "task" : "tasks"}`;
-  return { text: `You have ${count}.`, blocks };
+  return filters.all ? everyonesList(filters, group, found) : personsList(filters, group, found);
 }
 
-function line({ task, link, incident }) {
+// One person's tasks, by their role.
+function personsList(filters, group, found) {
+  const { roles, user, name } = filters;
+  const tasks = found
+    .map((entry) => ({
+      ...entry,
+      roles: Object.keys(ROLES).filter((role) => entry.task.people[role].includes(user)),
+    }))
+    .filter((entry) => entry.roles.some((role) => roles.includes(role)));
+  // One role's list says which: "Your acme tasks: Reviewing".
+  const which = roles.length === 1 ? `: ${DOING[roles[0]]}` : "";
+  const blocks = [header(`${name ? `${name}'s` : "Your"} ${group.name} tasks${which}`), ...filterContext(filters)];
+  const kind = roles.length === 1 ? `${DOING[roles[0]].toLowerCase()} ` : "";
+  const subject = name ? `<@${user}> has` : "You have";
+  if (!tasks.length) {
+    const none = `${subject} no ${matching(filters)}tasks.`;
+    return {
+      text: summary(`${subject} no`, filters, group, kind, 0),
+      blocks: [...blocks, { type: "section", text: mrkdwn(none) }],
+    };
+  }
+
+  for (const role of roles) {
+    const theirs = tasks.filter((entry) => entry.roles.includes(role)).sort(byUrgency);
+    blocks.push(section(DOING[role], theirs, "_Nothing assigned._"));
+  }
+  return { text: summary(`${subject} ${tasks.length}`, filters, group, kind, tasks.length), blocks };
+}
+
+// Everyone's tasks, by status, each saying who works on it.
+function everyonesList(filters, group, found) {
+  const blocks = [header(`All ${group.name} tasks`), ...filterContext(filters)];
+  if (!found.length) {
+    return {
+      text: summary("There are no", filters, group, "", 0),
+      blocks: [...blocks, { type: "section", text: mrkdwn(`There are no ${matching(filters)}tasks.`) }],
+    };
+  }
+  for (const status of filters.statuses) {
+    const these = found.filter((entry) => entry.task.status === status).sort(byUrgency);
+    if (these.length) blocks.push(section(statusName(status), these, "", { people: true }));
+  }
+  return { text: summary(`There are ${found.length}`, filters, group, "", found.length), blocks };
+}
+
+function header(text) {
+  return { type: "header", text: { type: "plain_text", text } };
+}
+
+// A list's heading, its count and up to MAX_LISTED of its tasks.
+function section(heading, entries, empty, options) {
+  const lines = entries.slice(0, MAX_LISTED).map((entry) => line(entry, options));
+  if (entries.length > MAX_LISTED) lines.push(`_…and ${entries.length - MAX_LISTED} more._`);
+  const count = entries.length ? ` (${entries.length})` : "";
+  return { type: "section", text: mrkdwn(`*${heading}${count}*\n${lines.join("\n") || empty}`) };
+}
+
+// Under the header, the filters used, if any.
+function filterContext(filters) {
+  const label = filterLabel(filters);
+  return label ? [{ type: "context", elements: [mrkdwn(label)] }] : [];
+}
+
+// "In progress  ·  Due before today", or "" for open tasks with any due date.
+function filterLabel({ statuses, due }) {
+  const parts = [];
+  if (statuses !== OPEN) parts.push(statuses.map(statusName).join(", "));
+  if (due) parts.push(dueLabel(due));
+  return parts.join("  ·  ");
+}
+
+function dueLabel({ op, value }) {
+  if (value === "none") return "No due date";
+  const when = value.startsWith("@") ? value.slice(1) : formatDate(value);
+  const words = { "=": "Due", "<": "Due before", "<=": "Due by", ">": "Due after", ">=": "Due from" };
+  return `${words[op]} ${when}`;
+}
+
+// "open " for open tasks with any due date; "matching " when filtered.
+function matching(filters) {
+  return filterLabel(filters) ? "matching " : "open ";
+}
+
+// "You have 3 open acme tasks." or, filtered, "You have 3 acme tasks: In
+// progress  ·  Due before today."
+function summary(start, filters, group, kind, count) {
+  const noun = count === 1 ? "task" : "tasks";
+  const label = filterLabel(filters);
+  return label
+    ? `${start} ${group.name} ${kind}${noun}: ${label}.`
+    : `${start} open ${group.name} ${kind}${noun}.`;
+}
+
+function line({ task, link, incident }, { people = false } = {}) {
   const label = incident ? "*Incident:* " : "";
-  return [
+  const parts = [
     `• ${label}<${link}|${escapeSlack(task.title)}>`,
     STATUSES[task.status],
     `${PRIORITIES[task.priority]} ${task.priority}`,
     `Due ${task.dueDate || "_none_"}`,
-  ].join("  ·  ");
+  ];
+  if (people) {
+    const ids = [...new Set(Object.keys(ROLES).flatMap((role) => task.people[role]))];
+    parts.push(ids.length ? mentions(ids) : "_Unassigned_");
+  }
+  return parts.join("  ·  ");
 }
 
 // Incidents first, then by priority, then the soonest due date. "Immediate"
@@ -126,31 +294,68 @@ function byUrgency(a, b) {
 
 function dueOrder(dueDate) {
   if (dueDate === "Immediate") return -Infinity;
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dueDate ?? "");
-  return match ? Date.UTC(match[3], match[2] - 1, match[1]) : Infinity;
+  const iso = isoDate(dueDate);
+  return iso ? Date.parse(iso) : Infinity;
 }
 
-// Returns the open tasks `user` is assigned to, as { task, roles, link,
-// incident }, from the group's tasks and incidents channels, as stored in D1.
-// Links are built from the workspace's address, `url`, rather than looked up
-// one by one, which would take a Slack call per task.
-async function assignedTasks(env, user, group, url) {
+// Whether a task's due date (DD/MM/YYYY, "Immediate" or "") passes `due`.
+// "Immediate" counts as today; a task with no due date passes only =none.
+function dueTest(env, due) {
+  if (!due) return () => true;
+  if (due.value === "none") return (dueDate) => !dueDate;
+  const today = todayIn(env);
+  const target = { "@today": today, "@tomorrow": nextDay(today) }[due.value] ?? due.value;
+  const compare = {
+    "=": (a, b) => a === b,
+    "<": (a, b) => a < b,
+    "<=": (a, b) => a <= b,
+    ">": (a, b) => a > b,
+    ">=": (a, b) => a >= b,
+  }[due.op];
+  return (dueDate) => {
+    const date = dueDate === "Immediate" ? today : isoDate(dueDate);
+    return Boolean(date) && compare(date, target);
+  };
+}
+
+// Today's date in TIMEZONE (UTC by default), as YYYY-MM-DD.
+export function todayIn(env, now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: env.TIMEZONE || "UTC" }).format(now);
+}
+
+function nextDay(iso) {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+}
+
+// DD/MM/YYYY as YYYY-MM-DD, or "" for anything else.
+function isoDate(dueDate) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dueDate ?? "");
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+}
+
+function formatDate(iso) {
+  const [year, month, day] = iso.split("-");
+  return `${day}/${month}/${year}`;
+}
+
+// The group's tasks with one of `statuses`, as { task, link, incident },
+// from its tasks and incidents channels. Links are built from the
+// workspace's address, `url`, rather than looked up one by one, which would
+// take a Slack call per task.
+async function groupTasks(env, group, statuses, url) {
   const channels = [
     { channel: group.tasks, incident: false },
     ...(group.incidents ? [{ channel: group.incidents, incident: true }] : []),
   ];
-  const found = await Promise.all(channels.map((place) => tasksIn(env, place, user, url)));
+  const found = await Promise.all(
+    channels.map(async ({ channel, incident }) =>
+      (await tasksWithStatus(env, channel, statuses)).map(({ ts, task }) => ({
+        task,
+        incident,
+        // Opens the task's thread, not just its message.
+        link: `${url}archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`,
+      })),
+    ),
+  );
   return found.flat();
-}
-
-async function tasksIn(env, { channel, incident }, user, url) {
-  const found = [];
-  for (const { ts, task } of await openTasks(env, channel)) {
-    const roles = Object.keys(ROLES).filter((role) => task.people[role].includes(user));
-    if (!roles.length) continue;
-    // Opens the task's thread, not just its message.
-    const link = `${url}archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
-    found.push({ task, roles, link, incident });
-  }
-  return found;
 }
