@@ -44,7 +44,7 @@ export function noPeople() {
 export function taskMessage(task) {
   const from = task.source?.link ? ` from <${task.source.link}|the request thread>` : "";
   // Four lines: the title, the task's details, who works on it, then who
-  // tracked it and how to update it.
+  // tracked it.
   const details = [
     `*Status:* ${STATUSES[task.status]}`,
     `*Priority:* ${PRIORITIES[task.priority]} ${task.priority}`,
@@ -66,7 +66,7 @@ export function taskMessage(task) {
         type: "context",
         elements: [
           mrkdwn(
-            `Tracked by <@${task.createdBy}>${from} · reply here with \`@LUMA assign developer @person\`, \`@LUMA status\` or \`@LUMA help\``,
+            `Tracked by <@${task.createdBy}>${from}`,
           ),
         ],
       },

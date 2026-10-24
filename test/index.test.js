@@ -228,7 +228,7 @@ test("modal submission posts the task and replaces the button with the announcem
   assert.equal(post.blocks[3].type, "context");
   assert.match(
     post.blocks[3].elements[0].text,
-    /^Tracked by <@UCREATOR> from <https:\/\/slack\.example\/source\|the request thread> · /,
+    /^Tracked by <@UCREATOR> from <https:\/\/slack\.example\/source\|the request thread>$/,
   );
   assert.deepEqual(post.metadata, {
     event_type: "luma_task",
@@ -380,20 +380,21 @@ test("@LUMA assign adds people to a role on the root message", async (t) => {
   assert.deepEqual(calls[2].args, {
     channel: "CDEV",
     thread_ts: "100.1",
-    text: "<@UACTOR> assigned <@UBOB>, <@UALICE> as developer.",
+    text: "<@UBOB>, <@UALICE> please start working on this.",
   });
 });
 
 test("@LUMA assign works for each role, in any word order", async (t) => {
-  for (const [text, key] of [
-    ["<@UBOT> assign reviewer <@UBOB>", "reviewers"],
-    ["<@UBOT> assign tester <@UBOB>", "testers"],
-    ["<@UBOT> assign <@UBOB> as Tester", "testers"],
-    ["<@UBOT> assign developers <@UBOB>", "developers"],
+  for (const [text, key, reply] of [
+    ["<@UBOT> assign reviewer <@UBOB>", "reviewers", "<@UBOB> please review this."],
+    ["<@UBOT> assign tester <@UBOB>", "testers", "<@UBOB> please test this."],
+    ["<@UBOT> assign <@UBOB> as Tester", "testers", "<@UBOB> please test this."],
+    ["<@UBOT> assign developers <@UBOB>", "developers", "<@UBOB> please start working on this."],
   ]) {
     const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
     await send("/slack/events", threadEvent(text));
     assert.equal(calls[1].args.metadata.event_payload[key], "UBOB", text);
+    assert.equal(calls[2].args.text, reply, text);
   }
 });
 
