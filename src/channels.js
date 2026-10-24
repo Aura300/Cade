@@ -6,9 +6,9 @@ export function channelPairs(env) {
   if (
     !Array.isArray(pairs) ||
     !pairs.length ||
-    pairs.some((pair) => !pair?.external || !pair?.tasks)
+    pairs.some((pair) => !pair?.name || !pair?.external || !pair?.tasks)
   ) {
-    throw new Error("CHANNEL_PAIRS must list { external, tasks } channel IDs");
+    throw new Error("CHANNEL_PAIRS must list { name, external, tasks } for each pair");
   }
   return pairs;
 }
@@ -18,12 +18,17 @@ export function channelsWithRole(env, role) {
   return channelPairs(env).map((pair) => pair[role]);
 }
 
-// Tasks tracked from an external channel go to its paired tasks channel;
-// tasks tracked in a tasks channel stay there.
-export function tasksChannelFor(env, channel) {
+// Returns the pair that `channel` (external or tasks) belongs to.
+export function pairFor(env, channel) {
   const pair = channelPairs(env).find(
     (pair) => pair.external === channel || pair.tasks === channel,
   );
   if (!pair) throw new Error(`${channel} is not in CHANNEL_PAIRS`);
-  return pair.tasks;
+  return pair;
+}
+
+// Tasks tracked from an external channel go to its paired tasks channel;
+// tasks tracked in a tasks channel stay there.
+export function tasksChannelFor(env, channel) {
+  return pairFor(env, channel).tasks;
 }

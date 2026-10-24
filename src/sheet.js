@@ -2,18 +2,19 @@ import { callSlack } from "./slack.js";
 
 // Slack's free plan drops old messages, so every task is also recorded in a
 // Google Sheet. The sheet's Apps Script web app (google-sheet/Code.gs) receives
-// one row per change and keeps an "All tasks" and a "Completed" tab up to
-// date. Syncing is skipped when SHEET_URL is not configured.
+// one row per change and keeps a tab per channel pair, named after the pair,
+// up to date. Syncing is skipped when SHEET_URL is not configured.
 export function sheetEnabled(env) {
   return Boolean(env.SHEET_URL && env.SHEET_SECRET);
 }
 
-// `row` is keyed by the sheet's column headers; "Task ID" identifies the row.
-export async function sendRow(env, row) {
+// `project` is the channel pair's name, which picks the tab. `row` is keyed
+// by the sheet's column headers; "Task ID" identifies the row.
+export async function sendRow(env, project, row) {
   const response = await fetch(env.SHEET_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret: env.SHEET_SECRET, row }),
+    body: JSON.stringify({ secret: env.SHEET_SECRET, project, row }),
   });
   if (!response.ok) throw new Error(`Sheet returned HTTP ${response.status}`);
   const result = await response.json();

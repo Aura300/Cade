@@ -104,8 +104,8 @@ so the Worker needs no database.
 ### Google Sheet
 
 Slack's free plan only keeps recent history, so every task is also recorded
-in a Google Sheet, with an **All tasks** tab and a **Completed** tab. A task
-is added to **Completed** when its status is set to Done. See
+in a Google Sheet, with one tab per channel pair (for example **aura300** and
+**test**). Filter the Status column to see completed tasks. See
 [google-sheet/README.md](google-sheet/README.md) for the setup. Without
 `SHEET_URL` and `SHEET_SECRET`, syncing is turned off.
 

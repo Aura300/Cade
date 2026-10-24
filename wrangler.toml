@@ -3,12 +3,13 @@ main = "src/index.js"
 compatibility_date = "2026-10-13"
 
 # Each pair links an external channel, where `@LUMA track` is used, to the
-# channel its tasks are posted to. Slack channel IDs are at the bottom of the
-# channel's View channel details → About tab. Invite LUMA to every channel.
+# channel its tasks are posted to. `name` is the pair's tab in the Google Sheet. Slack channel IDs are
+# at the bottom of the channel's View channel details → About tab. Invite LUMA
+# to every channel.
 [vars]
 CHANNEL_PAIRS = [
-  { external = "C0C178XHSQH", tasks = "C0C143QFZL3" }, # #aura300-external → #aura300-dev
-  { external = "C0CBTBK0ZAN", tasks = "C0CBTBKK610" }, # #text-external → #test-dev
+  { name = "aura300", external = "C0C178XHSQH", tasks = "C0C143QFZL3" }, # #aura300-external → #aura300-dev
+  { name = "test", external = "C0CBTBK0ZAN", tasks = "C0CBTBKK610" }, # #text-external → #test-dev
 ]
 # Time zone for the times written to the Google Sheet.
 TIMEZONE = "Asia/Colombo"

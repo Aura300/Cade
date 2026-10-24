@@ -1,3 +1,4 @@
+import { pairFor } from "./channels.js";
 import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn } from "./slack.js";
 
@@ -150,7 +151,7 @@ export async function syncTask(env, channel, ts, task, { deleted = false } = {})
       message_ts: ts,
     });
     const names = (ids) => (ids.length ? userNames(env, ids) : "Unassigned");
-    await sendRow(env, {
+    await sendRow(env, pairFor(env, channel).name, {
       "Task ID": `${channel}:${ts}`,
       Title: task.title,
       Status: deleted ? "Deleted" : statusName(task.status),

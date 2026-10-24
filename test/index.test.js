@@ -10,8 +10,8 @@ const env = {
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   CHANNEL_PAIRS: [
-    { external: "CEXTERNAL", tasks: "CDEV" },
-    { external: "CTESTEXT", tasks: "CTESTDEV" },
+    { name: "aura300", external: "CEXTERNAL", tasks: "CDEV" },
+    { name: "test", external: "CTESTEXT", tasks: "CTESTDEV" },
   ],
 };
 
@@ -1052,6 +1052,7 @@ const sheetRow = (calls) => {
   const sheet = calls.filter((call) => call.method === "sheet");
   assert.equal(sheet.length, 1);
   assert.equal(sheet[0].args.secret, "sheet-secret");
+  assert.equal(sheet[0].args.project, "aura300");
   return sheet[0].args.row;
 };
 
@@ -1077,6 +1078,29 @@ test("a new task is added to the sheet", async (t) => {
     "Task link": "https://slack.example/p100",
     "Request link": "https://slack.example/source",
   });
+});
+
+test("tasks in the test channels go to the test tabs", async (t) => {
+  const calls = mockSlack(t, {
+    ...slackUsers,
+    "conversations.replies": { messages: [rootMessage()] },
+  });
+  await sendWithSheet(
+    "/slack/events",
+    threadEvent("<@UBOT> assign tester <@UBOB>", { channel: "CTESTDEV" }),
+  );
+  const sheet = calls.find((call) => call.method === "sheet").args;
+  assert.equal(sheet.project, "test");
+  assert.equal(sheet.row["Task ID"], "CTESTDEV:100.1");
+});
+
+test("a channel pair without a name is reported", async (t) => {
+  const calls = mockSlack(t);
+  await send("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"), {}, {
+    ...env,
+    CHANNEL_PAIRS: [{ external: "CEXTERNAL", tasks: "CDEV" }],
+  });
+  assert.equal(calls[0].args.text, "Sorry, `assign` failed. Please try again.");
 });
 
 test("assigning people updates the sheet with their names", async (t) => {

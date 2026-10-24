@@ -3,12 +3,18 @@
 Slack's free plan only keeps recent message history, so the Worker also
 records every task in a Google Sheet. A free Google account is enough.
 
-The sheet gets two tabs, created automatically on the first update:
+Each channel pair in `CHANNEL_PAIRS` (`wrangler.toml`) gets its own tab,
+named after the pair (for example **aura300** and **test**), created
+automatically on the first update. Every task has one row, updated on every
+change:
 
-| Tab | Rows | Columns |
-| --- | --- | --- |
-| **All tasks** | One per task, updated on every change. Deleted tasks stay, with the status "Deleted". | Title, Status, Priority, Due date, Developer, Reviewer, Tester, Tracked by, Tracked at, Completed at, Task link, Request link, Task ID |
-| **Completed** | One per task whose status is Done. Removed if the task is reopened; kept if a done task is deleted. | Title, Completed at, Developer, Reviewer, Tester, Task link, Task ID |
+Title, Status, Priority, Due date, Developer, Reviewer, Tester, Tracked by,
+Tracked at, Completed at, Task link, Request link, Task ID
+
+Deleted tasks stay, with the status "Deleted". To see completed tasks,
+filter the **Status** column to "Done" (**Data → Create a filter**).
+**Completed at** is the first time the task was set to Done; it's cleared if
+the task is reopened.
 
 **Task ID** is the dev thread's ID (`channel:timestamp`). Each update finds
 the task's row by this ID and overwrites it, so a task never appears twice.
@@ -52,7 +58,7 @@ column. Times are in Sri Lanka time (`TIMEZONE` in `wrangler.toml`).
    sheet shows user IDs such as `U0BUKTZA8VB` instead of names.
 
 Then create or update a task in a test channel; its row should appear in
-**All tasks** within a few seconds.
+the **test** tab within a few seconds.
 
 ## Updating the script
 
