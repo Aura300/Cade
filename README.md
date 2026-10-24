@@ -87,21 +87,38 @@ message shows:
 2. its status, priority and due date, and
 3. the tracked task ("None yet" until there is one).
 
-It starts **In discussion**. When it's agreed, send **`@LUMA track`** in its
-thread: the form starts with the requirement's name, priority and due date,
-which you can change before creating the task. Once
-the task is created, the requirement shows 🔵 In progress, the task's
-priority and due date, and a link to the task. When the dev channel uses
-**Inform external thread**, the requirement's status changes to match
-(Client review or Done). Deleting the task puts the requirement back to In
-discussion.
+The message always shows the current status, priority and due date. Who
+changes what follows who knows it:
 
-`@LUMA priority` and `@LUMA due` (below) also work in the requirement's
-thread. Before a task is tracked they change the requirement, so
-`@LUMA track` starts with the new values. Once there is a task they change
-the task in `#aura300-dev` instead, and Luma notes the change in the task's
-thread. They only work in threads Luma started with `/luma requirement`;
-other external threads have no message Luma can update.
+- **Priority and due date are the client's.** They are changed only in the
+  requirement's thread, with `@LUMA priority` and `@LUMA due` (below),
+  before and after a task is tracked. Once there is a task, the task
+  changes with them and Luma notes the change in the task's thread for the
+  team. In the task's thread Luma refuses to change them and links to the
+  requirement thread.
+- **Status is the team's.** It is changed only in `#aura300-dev`, with
+  `@LUMA status`. The requirement shows it as the client sees it: **In
+  discussion** until a task is tracked, then 🔵 **In progress** while the
+  task is To do, In progress, In review or In testing, then **Client
+  review** and **Done**. **Inform external thread** only decides whether a
+  message is also posted in the requirement thread.
+- **Acceptance is the client's.** When the dev channel informs a requirement
+  thread that a task is in Client review, the message has **Approve** and
+  **Not approve** buttons. **Approve** moves the task to Done; **Not
+  approve** moves it back to In progress, and the client explains what
+  needs to change in the thread. Either way Luma tells the task's thread in
+  `#aura300-dev`. The buttons do nothing once the team has moved the task
+  on, and Slack can't tell the team from the client, so anyone in the
+  external channel can click them.
+
+When it's agreed, send **`@LUMA track`** in the requirement's thread. The
+form asks only for the task title, starting with the requirement's name, and
+shows the priority and due date the task will take from the requirement.
+The requirement then links to the task. Deleting the task puts the
+requirement back to In discussion, keeping its priority and due date.
+
+Assign and unassign are for tasks only, and only tracked tasks are recorded
+in the Google Sheet.
 
 ### Task commands
 
@@ -127,8 +144,10 @@ In a task's thread in `#aura300-dev`:
 - `@LUMA priority high` changes the priority (Urgent, High, Medium, Low);
   `@LUMA priority` replies with a menu. `@LUMA due 30/11/2026` changes the
   due date (YYYY-MM-DD also works), `@LUMA due none` removes it, and
-  `@LUMA due` replies with a date picker. For a task tracked from a
-  requirement, the requirement message shows the change too.
+  `@LUMA due` replies with a date picker. These work in the thread of a
+  requirement, and in the thread of a task with no requirement. For a task
+  tracked from a requirement, they are changed in the requirement thread
+  instead (see [Requirements](#requirements)).
 - `@LUMA delete` (or `@LUMA remove`) replies with **Delete task** and
   **Cancel** buttons. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once

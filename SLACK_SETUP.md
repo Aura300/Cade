@@ -165,8 +165,13 @@ Try these in the test channels first.
 | `/luma help` | The same list, shown only to you |
 | `/luma requirement` in `#aura300-external` | A form asks for the requirement name, due date and priority; submitting posts it as a new message showing **In discussion** with that priority and due date |
 | `@LUMA priority low` and `@LUMA due 15/12/2026` in that requirement's thread | The requirement message shows the new priority and due date |
-| `@LUMA track` in that requirement's thread | The form opens with the requirement's name, priority and due date filled in; submitting changes the requirement message to 🔵 In progress with a link to the task |
-| `@LUMA priority urgent` or `@LUMA due 30/11/2026` in the requirement thread | Both the requirement message and the task in `#aura300-dev` show the change, and the task thread gets a note |
+| `@LUMA track` in that requirement's thread | The form asks only for the title, starting with the requirement's name, and shows its priority and due date; submitting changes the requirement message to 🔵 In progress with a link to the task |
+| `@LUMA priority urgent` in the requirement thread after tracking | The requirement and the task both show 🔴 Urgent, and the task's thread gets a note |
+| `@LUMA priority low` in that task's thread | Luma refuses and links to the requirement thread |
+| `@LUMA status client review` in that task's thread, then **Inform external thread** | The requirement thread gets the message with **Approve** and **Not approve** buttons |
+| Click **Approve** | The task becomes ✅ Done and is unpinned, the requirement shows Done, and the task's thread is told |
+| Click **Not approve** (after moving the task to Client review again) | The task and requirement go back to 🔵 In progress, and the task's thread is told |
+| `@LUMA status in review` in that task's thread | The requirement message still shows 🔵 In progress; `@LUMA status client review` changes it to Client review straight away |
 | `/luma track` in `#test-dev` | The form opens straight away; the task is posted with no reply |
 | `@LUMA track` in a thread in `#aura300-external` | Luma replies with a **Track task** button; clicking it opens the form |
 | Submit the form | The task appears and is pinned in `#aura300-dev`; the button reply becomes "@you tracked a task" with a link |

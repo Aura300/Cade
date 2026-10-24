@@ -10,7 +10,8 @@ const CANCEL_ACTION = "delete:cancel";
 // person who asked for the deletion can confirm or cancel it. Confirming
 // deletes the task message and Luma's replies in its thread, and says so in
 // the external thread the task was tracked from. A requirement the task was
-// tracked from goes back to In discussion.
+// tracked from goes back to In discussion, keeping the client's priority and
+// due date.
 //
 // A bot token can only delete the bot's own messages, so people's replies
 // stay behind under Slack's "This message was deleted" placeholder.
@@ -140,7 +141,7 @@ async function deleteTask(env, channel, ts, user) {
     });
     await updateRequirement(env, task.source, (requirement) =>
       requirement.task?.ts === ts
-        ? { ...requirement, status: "DISCUSSION", priority: "", dueDate: "", task: undefined }
+        ? { ...requirement, status: "DISCUSSION", task: undefined }
         : null,
     );
   }

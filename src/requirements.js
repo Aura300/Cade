@@ -8,12 +8,19 @@ import { PRIORITIES, STATUSES, loadTask, saveTask } from "./tasks.js";
 const REQUIREMENT_EVENT_TYPE = "luma_requirement";
 
 // A requirement is in discussion until a task is tracked from its thread.
-// After that it shows In progress, then the task statuses the dev channel
-// informs the thread of.
+// After that it shows the task's status as the client sees it: the team's
+// own stages (To do, In review, In testing) all show as In progress.
 export const REQUIREMENT_STATUSES = {
   DISCUSSION: ":speech_balloon: In discussion",
-  ...STATUSES,
+  IN_PROGRESS: STATUSES.IN_PROGRESS,
+  CLIENT_REVIEW: STATUSES.CLIENT_REVIEW,
+  DONE: STATUSES.DONE,
 };
+
+// The requirement status that shows a task's status.
+export function clientStatus(taskStatus) {
+  return REQUIREMENT_STATUSES[taskStatus] && taskStatus !== "DISCUSSION" ? taskStatus : "IN_PROGRESS";
+}
 
 export const NOT_A_REQUIREMENT =
   "This thread is not a requirement. Use `/luma requirement` to start one, then change its priority and due date in its thread.";
@@ -118,33 +125,45 @@ export async function reflectOnRequirement(env, ts, task, fields) {
   );
 }
 
-// Finds what a thread's priority and due date belong to. In a tasks channel
-// that is the task. In a requirement thread it is the requirement until a
-// task is tracked from it; after that the task owns them, so `kind` is
-// "tracked" and they can only be changed in the task's thread. Returns
-// { kind, channel, ts, item } with `kind` "task", "requirement" or "tracked",
-// or null.
+// Finds whose priority and due date a thread changes. The client owns a
+// requirement's, so they are changed in the requirement's thread, before and
+// after a task is tracked from it; the tracked task follows. The dev team
+// owns those of tasks with no requirement. Returns { kind, channel, ts, item },
+// or null when the thread is neither a task nor a requirement:
+//   "requirement"  a requirement thread; `task` is its tracked task, if any,
+//                  as { channel, ts, item }
+//   "task"         a task thread for a task with no requirement
+//   "client"       a task thread for a task tracked from a requirement, whose
+//                  priority and due date cannot be changed there
 export async function findDetails(env, channel, threadTs) {
   if (tasksChannelFor(env, channel) === channel) {
-    return loadDetails(env, { kind: "task", channel, ts: threadTs });
+    const task = await loadTask(env, channel, threadTs);
+    if (!task) return null;
+    const kind = task.source?.requirement ? "client" : "task";
+    return { kind, channel, ts: threadTs, item: task };
   }
+
   const requirement = await loadRequirement(env, channel, threadTs);
   if (!requirement) return null;
-  const kind = requirement.task ? "tracked" : "requirement";
-  return { kind, channel, ts: threadTs, item: requirement };
+  const found = { kind: "requirement", channel, ts: threadTs, item: requirement };
+  if (requirement.task) {
+    const { channel: taskChannel, ts } = requirement.task;
+    const task = await loadTask(env, taskChannel, ts);
+    if (task) found.task = { channel: taskChannel, ts, item: task };
+  }
+  return found;
 }
 
-// Loads the task or requirement that `findDetails` found, again. Pickers
-// posted before requirements had details name only a task, with no `kind`.
-export async function loadDetails(env, { kind = "task", channel, ts }) {
-  const load = kind === "requirement" ? loadRequirement : loadTask;
-  const item = await load(env, channel, ts);
-  return item && { kind, channel, ts, item };
-}
-
-// Saves a priority or due date change. A task's requirement is only updated
-// when the external thread is informed, as with status changes.
-export async function saveDetails(env, { kind, channel, ts, item }) {
-  if (kind === "requirement") await saveRequirement(env, channel, ts, item);
-  else await saveTask(env, channel, ts, item);
+// Saves a priority or due date change, on the requirement's tracked task too.
+export async function saveDetails(env, found, fields) {
+  Object.assign(found.item, fields);
+  if (found.kind !== "requirement") {
+    await saveTask(env, found.channel, found.ts, found.item);
+    return;
+  }
+  await saveRequirement(env, found.channel, found.ts, found.item);
+  if (found.task) {
+    Object.assign(found.task.item, fields);
+    await saveTask(env, found.task.channel, found.task.ts, found.task.item);
+  }
 }

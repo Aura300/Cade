@@ -1,7 +1,8 @@
 import { pairFor, tasksChannelFor } from "../channels.js";
-import { loadRequirement, updateRequirement } from "../requirements.js";
+import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
+  PRIORITIES,
   noPeople,
   readTaskForm,
   setPinned,
@@ -24,8 +25,10 @@ const OPEN_ACTION = "track:open";
 // created in that channel with no external thread.
 //
 // In a requirement thread started with `/luma requirement`, the form starts
-// with the requirement's title, priority and due date, and the requirement's
-// root message is updated to link to the task.
+// with the requirement's title and asks only for the task's title: the
+// client sets the priority and due date in the requirement thread, and the
+// task takes them from the requirement. The requirement's root message is
+// updated to link to the task.
 //
 // `/luma track` opens the form straight away, since a slash command carries a
 // trigger_id, so no message is needed to start from. In a tasks channel the
@@ -79,8 +82,8 @@ export default {
 };
 
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
-// From a requirement thread it also has `requirement: true` and the title,
-// priority and due date to start the form with. From `/luma track` it has only the channel.
+// From a requirement thread it also has `requirement: true` and the
+// requirement's title, priority and due date, to show in the form. From `/luma track` it has only the channel.
 async function openModal(env, triggerId, origin) {
   await callSlack(env, "views.open", {
     trigger_id: triggerId,
@@ -96,8 +99,26 @@ function trackView(origin) {
     title: plainText("Track task"),
     submit: plainText("Create"),
     close: plainText("Cancel"),
-    blocks: taskFormBlocks("Task title", origin),
+    blocks: fromRequirement(origin)
+      ? [
+          ...taskFormBlocks("Task title", origin, { details: false }),
+          {
+            type: "context",
+            elements: [
+              mrkdwn(
+                `*Priority:* ${PRIORITIES[origin.priority]} ${origin.priority}  ·  *Due:* ${origin.dueDate || "_None_"}\nFrom the requirement. The client changes them in the requirement thread.`,
+              ),
+            ],
+          },
+        ]
+      : taskFormBlocks("Task title", origin),
   };
+}
+
+// Whether the task takes its priority and due date from a requirement.
+// Requirements started before they had a priority still ask for one.
+function fromRequirement(origin) {
+  return Boolean(origin.requirement && PRIORITIES[origin.priority]);
 }
 
 async function submit(payload, context) {
@@ -121,6 +142,13 @@ async function submit(payload, context) {
 }
 
 async function createTask(env, task, origin) {
+  if (fromRequirement(origin)) {
+    // The requirement's current values, in case the client changed them while
+    // the form was open.
+    const requirement = await loadRequirement(env, origin.channel, origin.threadTs);
+    task.priority = requirement?.priority || origin.priority;
+    task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
+  }
   const tasksChannel = tasksChannelFor(env, origin.channel);
   if (origin.channel !== tasksChannel && !origin.threadTs) {
     // `/luma track` in an external channel: this message becomes the external
@@ -182,7 +210,7 @@ async function createTask(env, task, origin) {
   });
   await updateRequirement(env, task.source, (requirement) => ({
     ...requirement,
-    status: "IN_PROGRESS",
+    status: clientStatus(task.status),
     priority: task.priority,
     dueDate: task.dueDate,
     task: {

@@ -1,10 +1,12 @@
-import { reflectOnRequirement } from "../requirements.js";
+import { clientStatus, reflectOnRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, saveTask, setPinned } from "../tasks.js";
 
 const SELECT_ACTION = "status:select";
 const INFORM_ACTION = "status:inform";
 const SKIP_ACTION = "status:skip";
+const APPROVE_ACTION = "status:approve";
+const REJECT_ACTION = "status:reject";
 // The external thread only needs to hear when a task leaves the open statuses
 // for one of these.
 const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
@@ -17,8 +19,15 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 //
 // When a task moves from an open status to CLIENT_REVIEW or DONE, the
 // confirmation asks whether Luma should tell the external thread the task was
-// tracked from, or whether someone will tell them themselves. Informing a
-// requirement thread also updates the status on the requirement's message.
+// tracked from, or whether someone will tell them themselves. A requirement
+// the task was tracked from always shows the current status, either way.
+//
+// Only the dev channel sets statuses, with one exception: the client decides
+// whether work in Client review is accepted. When a requirement thread is
+// told a task is in Client review, the message has Approve and Not approve
+// buttons. Approve moves the task to Done; Not approve moves it back to In
+// progress. Either way the task's thread is told. Slack cannot tell the team
+// from the client, so anyone in the external channel can click them.
 export default {
   name: "status",
   description: "Update the task's status (in its thread)",
@@ -47,6 +56,12 @@ export default {
     },
     [INFORM_ACTION]: async (payload, context) => {
       context.waitUntil(inform(payload, context.env));
+    },
+    [APPROVE_ACTION]: async (payload, context) => {
+      context.waitUntil(review(payload, context.env, true));
+    },
+    [REJECT_ACTION]: async (payload, context) => {
+      context.waitUntil(review(payload, context.env, false));
     },
     [SKIP_ACTION]: async (payload, context) => {
       const request = JSON.parse(payload.actions[0].value);
@@ -110,6 +125,7 @@ async function applyStatus(env, channel, ts, task, status) {
   if (status !== "DONE") task.completedAt = "";
   else if (previous !== "DONE") task.completedAt = new Date().toISOString();
   await saveTask(env, channel, ts, task);
+  await reflectOnRequirement(env, ts, task, { status: clientStatus(status) });
   if ((previous === "DONE") !== (status === "DONE")) {
     await setPinned(env, channel, ts, status !== "DONE");
   }
@@ -182,12 +198,82 @@ async function announce(env, channel, ts, task, user) {
     message_ts: ts,
   });
   const text = `<@${user}> marked a task as ${STATUSES[task.status]}: <${permalink}|${escapeSlack(task.title)}>`;
+  const asksForReview = task.status === "CLIENT_REVIEW" && task.source.requirement;
   await callSlack(env, "chat.postMessage", {
     channel: task.source.channel,
     thread_ts: task.source.threadTs,
-    ...asMessage(text),
+    ...(asksForReview ? reviewPrompt(text, channel, ts) : asMessage(text)),
   });
-  await reflectOnRequirement(env, ts, task, { status: task.status });
+}
+
+// The announcement with the client's Approve and Not approve buttons. They
+// carry the announcement, to keep it when the buttons are replaced.
+function reviewPrompt(text, channel, ts) {
+  const value = JSON.stringify({ channel, ts, text });
+  return {
+    text,
+    blocks: [
+      { type: "section", text: mrkdwn(`${text}\nPlease review it and approve it, or say what needs to change.`) },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: APPROVE_ACTION,
+            text: plainText("Approve"),
+            style: "primary",
+            value,
+          },
+          {
+            type: "button",
+            action_id: REJECT_ACTION,
+            text: plainText("Not approve"),
+            value,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+// Applies the client's decision on a task in Client review, then replaces
+// the buttons with the decision and tells the task's thread.
+async function review(payload, env, approved) {
+  const request = JSON.parse(payload.actions[0].value);
+  const user = payload.user.id;
+  const task = await loadTask(env, request.channel, request.ts);
+
+  let outcome;
+  if (!task) {
+    outcome = "This task no longer exists.";
+  } else if (task.status !== "CLIENT_REVIEW") {
+    // The team moved the task on before anyone clicked.
+    outcome = `Not applied: the task is now ${STATUSES[task.status]}.`;
+  } else {
+    const status = approved ? "DONE" : "IN_PROGRESS";
+    await applyStatus(env, request.channel, request.ts, task, status);
+    const { permalink } = await callSlack(env, "chat.getPermalink", {
+      channel: payload.channel.id,
+      message_ts: payload.message.ts,
+    });
+    const where = `in <${permalink}|the requirement thread>`;
+    const text = approved
+      ? `<@${user}> approved this ${where}, so it is now ${STATUSES.DONE}.`
+      : `<@${user}> did not approve this ${where}, so it is back to ${STATUSES.IN_PROGRESS}. See the thread for what needs to change.`;
+    await callSlack(env, "chat.postMessage", {
+      channel: request.channel,
+      thread_ts: request.ts,
+      ...asMessage(text),
+    });
+    outcome = approved
+      ? `<@${user}> approved it.`
+      : `<@${user}> did not approve it, so the team will pick it up again.`;
+  }
+  await callSlack(env, "chat.update", {
+    channel: payload.channel.id,
+    ts: payload.message.ts,
+    ...asMessage(`${request.text}\n${outcome}`),
+  });
 }
 
 function changedText(user, status) {

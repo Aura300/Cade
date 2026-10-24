@@ -1433,38 +1433,6 @@ test("a requirement needs a name", async (t) => {
   });
 });
 
-test("@LUMA track in a requirement thread fills in the requirement's details", async (t) => {
-  let calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
-  await send(
-    "/slack/events",
-    threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
-  );
-  const value = calls[1].args.blocks[0].elements[0].value;
-  assert.deepEqual(JSON.parse(value), {
-    channel: "CEXTERNAL",
-    threadTs: "200.1",
-    requirement: true,
-    title: "Export reports",
-    priority: "High",
-    dueDate: "31/10/2026",
-  });
-
-  calls = mockSlack(t);
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      trigger_id: "trigger-2",
-      message: { ts: "300.1" },
-      actions: [{ action_id: "track:open", value }],
-    }),
-  );
-  const [title, dueDate, priority] = calls[0].args.view.blocks;
-  assert.equal(title.element.initial_value, "Export reports");
-  assert.equal(dueDate.element.initial_date, "2026-10-31");
-  assert.equal(priority.element.initial_option.value, "High");
-});
-
 test("@LUMA track in other threads leaves the title empty", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [{ ts: "200.1" }] } });
   await send(
@@ -1504,66 +1472,6 @@ test("tracking from a requirement thread moves the requirement to In progress", 
   assert.equal(update.args.metadata.event_payload.task_ts, "100.1");
   // The button is still replaced by the announcement.
   assert.equal(calls.at(-1).args.ts, "300.1");
-});
-
-test("informing a requirement thread updates the requirement's status", async (t) => {
-  const calls = mockSlack(t, {
-    ...threads(requirementRoot({ task: true }), requirementTask("DONE")),
-    "chat.getPermalink": { permalink: "https://slack.example/p100" },
-  });
-  await send("/slack/interactions", statusButton("status:inform"));
-
-  const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
-  assert.equal(update.args.metadata.event_payload.status, "DONE");
-  assert.match(update.args.blocks[1].text.text, /^\*Status:\* :white_check_mark: Done/);
-});
-
-test("a requirement is not changed by a task tracked from it before a newer one", async (t) => {
-  const requirement = requirementRoot({ task: true });
-  requirement.metadata.event_payload.task_ts = "100.7";
-  const calls = mockSlack(t, threads(requirement, requirementTask()));
-  await send("/slack/events", threadEvent("<@UBOT> priority low"));
-  assert.ok(!calls.some((call) => call.method === "chat.update" && call.args.ts === "200.1"));
-});
-
-test("@LUMA priority in the task thread updates the task and its requirement", async (t) => {
-  const calls = mockSlack(t, threads(requirementRoot({ task: true })));
-  await send("/slack/events", threadEvent("<@UBOT> priority urgent"));
-
-  assert.deepEqual(calls.map((call) => [call.method, call.args.ts ?? call.args.thread_ts]), [
-    ["conversations.replies", "100.1"],
-    ["chat.update", "100.1"],
-    ["conversations.replies", "200.1"],
-    ["chat.update", "200.1"],
-    ["chat.postMessage", "100.1"],
-  ]);
-  assert.equal(calls[1].args.metadata.event_payload.priority, "Urgent");
-  assert.match(calls[3].args.blocks[1].text.text, /\*Priority:\* :red_circle: Urgent/);
-  assert.equal(calls[4].args.text, "<@UACTOR> set the priority to :red_circle: Urgent.");
-});
-
-test("@LUMA priority in a requirement thread updates the task and tells the dev thread", async (t) => {
-  const calls = mockSlack(t, threads(requirementRoot({ task: true })));
-  await send(
-    "/slack/events",
-    threadEvent("<@UBOT> priority low", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
-  );
-
-  const task = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1");
-  assert.equal(task.args.channel, "CDEV");
-  assert.equal(task.args.metadata.event_payload.priority, "Low");
-  const posts = calls.filter((call) => call.method === "chat.postMessage");
-  assert.deepEqual(
-    posts.map((call) => [call.args.channel, call.args.thread_ts, call.args.text]),
-    [
-      [
-        "CDEV",
-        "100.1",
-        "<@UACTOR> set the priority to :large_green_circle: Low from <https://slack.example/source|the requirement thread>.",
-      ],
-      ["CEXTERNAL", "200.1", "<@UACTOR> set the priority to :large_green_circle: Low."],
-    ],
-  );
 });
 
 test("@LUMA priority and due in a requirement thread change the requirement until it is tracked", async (t) => {
@@ -1611,125 +1519,6 @@ test("@LUMA priority in an external thread Luma did not start says so", async (t
   );
   assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
   assert.match(calls[1].args.text, /^This thread is not a requirement\. Use `\/luma requirement`/);
-});
-
-test("the priority menu in an untracked requirement thread changes the requirement", async (t) => {
-  let calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
-  await send(
-    "/slack/events",
-    threadEvent("<@UBOT> priority", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
-  );
-  const block = calls.at(-1).args.blocks[0];
-  assert.deepEqual(JSON.parse(block.block_id), { kind: "requirement", channel: "CEXTERNAL", ts: "200.1" });
-
-  calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      user: { id: "UCLICKER" },
-      channel: { id: "CEXTERNAL" },
-      message: { ts: "200.8", thread_ts: "200.1" },
-      actions: [{ action_id: "priority:select", block_id: block.block_id, selected_option: { value: "Low" } }],
-    }),
-  );
-  assert.deepEqual(calls.map((call) => [call.method, call.args.ts]), [
-    ["conversations.replies", "200.1"],
-    ["chat.update", "200.1"],
-    ["chat.update", "200.8"],
-  ]);
-  assert.equal(calls[1].args.metadata.event_payload.priority, "Low");
-});
-
-test("@LUMA priority without a valid priority shows a menu for the task", async (t) => {
-  for (const text of ["<@UBOT> priority", "<@UBOT> priority soon"]) {
-    const calls = mockSlack(t, threads(requirementRoot({ task: true })));
-    await send(
-      "/slack/events",
-      threadEvent(text, { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
-    );
-    const block = calls.at(-1).args.blocks[0];
-    assert.deepEqual(JSON.parse(block.block_id), { kind: "task", channel: "CDEV", ts: "100.1" });
-    assert.equal(block.accessory.action_id, "priority:select");
-    assert.equal(block.accessory.initial_option.value, "High");
-  }
-});
-
-test("picking a priority from the menu updates the task and the menu", async (t) => {
-  const calls = mockSlack(t, threads(requirementRoot({ task: true })));
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      user: { id: "UCLICKER" },
-      channel: { id: "CEXTERNAL" },
-      message: { ts: "200.8", thread_ts: "200.1" },
-      actions: [
-        {
-          action_id: "priority:select",
-          block_id: JSON.stringify({ channel: "CDEV", ts: "100.1" }),
-          selected_option: { value: "Medium" },
-        },
-      ],
-    }),
-  );
-  const task = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1");
-  assert.equal(task.args.metadata.event_payload.priority, "Medium");
-  assert.ok(calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV"));
-  assert.deepEqual(calls.at(-1).args, {
-    channel: "CEXTERNAL",
-    ts: "200.8",
-    text: "<@UCLICKER> set the priority to :large_yellow_circle: Medium.",
-    blocks: [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: "<@UCLICKER> set the priority to :large_yellow_circle: Medium." },
-      },
-    ],
-  });
-});
-
-test("@LUMA due sets, clears or asks for the due date", async (t) => {
-  for (const [input, dueDate, reply] of [
-    ["5/1/2027", "05/01/2027", "<@UACTOR> set the due date to 05/01/2027."],
-    ["2027-02-28", "28/02/2027", "<@UACTOR> set the due date to 28/02/2027."],
-    ["none", "", "<@UACTOR> removed the due date."],
-  ]) {
-    const calls = mockSlack(t, threads(requirementRoot({ task: true })));
-    await send("/slack/events", threadEvent(`<@UBOT> due ${input}`));
-    assert.equal(calls[1].args.metadata.event_payload.due_date, dueDate, input);
-    assert.equal(calls[3].args.metadata.event_payload.due_date, dueDate, input);
-    assert.equal(calls.at(-1).args.text, reply, input);
-  }
-
-  const calls = mockSlack(t, threads(requirementRoot({ task: true })));
-  await send("/slack/events", threadEvent("<@UBOT> due 31/02/2027"));
-  const block = calls.at(-1).args.blocks[0];
-  assert.equal(block.accessory.type, "datepicker");
-  assert.equal(block.accessory.initial_date, "2026-10-31");
-  assert.match(block.text.text, /is not a date/);
-});
-
-test("picking a due date updates the task", async (t) => {
-  const calls = mockSlack(t, threads(requirementRoot({ task: true })));
-  await send(
-    "/slack/interactions",
-    interaction({
-      type: "block_actions",
-      user: { id: "UCLICKER" },
-      channel: { id: "CDEV" },
-      message: { ts: "100.8", thread_ts: "100.1" },
-      actions: [
-        {
-          action_id: "due:select",
-          block_id: JSON.stringify({ channel: "CDEV", ts: "100.1" }),
-          selected_date: "2027-03-15",
-        },
-      ],
-    }),
-  );
-  assert.equal(calls[1].args.metadata.event_payload.due_date, "15/03/2027");
-  assert.equal(calls.at(-1).args.text, "<@UCLICKER> set the due date to 15/03/2027.");
 });
 
 test("deleting a task returns its requirement to discussion", async (t) => {
@@ -1785,4 +1574,366 @@ test("Luma's messages never preview the messages they link to", async (t) => {
     assert.deepEqual(call.previews, { links: "false", media: "false" }, call.method);
   }
   assert.ok(calls.filter((call) => call.method === "pins.add").every((call) => !call.previews.links));
+});
+
+
+// The track form's submission when it asks only for the title.
+const titleOnlySubmission = (title, origin) => ({
+  type: "view_submission",
+  user: { id: "UCREATOR" },
+  view: {
+    callback_id: "track",
+    private_metadata: JSON.stringify(origin),
+    state: { values: { title: { value: { value: title } } } },
+  },
+});
+
+const requirementOrigin = {
+  channel: "CEXTERNAL",
+  threadTs: "200.1",
+  promptTs: "300.1",
+  requirement: true,
+  title: "Export reports",
+  priority: "High",
+  dueDate: "31/10/2026",
+};
+
+test("@LUMA track in a requirement thread asks only for the title", async (t) => {
+  let calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+  );
+  const value = calls[1].args.blocks[0].elements[0].value;
+  const { promptTs, ...origin } = requirementOrigin;
+  assert.deepEqual(JSON.parse(value), origin);
+
+  calls = mockSlack(t);
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      trigger_id: "trigger-2",
+      message: { ts: "300.1" },
+      actions: [{ action_id: "track:open", value }],
+    }),
+  );
+  const blocks = calls[0].args.view.blocks;
+  assert.deepEqual(blocks.map((block) => block.block_id ?? block.type), ["title", "context"]);
+  assert.equal(blocks[0].element.initial_value, "Export reports");
+  assert.match(
+    blocks[1].elements[0].text,
+    /^\*Priority:\* :large_orange_circle: High  ·  \*Due:\* 31\/10\/2026\nFrom the requirement/,
+  );
+});
+
+test("a task tracked from a requirement takes the requirement's current priority and due date", async (t) => {
+  const requirement = requirementRoot();
+  Object.assign(requirement.metadata.event_payload, { priority: "Low", due_date: "15/12/2026" });
+  const calls = mockSlack(t, {
+    ...createdTask,
+    "conversations.replies": { messages: [requirement] },
+  });
+  const response = await send(
+    "/slack/interactions",
+    interaction(titleOnlySubmission("Export reports", requirementOrigin)),
+  );
+  assert.deepEqual(await response.json(), { response_action: "clear" });
+
+  const post = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV");
+  assert.equal(post.args.metadata.event_payload.priority, "Low");
+  assert.equal(post.args.metadata.event_payload.due_date, "15/12/2026");
+  const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
+  assert.equal(update.args.metadata.event_payload.status, "IN_PROGRESS");
+  assert.equal(update.args.metadata.event_payload.priority, "Low");
+});
+
+test("a requirement always shows its task's current status, as the client sees it", async (t) => {
+  for (const [status, shown] of [
+    ["IN_REVIEW", "IN_PROGRESS"],
+    ["TODO", "IN_PROGRESS"],
+    ["CLIENT_REVIEW", "CLIENT_REVIEW"],
+    ["DONE", "DONE"],
+  ]) {
+    const calls = mockSlack(t, threads(requirementRoot({ task: true })));
+    await send("/slack/events", threadEvent(`<@UBOT> status ${status}`));
+    const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
+    assert.equal(update.args.metadata.event_payload.status, shown, status);
+    // Nothing is posted in the requirement thread unless someone informs it.
+    assert.ok(!calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL"));
+  }
+});
+
+test("informing a requirement thread posts the status without updating the requirement again", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true, status: "DONE" }), requirementTask("DONE")),
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send("/slack/interactions", statusButton("status:inform"));
+  assert.ok(calls.some((call) => call.method === "chat.postMessage" && call.args.thread_ts === "200.1"));
+  assert.ok(!calls.some((call) => call.method === "chat.update" && call.args.ts === "200.1"));
+});
+
+test("@LUMA priority and due in a tracked requirement's thread change the task and tell the team", async (t) => {
+  for (const [text, field, value, reply] of [
+    ["<@UBOT> priority urgent", "priority", "Urgent", "<@UACTOR> set the priority to :red_circle: Urgent."],
+    ["<@UBOT> due 15/12/2026", "due_date", "15/12/2026", "<@UACTOR> set the due date to 15/12/2026."],
+    ["<@UBOT> due none", "due_date", "", "<@UACTOR> removed the due date."],
+  ]) {
+    const calls = mockSlack(t, {
+      ...threads(requirementRoot({ task: true })),
+      "chat.getPermalink": { permalink: "https://slack.example/requirement" },
+    });
+    await send(
+      "/slack/events",
+      threadEvent(text, { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+    );
+
+    assert.deepEqual(calls.map((call) => [call.method, call.args.channel]), [
+      ["conversations.replies", "CEXTERNAL"],
+      ["conversations.replies", "CDEV"],
+      ["chat.update", "CEXTERNAL"],
+      ["chat.update", "CDEV"],
+      ["chat.getPermalink", "CEXTERNAL"],
+      ["chat.postMessage", "CDEV"],
+      ["chat.postMessage", "CEXTERNAL"],
+    ], text);
+    assert.equal(calls[2].args.metadata.event_payload[field], value, text);
+    assert.equal(calls[3].args.metadata.event_payload[field], value, text);
+    assert.equal(calls[5].args.thread_ts, "100.1");
+    assert.equal(
+      calls[5].args.text,
+      `${reply.replace(/\.$/, "")} in <https://slack.example/requirement|the requirement thread>.`,
+    );
+    assert.equal(calls[6].args.text, reply);
+  }
+});
+
+test("a task tracked from a requirement cannot change its priority or due date in the dev thread", async (t) => {
+  for (const text of ["<@UBOT> priority low", "<@UBOT> due 15/12/2026", "<@UBOT> due"]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [requirementTask()] } });
+    await send("/slack/events", threadEvent(text));
+    assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"], text);
+    assert.equal(
+      calls[1].args.text,
+      "The client sets this task's priority and due date. Change them in <https://slack.example/source|the requirement thread>.",
+    );
+  }
+});
+
+test("tasks with no requirement change their priority and due date in the dev thread", async (t) => {
+  for (const [text, field, value, reply] of [
+    ["<@UBOT> priority low", "priority", "Low", "<@UACTOR> set the priority to :large_green_circle: Low."],
+    ["<@UBOT> due 5/1/2027", "due_date", "05/01/2027", "<@UACTOR> set the due date to 05/01/2027."],
+    ["<@UBOT> due 2027-02-28", "due_date", "28/02/2027", "<@UACTOR> set the due date to 28/02/2027."],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+    await send("/slack/events", threadEvent(text));
+    assert.deepEqual(calls.map((call) => call.method), [
+      "conversations.replies",
+      "chat.update",
+      "chat.postMessage",
+    ], text);
+    assert.equal(calls[1].args.metadata.event_payload[field], value, text);
+    assert.equal(calls[2].args.text, reply, text);
+    assert.equal(calls[2].args.blocks, undefined, "no prompt to inform the external thread");
+  }
+});
+
+test("@LUMA priority and due without a valid value show a picker", async (t) => {
+  for (const [text, type, initial] of [
+    ["<@UBOT> priority", "static_select", "High"],
+    ["<@UBOT> priority soon", "static_select", "High"],
+    ["<@UBOT> due", "datepicker", "2026-10-31"],
+    ["<@UBOT> due 31/02/2027", "datepicker", "2026-10-31"],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+    await send("/slack/events", threadEvent(text));
+    const { accessory } = calls.at(-1).args.blocks[0];
+    assert.equal(accessory.type, type, text);
+    assert.equal(accessory.initial_option?.value ?? accessory.initial_date, initial, text);
+  }
+});
+
+test("picking from the menu or date picker changes what the picker's thread is about", async (t) => {
+  for (const [channel, thread, root, action, field, value] of [
+    ["CDEV", "100.1", rootMessage(), { action_id: "priority:select", selected_option: { value: "Medium" } }, "priority", "Medium"],
+    ["CEXTERNAL", "200.1", requirementRoot(), { action_id: "due:select", selected_date: "2027-03-15" }, "due_date", "15/03/2027"],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+    await send(
+      "/slack/interactions",
+      interaction({
+        type: "block_actions",
+        user: { id: "UCLICKER" },
+        channel: { id: channel },
+        message: { ts: "900.1", thread_ts: thread },
+        actions: [action],
+      }),
+    );
+    assert.deepEqual(calls.map((call) => [call.method, call.args.ts]), [
+      ["conversations.replies", thread],
+      ["chat.update", thread],
+      ["chat.update", "900.1"],
+    ]);
+    assert.equal(calls[1].args.metadata.event_payload[field], value);
+  }
+});
+
+test("deleting a task keeps the requirement's priority and due date", async (t) => {
+  const calls = mockSlack(t, {
+    "conversations.replies": (args) =>
+      args.ts === "200.1"
+        ? { messages: [requirementRoot({ task: true })] }
+        : args.limit === "1"
+          ? { messages: [requirementTask()] }
+          : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
+  });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UACTOR" },
+      actions: [{ action_id: "delete:confirm", value: deleteRequest }],
+    }),
+  );
+  const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
+  assert.equal(update.args.metadata.event_payload.priority, "High");
+  assert.equal(update.args.metadata.event_payload.due_date, "31/10/2026");
+});
+
+// A client clicking Approve or Not approve in the requirement thread.
+const reviewClick = (actionId) =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UCLIENT" },
+    channel: { id: "CEXTERNAL" },
+    message: { ts: "200.9", thread_ts: "200.1" },
+    actions: [
+      {
+        action_id: actionId,
+        value: JSON.stringify({
+          channel: "CDEV",
+          ts: "100.1",
+          text: "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>",
+        }),
+      },
+    ],
+  });
+
+test("informing a requirement thread of Client review asks the client to approve", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true, status: "CLIENT_REVIEW" }), requirementTask("CLIENT_REVIEW")),
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send("/slack/interactions", statusButton("status:inform", "CLIENT_REVIEW"));
+
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.channel, "CEXTERNAL");
+  assert.equal(post.thread_ts, "200.1");
+  const text = "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>";
+  assert.equal(post.text, text);
+  assert.equal(
+    post.blocks[0].text.text,
+    `${text}\nPlease review it and approve it, or say what needs to change.`,
+  );
+  const buttons = post.blocks[1].elements;
+  assert.deepEqual(buttons.map((button) => button.action_id), ["status:approve", "status:reject"]);
+  assert.deepEqual(JSON.parse(buttons[0].value), { channel: "CDEV", ts: "100.1", text });
+});
+
+test("Done and tasks from plain external threads are announced without review buttons", async (t) => {
+  for (const [root, status] of [
+    [requirementTask("DONE"), "DONE"],
+    [withStatus("CLIENT_REVIEW"), "CLIENT_REVIEW"],
+  ]) {
+    const calls = mockSlack(t, {
+      ...threads(requirementRoot({ task: true, status }), root),
+      "chat.getPermalink": { permalink: "https://slack.example/p100" },
+    });
+    await send("/slack/interactions", statusButton("status:inform", status));
+    const post = calls.find((call) => call.method === "chat.postMessage").args;
+    assert.equal(post.blocks.length, 1, status);
+  }
+});
+
+test("Approve moves the task to Done and tells the task's thread", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true, status: "CLIENT_REVIEW" }), requirementTask("CLIENT_REVIEW")),
+    "chat.getPermalink": { permalink: "https://slack.example/review" },
+  });
+  const response = await send("/slack/interactions", reviewClick("status:approve"));
+  assert.equal(response.status, 200);
+
+  assert.deepEqual(calls.map((call) => [call.method, call.args.ts ?? call.args.thread_ts ?? call.args.timestamp]), [
+    ["conversations.replies", "100.1"],
+    ["chat.update", "100.1"],
+    ["conversations.replies", "200.1"],
+    ["chat.update", "200.1"],
+    ["pins.remove", "100.1"],
+    ["chat.getPermalink", undefined],
+    ["chat.postMessage", "100.1"],
+    ["chat.update", "200.9"],
+  ]);
+  assert.equal(calls[1].args.metadata.event_payload.status, "DONE");
+  assert.ok(calls[1].args.metadata.event_payload.completed_at);
+  assert.equal(calls[3].args.metadata.event_payload.status, "DONE");
+  assert.deepEqual(calls[5].args, { channel: "CEXTERNAL", message_ts: "200.9" });
+  assert.equal(calls[6].args.channel, "CDEV");
+  assert.equal(
+    calls[6].args.text,
+    "<@UCLIENT> approved this in <https://slack.example/review|the requirement thread>, so it is now :white_check_mark: Done.",
+  );
+  assert.deepEqual(calls[7].args, {
+    channel: "CEXTERNAL",
+    ts: "200.9",
+    text: "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>\n<@UCLIENT> approved it.",
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>\n<@UCLIENT> approved it.",
+        },
+      },
+    ],
+  });
+});
+
+test("Not approve moves the task back to In progress and tells the task's thread", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true, status: "CLIENT_REVIEW" }), requirementTask("CLIENT_REVIEW")),
+    "chat.getPermalink": { permalink: "https://slack.example/review" },
+  });
+  await send("/slack/interactions", reviewClick("status:reject"));
+
+  const task = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1");
+  assert.equal(task.args.metadata.event_payload.status, "IN_PROGRESS");
+  const requirement = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
+  assert.equal(requirement.args.metadata.event_payload.status, "IN_PROGRESS");
+  // The task was not Done, so its pin stays.
+  assert.ok(!calls.some((call) => call.method.startsWith("pins.")));
+  const note = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(note.thread_ts, "100.1");
+  assert.equal(
+    note.text,
+    "<@UCLIENT> did not approve this in <https://slack.example/review|the requirement thread>, so it is back to :large_blue_circle: In progress. See the thread for what needs to change.",
+  );
+  assert.match(calls.at(-1).args.text, /\n<@UCLIENT> did not approve it, so the team will pick it up again\.$/);
+});
+
+test("Approve and Not approve do nothing once the task has left Client review", async (t) => {
+  for (const actionId of ["status:approve", "status:reject"]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [requirementTask("IN_TESTING")] } });
+    await send("/slack/interactions", reviewClick(actionId));
+    assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.update"], actionId);
+    assert.match(calls[1].args.text, /\nNot applied: the task is now :large_orange_circle: In testing\.$/);
+  }
+});
+
+test("Approve on a deleted task says so", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [] } });
+  await send("/slack/interactions", reviewClick("status:approve"));
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.update"]);
+  assert.match(calls[1].args.text, /\nThis task no longer exists\.$/);
 });

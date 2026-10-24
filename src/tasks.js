@@ -200,23 +200,27 @@ export async function setPinned(env, channel, ts, pinned) {
 
 // The title, due date and priority fields shared by the task and requirement
 // forms. `initial` fills them in: { title, dueDate (DD/MM/YYYY), priority }.
-export function taskFormBlocks(titleLabel, initial = {}) {
+// Without `details` the form asks only for the title, for a task whose
+// priority and due date come from its requirement.
+export function taskFormBlocks(titleLabel, initial = {}, { details = true } = {}) {
   const option = (priority) => ({
     text: { ...plainText(`${PRIORITIES[priority]} ${priority}`), emoji: true },
     value: priority,
   });
-  return [
-    {
-      type: "input",
-      block_id: "title",
-      label: plainText(titleLabel),
-      element: {
-        type: "plain_text_input",
-        action_id: "value",
-        max_length: 150,
-        initial_value: initial.title?.slice(0, 150) || undefined,
-      },
+  const title = {
+    type: "input",
+    block_id: "title",
+    label: plainText(titleLabel),
+    element: {
+      type: "plain_text_input",
+      action_id: "value",
+      max_length: 150,
+      initial_value: initial.title?.slice(0, 150) || undefined,
     },
+  };
+  if (!details) return [title];
+  return [
+    title,
     {
       type: "input",
       block_id: "due_date",
@@ -245,16 +249,17 @@ export function taskFormBlocks(titleLabel, initial = {}) {
 }
 
 // Reads the fields from taskFormBlocks. `errors` is keyed by block_id, as a
-// modal's response_action "errors" expects, or null when there are none.
+// modal's response_action "errors" expects, or null when there are none. A
+// form without details gives no priority or due date.
 export function readTaskForm(values, titleError) {
   const title = values.title.value.value?.trim() ?? "";
   // The date picker gives YYYY-MM-DD, or null when no date was chosen.
-  const dueDate = formatDueDate(values.due_date.value.selected_date);
-  const priority = values.priority.value.selected_option?.value;
+  const dueDate = formatDueDate(values.due_date?.value.selected_date);
+  const priority = values.priority?.value.selected_option?.value;
 
   const errors = {};
   if (!title) errors.title = titleError;
-  if (!PRIORITIES[priority]) errors.priority = "Select a priority.";
+  if (values.priority && !PRIORITIES[priority]) errors.priority = "Select a priority.";
   return { title, dueDate, priority, errors: Object.keys(errors).length ? errors : null };
 }
 
