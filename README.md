@@ -159,8 +159,8 @@ In a task's thread in `#aura300-dev`:
   requirement, and in the thread of a task with no requirement. For a task
   tracked from a requirement, they are changed in the requirement thread
   instead (see [Requirements](#requirements)).
-- `@LUMA delete` (or `@LUMA remove`) replies with **Delete task** and
-  **Cancel** buttons. **Delete task** opens a second "Delete task?" dialog,
+- `@LUMA delete` (or `@LUMA remove`) replies with a prominent **Cancel**
+  button and a plain **Delete task** button. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once
   confirmed, Luma deletes the task message and all of its own replies in the
   thread, which also removes the pin. Slack only lets a bot delete its own

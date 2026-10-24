@@ -54,12 +54,20 @@ export default {
         { type: "section", text: mrkdwn(question) },
         {
           type: "actions",
+          // Cancel comes first and stands out, so the safe choice is the
+          // easy one; Delete is plain and still asks again.
           elements: [
+            {
+              type: "button",
+              action_id: CANCEL_ACTION,
+              text: plainText("Cancel"),
+              style: "primary",
+              value,
+            },
             {
               type: "button",
               action_id: DELETE_ACTION,
               text: plainText(`Delete ${noun}`),
-              style: "danger",
               value,
               confirm: {
                 title: plainText(`Delete ${noun}?`),
@@ -70,12 +78,6 @@ export default {
                 deny: plainText(`Keep ${noun}`),
                 style: "danger",
               },
-            },
-            {
-              type: "button",
-              action_id: CANCEL_ACTION,
-              text: plainText("Cancel"),
-              value,
             },
           ],
         },

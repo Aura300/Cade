@@ -760,9 +760,12 @@ test("@LUMA delete and @LUMA remove ask for confirmation", async (t) => {
 
     assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
     assert.equal(calls[1].args.thread_ts, "100.1");
-    const button = calls[1].args.blocks[1].elements[0];
+    const [cancel, button] = calls[1].args.blocks[1].elements;
+    // Cancel is first and prominent; Delete is plain.
+    assert.equal(cancel.action_id, "delete:cancel");
+    assert.equal(cancel.style, "primary");
     assert.equal(button.action_id, "delete:confirm");
-    assert.equal(button.style, "danger");
+    assert.equal(button.style, undefined);
     assert.ok(button.confirm);
     assert.deepEqual(JSON.parse(button.value), {
       kind: "task",
@@ -770,7 +773,6 @@ test("@LUMA delete and @LUMA remove ask for confirmation", async (t) => {
       ts: "100.1",
       requestedBy: "UACTOR",
     });
-    assert.equal(calls[1].args.blocks[1].elements[1].action_id, "delete:cancel");
   }
 });
 
@@ -1945,7 +1947,7 @@ test("@LUMA remove in a requirement thread asks for confirmation", async (t) => 
     prompt.text,
     "<@UCLIENT>, delete the requirement *Export reports*? This cannot be undone.",
   );
-  const [confirm, cancel] = prompt.blocks[1].elements;
+  const [cancel, confirm] = prompt.blocks[1].elements;
   assert.equal(confirm.text.text, "Delete requirement");
   assert.equal(confirm.confirm.title.text, "Delete requirement?");
   assert.equal(confirm.confirm.deny.text, "Keep requirement");

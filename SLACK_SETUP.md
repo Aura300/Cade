@@ -86,7 +86,7 @@ app already uses for other purposes.
 3. Click **Save Changes**.
 
 Keep this on. The task form, the **Track task** button, the status menu and
-the **Delete task** / **Cancel** buttons all use it.
+the **Cancel** / **Delete task** buttons all use it.
 
 ## 4. Event Subscriptions
 
@@ -182,8 +182,8 @@ Try these in the test channels first.
 | `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and Luma asks whether to inform the external thread |
 | Click **Inform external thread** | The original external thread gets "marked a task as ✅ Done" |
 | `@LUMA remove` in a tracked requirement's thread | Luma refuses and links to the task's thread to untrack it first |
-| `@LUMA remove` in an untracked requirement's thread | **Delete requirement** / **Cancel** buttons; confirming deletes the requirement message and Luma's replies |
-| `@LUMA delete` | **Delete task** / **Cancel** buttons; confirming deletes the task and posts "untracked" in the original external thread |
+| `@LUMA remove` in an untracked requirement's thread | **Cancel** / **Delete requirement** buttons; confirming deletes the requirement message and Luma's replies |
+| `@LUMA delete` | **Cancel** / **Delete task** buttons; confirming deletes the task and posts "untracked" in the original external thread |
 
 If something doesn't respond, open **Workers & Pages → project-helper →
 Logs** in Cloudflare. Errors such as `missing_scope` or `not_in_channel`
