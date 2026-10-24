@@ -43,10 +43,14 @@ must be deployed and have its secrets set first.
    ```toml
    [vars]
    CHANNEL_PAIRS = [
-     { external = "C…", tasks = "C…" }, # #aura300-external → #aura300-dev
-     { external = "C…", tasks = "C…" }, # test external → test dev
+     { name = "aura300", external = "C…", tasks = "C…", incidents = "C…" }, # #aura300-external → #aura300-dev, #aura300-incidents
+     { name = "test", external = "C…", tasks = "C…" }, # test external → test dev
    ]
    ```
+
+   `incidents` is optional. With it, `/luma incident` in the external
+   channel tracks incidents in that channel; without it, `/luma incident`
+   says incidents aren't set up.
 
    In Slack, open each channel → click the channel name → **About** tab; the
    **Channel ID** is at the bottom.
@@ -122,8 +126,8 @@ of the text to pick the command.
    | --- | --- |
    | Command | `/luma` |
    | Request URL | `https://project-helper.aura300.workers.dev/slack/commands` |
-   | Short Description | `Track a task or start a requirement thread` |
-   | Usage Hint | `track \| requirement` |
+   | Short Description | `Start a requirement, report an incident or track a task` |
+   | Usage Hint | `requirement \| incident \| track` |
    | Escape channels, users, and links | Off |
 
 4. Click **Save**. Adding the command also adds the `commands` scope, so
@@ -148,7 +152,7 @@ npx wrangler secret put SLACK_BOT_TOKEN
 
 ## 7. Invite LUMA to the channels
 
-In every channel listed in `CHANNEL_PAIRS` (for example `#aura300-external`,
+In every channel listed in `CHANNEL_PAIRS`, including incidents channels (for example `#aura300-external`,
 `#aura300-dev` and both test channels), type:
 
 ```
@@ -181,6 +185,9 @@ Try these in the test channels first.
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
 | `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and Luma asks whether to inform the external thread |
 | Click **Inform external thread** | The original external thread gets "marked a task as ✅ Done" |
+| `/luma incident` in `#aura300-external` | A form asks only what the incident is; submitting posts "**Incident:** …" (🔴 Urgent, due Immediate) and the task appears, pinned, in the incidents channel |
+| `@LUMA priority low` in the incident's thread, in either channel | Luma says incidents are always Urgent and due Immediate |
+| `@LUMA status client review` in the incident's task thread | The incident thread gets **Approve** / **Not approve**, mentioning the reporter |
 | `@LUMA remove` in a tracked requirement's thread | Luma refuses and links to the task's thread to untrack it first |
 | `@LUMA remove` in an untracked requirement's thread | **Cancel** / **Delete requirement** buttons; confirming deletes the requirement message and Luma's replies |
 | `@LUMA delete` | **Cancel** / **Delete task** buttons; confirming deletes the task and posts "untracked" in the original external thread |

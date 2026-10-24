@@ -1,4 +1,4 @@
-import { tasksChannelFor } from "../channels.js";
+import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
@@ -35,6 +35,10 @@ function alreadyTracked(requirement) {
 // linking to it, and links the requirement's message to it. A requirement
 // has one task, so a tracked requirement cannot be tracked again.
 //
+// Incidents are tracked when they are reported (see requirement.js). If an
+// incident's task is deleted, `@LUMA track` in its thread tracks it again,
+// in the pair's incidents channel.
+//
 // `/luma track` in a tasks channel, for the team's own work, opens the full
 // form straight away, since a slash command carries a trigger_id. The task is
 // posted in that channel with no external thread.
@@ -52,11 +56,12 @@ export default {
     if (!requirement) return notInRequirement(env, command.channel);
     if (requirement.task) return alreadyTracked(requirement);
 
-    const { title, priority, dueDate } = requirement;
+    const { title, priority, dueDate, incident } = requirement;
     const origin = {
       channel: command.channel,
       threadTs: command.threadTs,
       requirement: true,
+      incident,
       title,
       priority,
       dueDate,
@@ -117,7 +122,11 @@ function trackView(origin) {
             type: "context",
             elements: [
               mrkdwn(
-                `*Priority:* ${PRIORITIES[origin.priority]} ${origin.priority}  ·  *Due:* ${origin.dueDate || "_None_"}\nFrom the requirement. The client changes them in the requirement thread.`,
+                `*Priority:* ${PRIORITIES[origin.priority]} ${origin.priority}  ·  *Due:* ${origin.dueDate || "_None_"}\n${
+                  origin.incident
+                    ? "Incidents are always urgent and fixed as soon as possible."
+                    : "From the requirement. The client changes them in the requirement thread."
+                }`,
               ),
             ],
           },
@@ -152,7 +161,10 @@ async function submit(payload, context) {
   return { response_action: "clear" };
 }
 
-async function createTask(env, task, origin) {
+// Posts the task and announces it. `origin` is where it was tracked from, as
+// for the form; `/luma incident` uses this too, with `incident: true`, so the
+// task goes to the pair's incidents channel.
+export async function createTask(env, task, origin) {
   if (origin.requirement) {
     // The requirement's current state, in case the client changed its
     // priority, or someone else tracked it, while the form was open.
@@ -171,12 +183,15 @@ async function createTask(env, task, origin) {
       task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
     }
   }
-  const tasksChannel = tasksChannelFor(env, origin.channel);
-  if (origin.channel !== tasksChannel) {
+  const tasksChannel = origin.incident
+    ? pairFor(env, origin.channel).incidents
+    : tasksChannelFor(env, origin.channel);
+  if (roleOf(env, origin.channel) === "external") {
     task.source = {
       channel: origin.channel,
       threadTs: origin.threadTs,
       requirement: Boolean(origin.requirement),
+      incident: Boolean(origin.incident),
     };
     // The task message links back to the thread it was tracked from. The link
     // is a convenience, so the task is still created without it.

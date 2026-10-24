@@ -1,4 +1,4 @@
-import { tasksChannelFor } from "./channels.js";
+import { roleOf } from "./channels.js";
 import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
 import { PRIORITIES, STATUSES, loadTask, saveTask } from "./tasks.js";
 
@@ -22,6 +22,14 @@ export function clientStatus(taskStatus) {
   return REQUIREMENT_STATUSES[taskStatus] && taskStatus !== "DISCUSSION" ? taskStatus : "IN_PROGRESS";
 }
 
+// An incident is a requirement started with `/luma incident`. It is always
+// urgent and fixed as soon as possible, and is tracked straight away in the
+// pair's incidents channel.
+export const INCIDENT = { priority: "Urgent", dueDate: "Immediate" };
+
+export const INCIDENT_IS_FIXED =
+  "Incidents are always :red_circle: Urgent and due Immediate, so their priority and due date can't be changed.";
+
 export const NOT_A_REQUIREMENT =
   "This thread is not a requirement. Use `/luma requirement` to start one, then change its priority and due date in its thread.";
 
@@ -31,21 +39,24 @@ export function requirementMessage(requirement) {
   // small text, who started it and who tracked it, linking to the task the
   // way a task links to its requirement thread.
   const { priority, task } = requirement;
+  // Requirements and incidents share the external channel, so each message
+  // starts by saying which it is.
+  const label = requirement.incident ? "Incident" : "Requirement";
   const details = [
     `*Status:* ${REQUIREMENT_STATUSES[requirement.status]}`,
     `*Priority:* ${priority ? `${PRIORITIES[priority]} ${priority}` : "_None_"}`,
     `*Due:* ${requirement.dueDate || "_None_"}`,
   ].join("  ·  ");
   const people = [
-    `Started by <@${requirement.createdBy}>`,
+    `${requirement.incident ? "Reported" : "Started"} by <@${requirement.createdBy}>`,
     task
       ? `Tracked by <@${task.trackedBy}> in <${task.link}|the task thread>`
       : "Not tracked yet. Discuss it in this thread, then send `@LUMA track` here.",
   ];
   return {
-    text: `Requirement: ${requirement.title}`,
+    text: `${label}: ${requirement.title}`,
     blocks: [
-      { type: "section", text: mrkdwn(`*${escapeSlack(requirement.title)}*`) },
+      { type: "section", text: mrkdwn(`*${label}:* ${escapeSlack(requirement.title)}`) },
       { type: "section", text: mrkdwn(details) },
       { type: "context", elements: [mrkdwn(people.join("\n"))] },
     ],
@@ -57,6 +68,7 @@ export function requirementMessage(requirement) {
         priority: requirement.priority ?? "",
         due_date: requirement.dueDate ?? "",
         created_by: requirement.createdBy,
+        incident: requirement.incident ? "true" : "",
         // The task most recently tracked from the thread.
         task_channel: requirement.task?.channel ?? "",
         task_ts: requirement.task?.ts ?? "",
@@ -88,6 +100,7 @@ export async function loadRequirement(env, channel, ts) {
     priority: payload.priority ?? "",
     dueDate: payload.due_date ?? "",
     createdBy: payload.created_by,
+    incident: payload.incident === "true",
     task: payload.task_ts
       ? {
           channel: payload.task_channel,
@@ -138,17 +151,22 @@ export async function reflectOnRequirement(env, ts, task, fields) {
 //   "task"         a task thread for a task with no requirement
 //   "client"       a task thread for a task tracked from a requirement, whose
 //                  priority and due date cannot be changed there
+//   "incident"     an incident's thread, in either channel, whose priority
+//                  and due date are fixed
 export async function findDetails(env, channel, threadTs) {
-  if (tasksChannelFor(env, channel) === channel) {
+  const role = roleOf(env, channel);
+  if (role !== "external") {
     const task = await loadTask(env, channel, threadTs);
     if (!task) return null;
-    const kind = task.source?.requirement ? "client" : "task";
+    let kind = task.source?.requirement ? "client" : "task";
+    if (role === "incidents") kind = "incident";
     return { kind, channel, ts: threadTs, item: task };
   }
 
   const requirement = await loadRequirement(env, channel, threadTs);
   if (!requirement) return null;
-  const found = { kind: "requirement", channel, ts: threadTs, item: requirement };
+  const kind = requirement.incident ? "incident" : "requirement";
+  const found = { kind, channel, ts: threadTs, item: requirement };
   if (requirement.task) {
     const { channel: taskChannel, ts } = requirement.task;
     const task = await loadTask(env, taskChannel, ts);

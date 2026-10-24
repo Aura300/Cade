@@ -44,7 +44,9 @@ export function noPeople() {
 }
 
 export function taskMessage(task) {
-  const thread = task.source?.requirement ? "the requirement thread" : "the request thread";
+  let thread = "the request thread";
+  if (task.source?.incident) thread = "the incident thread";
+  else if (task.source?.requirement) thread = "the requirement thread";
   const from = task.source?.link ? ` from <${task.source.link}|${thread}>` : "";
   // Four lines: the title, the task's details, who works on it, then who
   // tracked it.
@@ -95,6 +97,8 @@ export function taskMessage(task) {
         // "true" when the source thread is a requirement started with
         // `/luma requirement`, whose root message follows the task.
         source_requirement: task.source?.requirement ? "true" : "",
+        // "true" when that requirement is an incident.
+        source_incident: task.source?.incident ? "true" : "",
       },
     },
   };
@@ -135,6 +139,7 @@ export async function loadTask(env, channel, ts) {
           threadTs: payload.source_thread_ts,
           link: payload.source_link || undefined,
           requirement: payload.source_requirement === "true",
+          incident: payload.source_incident === "true",
         }
       : undefined,
   };

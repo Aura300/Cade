@@ -1,6 +1,9 @@
 // CHANNEL_PAIRS links each external channel, where tasks are requested, to the
-// channel where those tasks are tracked. Several pairs can run side by side,
-// such as the real channels and a pair of test channels.
+// channel where those tasks are tracked, and optionally to a channel where
+// incidents are tracked. Several pairs can run side by side, such as the real
+// channels and a pair of test channels.
+const ROLES = ["external", "tasks", "incidents"];
+
 export function channelPairs(env) {
   const pairs = env.CHANNEL_PAIRS;
   if (
@@ -13,15 +16,18 @@ export function channelPairs(env) {
   return pairs;
 }
 
-// Returns every channel ID with the given role: "external" or "tasks".
+// Returns every channel ID with the given role: "external", "tasks" or
+// "incidents". Pairs without an incidents channel have none.
 export function channelsWithRole(env, role) {
-  return channelPairs(env).map((pair) => pair[role]);
+  return channelPairs(env)
+    .map((pair) => pair[role])
+    .filter(Boolean);
 }
 
-// Returns the pair that `channel` (external or tasks) belongs to, or
-// undefined when it is in none.
+// Returns the pair that `channel` belongs to, in any role, or undefined when
+// it is in none.
 export function findPair(env, channel) {
-  return channelPairs(env).find((pair) => pair.external === channel || pair.tasks === channel);
+  return channelPairs(env).find((pair) => ROLES.some((role) => pair[role] === channel));
 }
 
 // Like findPair, for channels that must be in a pair.
@@ -31,8 +37,13 @@ export function pairFor(env, channel) {
   return pair;
 }
 
-// Tasks tracked from an external channel go to its paired tasks channel;
-// tasks tracked in a tasks channel stay there.
+// Returns the role `channel` has in its pair, or undefined when it is in none.
+export function roleOf(env, channel) {
+  const pair = findPair(env, channel);
+  return pair && ROLES.find((role) => pair[role] === channel);
+}
+
+// The pair's channel for the team's own tasks and for tracked requirements.
 export function tasksChannelFor(env, channel) {
   return pairFor(env, channel).tasks;
 }

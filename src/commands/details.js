@@ -1,5 +1,5 @@
-import { tasksChannelFor } from "../channels.js";
-import { NOT_A_REQUIREMENT, findDetails, saveDetails } from "../requirements.js";
+import { roleOf } from "../channels.js";
+import { INCIDENT_IS_FIXED, NOT_A_REQUIREMENT, findDetails, saveDetails } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, PRIORITIES, formatDueDate, pickerDate } from "../tasks.js";
 
@@ -13,6 +13,7 @@ const DUE_ACTION = "due:select";
 // change in the task's thread for the team. In that task's thread they cannot
 // be changed. Tasks with no requirement, such as the team's own work, have no
 // client, so their priority and due date are changed in the task's thread.
+// Incidents are always urgent and due immediately, so theirs never change.
 //
 // Without a value they reply with a menu or date picker. Like the status
 // menu, the picker's thread says what it changes.
@@ -22,7 +23,7 @@ export const priority = {
   name: "priority",
   description: "Change the priority (in a requirement thread, or a task thread with no requirement)",
   usage: "@LUMA priority high",
-  channel: ["external", "tasks"],
+  channel: ["external", "tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
     const found = await findDetails(env, command.channel, command.threadTs);
@@ -54,7 +55,7 @@ export const due = {
   name: "due",
   description: "Change the due date (in a requirement thread, or a task thread with no requirement)",
   usage: "@LUMA due 31/12/2026",
-  channel: ["external", "tasks"],
+  channel: ["external", "tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
     const found = await findDetails(env, command.channel, command.threadTs);
@@ -88,7 +89,8 @@ export const due = {
 // Explains why the thread's priority and due date cannot be changed here, if
 // they cannot.
 function cannotChange(env, channel, found) {
-  if (!found) return tasksChannelFor(env, channel) === channel ? NOT_A_TASK : NOT_A_REQUIREMENT;
+  if (!found) return roleOf(env, channel) === "external" ? NOT_A_REQUIREMENT : NOT_A_TASK;
+  if (found.kind === "incident") return INCIDENT_IS_FIXED;
   if (found.kind !== "client") return undefined;
   const thread = found.item.source.link
     ? `<${found.item.source.link}|the requirement thread>`

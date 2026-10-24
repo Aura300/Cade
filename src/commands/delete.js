@@ -1,4 +1,4 @@
-import { tasksChannelFor } from "../channels.js";
+import { roleOf } from "../channels.js";
 import { NOT_A_REQUIREMENT, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
@@ -6,8 +6,8 @@ import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
 
-// What can be deleted: a task, in its thread in a tasks channel, or a
-// requirement, in its thread in an external channel.
+// What can be deleted: a task, in its thread in a tasks or incidents channel,
+// or a requirement or incident, in its thread in an external channel.
 const KINDS = {
   task: { noun: "task", load: loadTask, missing: NOT_A_TASK },
   requirement: { noun: "requirement", load: loadRequirement, missing: NOT_A_REQUIREMENT },
@@ -32,10 +32,10 @@ export default {
   aliases: ["remove"],
   description: "Delete the task or requirement and Luma's messages in its thread",
   usage: "@LUMA delete",
-  channel: ["tasks", "external"],
+  channel: ["tasks", "incidents", "external"],
   inThread: true,
   async run(command, { env }) {
-    const kind = tasksChannelFor(env, command.channel) === command.channel ? "task" : "requirement";
+    const kind = roleOf(env, command.channel) === "external" ? "requirement" : "task";
     const { noun, load, missing } = KINDS[kind];
     const item = await load(env, command.channel, command.threadTs);
     if (!item) return missing;

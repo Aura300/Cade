@@ -72,7 +72,7 @@ function channelsFor(scope, env) {
 function channelHint(scope, env, from) {
   const pair = findPair(env, from);
   const channels = pair
-    ? [scope.channel ?? []].flat().map((role) => pair[role])
+    ? [scope.channel ?? []].flat().map((role) => pair[role]).filter(Boolean)
     : channelsFor(scope, env);
   return channels.length ? ` in ${channels.map((id) => `<#${id}>`).join(" or ")}` : "";
 }

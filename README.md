@@ -50,7 +50,7 @@ can register `actions` (by action ID) and `views` (by modal callback ID).
 | --- | --- |
 | `/slack/events` | Event Subscriptions (`@LUMA` messages) |
 | `/slack/interactions` | Interactivity (forms, buttons, menus) |
-| `/slack/commands` | Slash Commands (`/luma track`, `/luma requirement`) |
+| `/slack/commands` | Slash Commands (`/luma requirement`, `/luma incident`, `/luma track`) |
 
 ## Task tracker commands
 
@@ -85,7 +85,8 @@ task: the requirement's **name**, an optional **due date** and the
 **priority**. Luma then posts it as a new message to discuss in its thread. The
 message shows:
 
-1. the requirement name,
+1. "**Requirement:**" and the requirement name, so it can be told apart from
+   incidents in the same channel,
 2. its status, priority and due date, and
 3. in small text, who started it and who tracked it, linking to the task
    thread ("Not tracked yet" until there is one), the same way a task
@@ -134,9 +135,30 @@ in `#aura300-dev`, and Luma's reply links there.
 Assign and unassign are for tasks only, and only tracked tasks are recorded
 in the Google Sheet.
 
+### Incidents
+
+Incidents come in through the external channel too, but are tracked in the
+pair's own incidents channel (set `incidents` in `CHANNEL_PAIRS`).
+
+**`/luma incident`** in `#aura300-external` opens a form that asks only what
+the incident is. Incidents are always 🔴 **Urgent** and due **Immediate**,
+and need no discussion first, so on submit Luma:
+
+1. posts "**Incident:** *title*" in the external channel, like a
+   requirement message but "Reported by" whoever reported it, and
+2. tracks it straight away as a task in the incidents channel, pinned, and
+   links the two, so the incident shows 🔵 In progress.
+
+From then on it works like a tracked requirement: the task commands below
+work in the incidents channel, the incident message always shows the
+current status, and Client review asks the reporter to approve. The only
+difference is that an incident's priority and due date can't be changed,
+in either thread. Incident tasks are recorded in the pair's sheet tab with
+the other tasks.
+
 ### Task commands
 
-In a task's thread in `#aura300-dev`:
+In a task's thread in `#aura300-dev` or the incidents channel:
 
 - `@LUMA assign developer @person [@person …]` adds people as developers;
   `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the

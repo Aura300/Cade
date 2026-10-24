@@ -15,7 +15,7 @@ export default {
   name: "assign",
   description: "Assign a developer, reviewer or tester (in its thread)",
   usage: "@LUMA assign developer @person",
-  channel: "tasks",
+  channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
