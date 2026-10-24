@@ -8,9 +8,10 @@ the `project-helper` Cloudflare Worker behind the Luma Slack app.
 Most commands are messages that start by @mentioning the bot, such as
 `@LUMA assign @person`. Slack doesn't allow custom slash commands in threads,
 and most commands are sent from a thread. Messages that don't start with
-`@LUMA` are ignored. Commands that start something new also work as the
-slash commands `/luma track` and `/luma requirement`, which open their form
-straight away since a slash command, unlike a message, can open one.
+`@LUMA` are ignored. Starting something new outside a thread uses the slash
+commands `/luma requirement` (external channel) and `/luma track` (dev
+channel), which open their form straight away since a slash command, unlike
+a message, can open one.
 
 ```mermaid
 flowchart LR
@@ -53,28 +54,29 @@ can register `actions` (by action ID) and `views` (by modal callback ID).
 
 ## Task tracker commands
 
-**`@LUMA track`** in `#aura300-external`, usually as a reply in the thread
-where the request was discussed. Luma replies with a **Track task** button;
-Slack only opens forms from a click. The form asks for the **task title**, an
-optional **due date** (picked from a calendar and shown as DD/MM/YYYY) and the **priority** (Urgent, High, Medium,
-Low). On submit, Luma:
+Each channel has one way to track a task:
 
-1. posts the task to `#aura300-dev` and pins it to the channel. The task
-   message shows the title; then the status, priority and due date; then the
-   developer, reviewer and tester ("Unassigned" until someone is assigned);
-   then who tracked it, with a link back to the request thread, and
-2. replaces the button with "@you tracked a task: *title*", linking to the
-   new task thread.
+- **Client work:** start it with **`/luma requirement`** in
+  `#aura300-external` (see [Requirements](#requirements)), then send
+  **`@LUMA track`** in the requirement's thread. `@LUMA track` works only
+  there; anywhere else Luma explains where to use it. A requirement has one
+  task, so a tracked requirement can't be tracked again.
+- **The team's own work:** send **`/luma track`** in `#aura300-dev`. It
+  opens a form for the **task title**, an optional **due date** (picked from
+  a calendar and shown as DD/MM/YYYY) and the **priority** (Urgent, High,
+  Medium, Low). The task has no external thread, so it shows only "Tracked
+  by @you", and status changes and deletion are not shared anywhere else.
 
-**`/luma track`** opens the same form straight away, without a button, so
-you don't need to post a message first. In `#aura300-dev` the task is just
-posted there. In `#aura300-external` Luma posts "@you is tracking a task"
-to act as the external thread, then turns it into the usual announcement.
+Either way, Luma posts the task to `#aura300-dev` and pins it. The task
+message shows the title; then the status, priority and due date; then the
+developer, reviewer and tester ("Unassigned" until someone is assigned);
+then who tracked it, with a link back to the requirement thread if there is
+one. From a requirement thread, Luma replies with a **Track task** button
+(Slack only opens forms from a click) and turns it into "@you tracked a
+task: *title*", linking to the new task.
 
-For the team's own work that has no request thread, send **`@LUMA track`**
-(or `/luma track`) in `#aura300-dev` itself. The same button and form create the task in that
-channel. Such a task has no external thread, so it shows only "Tracked by
-@you", and status changes and deletion are not shared anywhere else.
+Tasks tracked from ordinary external threads before this change keep
+working: their status changes can still be shared with that thread.
 
 ### Requirements
 
@@ -104,8 +106,9 @@ changes what follows who knows it:
   message is also posted in the requirement thread.
 - **The client can accept work, if the team asks.** The team can set a task
   to Done directly. Client review is an optional step for work the client
-  should check first: when the dev channel informs a requirement thread
-  that a task is in Client review, the message has **Approve** and
+  should check first: when the dev channel moves a requirement's task to
+  Client review, Luma posts in the requirement thread straight away,
+  without asking whether to inform it, with **Approve** and
   **Not approve** buttons. **Approve** moves the task to Done; **Not
   approve** moves it back to In progress, and the client explains what
   needs to change in the thread. Either way Luma tells the task's thread in

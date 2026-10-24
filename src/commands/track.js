@@ -1,4 +1,4 @@
-import { pairFor, tasksChannelFor } from "../channels.js";
+import { tasksChannelFor } from "../channels.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
@@ -14,42 +14,53 @@ import {
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
 
-// `@LUMA track` replies with a Track task button, because only a click carries
-// the trigger_id Slack needs to open a modal. Submitting the modal posts the
-// task to the tasks channel and replaces the button with an announcement
-// linking to the task's thread.
+function notInRequirement(env, channel) {
+  return `Use \`@LUMA track\` in the thread of a requirement started with \`/luma requirement\`. For the team's own work, use \`/luma track\` in <#${tasksChannelFor(env, channel)}>.`;
+}
+
+function alreadyTracked(requirement) {
+  const { link, title } = requirement.task;
+  return `This requirement is already tracked as <${link}|${escapeSlack(title)}>.`;
+}
+
+// Each channel has one way to track a task:
 //
-// Sent in an external channel (usually in a request thread), the task goes to
-// the paired tasks channel and remembers that thread, so later updates can be
-// shared there. Sent in a tasks channel, for the team's own work, the task is
-// created in that channel with no external thread.
+// `@LUMA track` in the thread of a requirement started with `/luma
+// requirement` tracks the requirement. It replies with a Track task button,
+// because only a click carries the trigger_id Slack needs to open a modal.
+// The form starts with the requirement's title and asks only for the task's
+// title: the client sets the priority and due date in the requirement
+// thread, and the task takes them from the requirement. Submitting posts the
+// task to the paired tasks channel, replaces the button with an announcement
+// linking to it, and links the requirement's message to it. A requirement
+// has one task, so a tracked requirement cannot be tracked again.
 //
-// In a requirement thread started with `/luma requirement`, the form starts
-// with the requirement's title and asks only for the task's title: the
-// client sets the priority and due date in the requirement thread, and the
-// task takes them from the requirement. The requirement's root message is
-// updated to link to the task.
-//
-// `/luma track` opens the form straight away, since a slash command carries a
-// trigger_id, so no message is needed to start from. In a tasks channel the
-// task is simply posted there; in an external channel Luma posts a message to
-// act as the task's external thread.
+// `/luma track` in a tasks channel, for the team's own work, opens the full
+// form straight away, since a slash command carries a trigger_id. The task is
+// posted in that channel with no external thread.
 export default {
   name: "track",
-  description: "Track a new task (from a request thread, or in the dev channel for your own work)",
+  description: "Track a requirement as a task (in its thread)",
   usage: "@LUMA track",
   slashUsage: "/luma track",
-  channel: ["external", "tasks"],
+  channel: "external",
+  slashChannel: "tasks",
   async run(command, { env }) {
-    const origin = { channel: command.channel, threadTs: command.threadTs ?? command.ts };
     const inThread = command.threadTs && command.threadTs !== command.ts;
-    if (inThread && pairFor(env, command.channel).external === command.channel) {
-      const requirement = await loadRequirement(env, command.channel, command.threadTs);
-      if (requirement) {
-        const { title, priority, dueDate } = requirement;
-        Object.assign(origin, { requirement: true, title, priority, dueDate });
-      }
-    }
+    const requirement =
+      inThread && (await loadRequirement(env, command.channel, command.threadTs));
+    if (!requirement) return notInRequirement(env, command.channel);
+    if (requirement.task) return alreadyTracked(requirement);
+
+    const { title, priority, dueDate } = requirement;
+    const origin = {
+      channel: command.channel,
+      threadTs: command.threadTs,
+      requirement: true,
+      title,
+      priority,
+      dueDate,
+    };
     return {
       text: "Track a new task",
       blocks: [
@@ -142,25 +153,25 @@ async function submit(payload, context) {
 }
 
 async function createTask(env, task, origin) {
-  if (fromRequirement(origin)) {
-    // The requirement's current values, in case the client changed them while
-    // the form was open.
+  if (origin.requirement) {
+    // The requirement's current state, in case the client changed its
+    // priority, or someone else tracked it, while the form was open.
     const requirement = await loadRequirement(env, origin.channel, origin.threadTs);
-    task.priority = requirement?.priority || origin.priority;
-    task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
+    if (requirement?.task) {
+      await callSlack(env, "chat.postEphemeral", {
+        channel: origin.channel,
+        thread_ts: origin.threadTs,
+        user: task.createdBy,
+        text: alreadyTracked(requirement),
+      });
+      return;
+    }
+    if (fromRequirement(origin)) {
+      task.priority = requirement?.priority || origin.priority;
+      task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
+    }
   }
   const tasksChannel = tasksChannelFor(env, origin.channel);
-  if (origin.channel !== tasksChannel && !origin.threadTs) {
-    // `/luma track` in an external channel: this message becomes the external
-    // thread, and is replaced by the announcement like the button would be.
-    const placeholder = `<@${task.createdBy}> is tracking a task: ${escapeSlack(task.title)}`;
-    const { ts } = await callSlack(env, "chat.postMessage", {
-      channel: origin.channel,
-      text: placeholder,
-      blocks: [{ type: "section", text: mrkdwn(placeholder) }],
-    });
-    origin = { ...origin, threadTs: ts, promptTs: ts };
-  }
   if (origin.channel !== tasksChannel) {
     task.source = {
       channel: origin.channel,

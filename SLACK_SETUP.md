@@ -168,14 +168,14 @@ Try these in the test channels first.
 | `@LUMA track` in that requirement's thread | The form asks only for the title, starting with the requirement's name, and shows its priority and due date; submitting changes the requirement message to 🔵 In progress with a link to the task |
 | `@LUMA priority urgent` in the requirement thread after tracking | The requirement and the task both show 🔴 Urgent, and the task's thread gets a note |
 | `@LUMA priority low` in that task's thread | Luma refuses and links to the requirement thread |
-| `@LUMA status client review` in that task's thread, then **Inform external thread** | The requirement thread gets the message with **Approve** and **Not approve** buttons |
+| `@LUMA status client review` in that task's thread | Without asking, the requirement thread gets a message with **Approve** and **Not approve** buttons |
 | Click **Approve** | The task becomes ✅ Done and is unpinned, the requirement shows Done, and the task's thread is told |
 | Click **Not approve** (after moving the task to Client review again) | The task and requirement go back to 🔵 In progress, and the task's thread is told |
 | `@LUMA status in review` in that task's thread | The requirement message still shows 🔵 In progress; `@LUMA status client review` changes it to Client review straight away |
-| `/luma track` in `#test-dev` | The form opens straight away; the task is posted with no reply |
-| `@LUMA track` in a thread in `#aura300-external` | Luma replies with a **Track task** button; clicking it opens the form |
-| Submit the form | The task appears and is pinned in `#aura300-dev`; the button reply becomes "@you tracked a task" with a link |
-| `@LUMA track` in `#test-dev` itself | Same form; the task is created in `#test-dev` with no external thread |
+| `@LUMA track` again in the same requirement thread | Luma says it's already tracked, with a link to the task |
+| `@LUMA track` in a thread Luma didn't start, or in `#test-dev` | Luma explains where to use it; nothing is tracked |
+| `/luma track` in `#test-dev` | The full form opens straight away; the task is created in `#test-dev` with no external thread |
+| `/luma track` in `#test-external` | Luma says, privately, to use it in `#test-dev` |
 | In the task's thread: `@LUMA assign developer @someone` | The task message shows them as **Developer** |
 | `@LUMA assign reviewer @someone`, `@LUMA assign tester @someone` | They appear as **Reviewer** / **Tester** |
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |

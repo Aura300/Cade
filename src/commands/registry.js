@@ -14,6 +14,7 @@ import unassign from "./unassign.js";
 //     aliases?: other names that run the same handler,
 //     channel?: "external", "tasks" or both as a list: the channels in
 //               CHANNEL_PAIRS it works in,
+//     slashChannel?: like `channel`, for `/luma name` when it differs,
 //     inThread?: true if it must be run from a thread reply,
 //     run?(command, context) -> reply | undefined, for `@LUMA name`,
 //     slash?(command, context) -> reply | undefined, for `/luma name`; it has

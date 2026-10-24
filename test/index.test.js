@@ -305,31 +305,48 @@ test("modal submission tells the creator when the task cannot be posted", async 
   assert.match(calls[2].args.text, /could not be created/);
 });
 
-test("@LUMA track in an external thread replies with a button", async (t) => {
-  const calls = mockSlack(t);
+test("@LUMA track only works in a requirement thread", async (t) => {
+  for (const [overrides, roots] of [
+    // A thread Luma did not start.
+    [{ ts: "200.5", thread_ts: "200.1" }, [{ ts: "200.1" }]],
+    // A top-level message, which has no thread to check.
+    [{ ts: "200.5", thread_ts: undefined }, []],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: roots } });
+    await send("/slack/events", threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ...overrides }));
+    const reply = calls.at(-1).args;
+    assert.equal(reply.text, "Use `@LUMA track` in the thread of a requirement started with `/luma requirement`. For the team's own work, use `/luma track` in <#CDEV>.");
+    assert.ok(!reply.blocks, "no Track task button");
+  }
+});
+
+test("a tracked requirement cannot be tracked again", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot({ task: true })] } });
   await send(
     "/slack/events",
     threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
   );
-
-  // The thread's root is checked for a requirement first.
   assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
-  assert.equal(calls[1].args.channel, "CEXTERNAL");
-  assert.equal(calls[1].args.thread_ts, "200.1");
-  const button = calls[1].args.blocks[0].elements[0];
-  assert.equal(button.action_id, "track:open");
-  assert.deepEqual(JSON.parse(button.value), { channel: "CEXTERNAL", threadTs: "200.1" });
-});
-
-test("@LUMA track as a top-level message starts a thread on it", async (t) => {
-  const calls = mockSlack(t);
-  await send(
-    "/slack/events",
-    threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ts: "200.5", thread_ts: undefined }),
+  assert.equal(
+    calls[1].args.text,
+    "This requirement is already tracked as <https://slack.example/p100|Fix login>.",
   );
-  assert.equal(calls[0].args.thread_ts, "200.5");
 });
 
+test("a requirement tracked while the form was open is not tracked twice", async (t) => {
+  const calls = mockSlack(t, {
+    ...createdTask,
+    "conversations.replies": { messages: [requirementRoot({ task: true })] },
+  });
+  await send(
+    "/slack/interactions",
+    interaction(titleOnlySubmission("Export reports", requirementOrigin)),
+  );
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postEphemeral"]);
+  assert.equal(calls[1].args.user, "UCREATOR");
+  assert.equal(calls[1].args.thread_ts, "200.1");
+  assert.match(calls[1].args.text, /^This requirement is already tracked as/);
+});
 test("the Track task button opens the modal for that thread", async (t) => {
   const calls = mockSlack(t);
   const response = await send(
@@ -889,54 +906,21 @@ test("@LUMA assign outside the dev channel points to it", async (t) => {
   );
 });
 
-test("@LUMA track outside the configured channels points to them", async (t) => {
+test("@LUMA track outside the external channels points to them", async (t) => {
+  for (const channel of ["COTHER", "CDEV"]) {
+    const calls = mockSlack(t);
+    await send("/slack/events", threadEvent("<@UBOT> track", { channel }));
+    assert.equal(calls[0].args.text, "Use `@LUMA track` in <#CEXTERNAL> or <#CTESTEXT>.", channel);
+  }
+});
+
+test("/luma track only works in the dev channels", async (t) => {
   const calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> track", { channel: "COTHER" }));
-  assert.equal(
-    calls[0].args.text,
-    "Use `@LUMA track` in <#CEXTERNAL> or <#CTESTEXT> or <#CDEV> or <#CTESTDEV>.",
-  );
+  const reply = await (await send("/slack/commands", slash("track", "CEXTERNAL"))).json();
+  assert.equal(calls.length, 0);
+  assert.equal(reply.response_type, "ephemeral");
+  assert.equal(reply.text, "Use `/luma track` in <#CDEV> or <#CTESTDEV>.");
 });
-
-test("@LUMA track in the dev channel creates a task with no external thread", async (t) => {
-  let calls = mockSlack(t);
-  await send(
-    "/slack/events",
-    threadEvent("<@UBOT> track", { channel: "CDEV", ts: "400.1", thread_ts: undefined }),
-  );
-  assert.equal(calls[0].args.channel, "CDEV");
-  assert.equal(calls[0].args.thread_ts, "400.1");
-  assert.deepEqual(JSON.parse(calls[0].args.blocks[0].elements[0].value), {
-    channel: "CDEV",
-    threadTs: "400.1",
-  });
-
-  calls = mockSlack(t, createdTask);
-  await send(
-    "/slack/interactions",
-    interaction(
-      submission(
-        { title: "Refactor auth", priority: "Medium" },
-        { channel: "CDEV", threadTs: "400.1", promptTs: "400.2" },
-      ),
-    ),
-  );
-  // No link to an external thread is looked up.
-  assert.deepEqual(
-    calls.map((call) => call.method),
-    ["chat.postMessage", "pins.add", "chat.getPermalink", "chat.update"],
-  );
-  const post = calls[0].args;
-  assert.equal(post.channel, "CDEV");
-  assert.equal(post.blocks[3].elements[0].text, "Tracked by <@UCREATOR>");
-  assert.equal(post.metadata.event_payload.source_channel, "");
-  assert.deepEqual(calls[3].args.ts, "400.2");
-  assert.equal(
-    calls[3].args.text,
-    "<@UCREATOR> tracked a task: <https://slack.example/p100|Refactor auth>",
-  );
-});
-
 test("tasks with no external thread never ask to inform it", async (t) => {
   const own = rootMessage();
   own.metadata.event_payload.source_channel = "";
@@ -948,8 +932,11 @@ test("tasks with no external thread never ask to inform it", async (t) => {
 });
 
 test("tasks tracked from the test channel go to the test tasks channel", async (t) => {
-  let calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> track", { channel: "CTESTEXT" }));
+  let calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> track", { channel: "CTESTEXT", ts: "200.5", thread_ts: "200.1" }),
+  );
   assert.equal(calls.at(-1).args.blocks[0].elements[0].action_id, "track:open");
 
   calls = mockSlack(t, {
@@ -1313,33 +1300,6 @@ test("/luma track in the dev channel posts the task without an announcement", as
   assert.equal(calls[0].args.metadata.event_payload.source_channel, "");
 });
 
-test("/luma track in an external channel posts a message to be the external thread", async (t) => {
-  const calls = mockSlack(t, {
-    ...createdTask,
-    "chat.postMessage": (args) =>
-      args.channel === "CDEV" ? { channel: "CDEV", ts: "100.1" } : { ts: "400.1" },
-  });
-  await send(
-    "/slack/interactions",
-    interaction(submission({ title: "Fix login", priority: "Low" }, { channel: "CEXTERNAL" })),
-  );
-
-  assert.deepEqual(calls.map((call) => call.method), [
-    "chat.postMessage",
-    "chat.getPermalink",
-    "chat.postMessage",
-    "pins.add",
-    "chat.getPermalink",
-    "chat.update",
-  ]);
-  assert.equal(calls[0].args.channel, "CEXTERNAL");
-  assert.equal(calls[0].args.thread_ts, undefined);
-  assert.equal(calls[0].args.text, "<@UCREATOR> is tracking a task: Fix login");
-  assert.equal(calls[2].args.metadata.event_payload.source_thread_ts, "400.1");
-  assert.equal(calls[5].args.ts, "400.1");
-  assert.equal(calls[5].args.text, "<@UCREATOR> tracked a task: <https://slack.example/p100|Fix login>");
-});
-
 test("/luma requirement opens the requirement form in an external channel only", async (t) => {
   let calls = mockSlack(t);
   await send("/slack/commands", slash("requirement"));
@@ -1433,18 +1393,6 @@ test("a requirement needs a name", async (t) => {
   });
 });
 
-test("@LUMA track in other threads leaves the title empty", async (t) => {
-  const calls = mockSlack(t, { "conversations.replies": { messages: [{ ts: "200.1" }] } });
-  await send(
-    "/slack/events",
-    threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
-  );
-  assert.deepEqual(JSON.parse(calls[1].args.blocks[0].elements[0].value), {
-    channel: "CEXTERNAL",
-    threadTs: "200.1",
-  });
-});
-
 test("tracking from a requirement thread moves the requirement to In progress", async (t) => {
   const calls = mockSlack(t, {
     ...createdTask,
@@ -1460,7 +1408,8 @@ test("tracking from a requirement thread moves the requirement to In progress", 
     ),
   );
 
-  assert.equal(calls[1].args.metadata.event_payload.source_requirement, "true");
+  const post = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV");
+  assert.equal(post.args.metadata.event_payload.source_requirement, "true");
   const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
   assert.deepEqual(
     update.args.blocks.slice(1, 3).map((block) => block.text.text),
@@ -1659,8 +1608,9 @@ test("a requirement always shows its task's current status, as the client sees i
     await send("/slack/events", threadEvent(`<@UBOT> status ${status}`));
     const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
     assert.equal(update.args.metadata.event_payload.status, shown, status);
-    // Nothing is posted in the requirement thread unless someone informs it.
-    assert.ok(!calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL"));
+    // Only Client review is posted in the requirement thread without asking.
+    const posted = calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
+    assert.equal(posted, status === "CLIENT_REVIEW", status);
   }
 });
 
@@ -1936,4 +1886,33 @@ test("Approve on a deleted task says so", async (t) => {
   await send("/slack/interactions", reviewClick("status:approve"));
   assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.update"]);
   assert.match(calls[1].args.text, /\nThis task no longer exists\.$/);
+});
+
+test("Client review on a requirement task asks the client straight away", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true }), requirementTask("IN_TESTING")),
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send("/slack/events", threadEvent("<@UBOT> status client review"));
+
+  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
+  assert.equal(review.args.thread_ts, "200.1");
+  assert.deepEqual(
+    review.args.blocks[1].elements.map((button) => button.action_id),
+    ["status:approve", "status:reject"],
+  );
+  const reply = calls.at(-1).args;
+  assert.equal(reply.channel, "CDEV");
+  assert.equal(
+    reply.text,
+    "<@UACTOR> set the status to :large_yellow_circle: Client review.\nLuma asked the client to review it in the requirement thread.",
+  );
+  assert.equal(reply.blocks, undefined, "no Inform external thread buttons");
+});
+
+test("Done on a requirement task still asks whether to inform the client", async (t) => {
+  const calls = mockSlack(t, threads(requirementRoot({ task: true }), requirementTask("IN_TESTING")));
+  await send("/slack/events", threadEvent("<@UBOT> status done"));
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL"));
+  assert.equal(calls.at(-1).args.blocks[1].elements[0].action_id, "status:inform");
 });

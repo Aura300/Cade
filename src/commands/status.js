@@ -20,13 +20,15 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 // When a task moves from an open status to CLIENT_REVIEW or DONE, the
 // confirmation asks whether Luma should tell the external thread the task was
 // tracked from, or whether someone will tell them themselves. A requirement
-// the task was tracked from always shows the current status, either way.
+// the task was tracked from always shows the current status, either way. A
+// requirement's task moving to CLIENT_REVIEW is the exception: the client is
+// asked to review it straight away (see below).
 //
 // Only the dev channel sets statuses, and it can set Done directly. Client
 // review is an optional step for work the client should check first, and
-// the client decides whether that work is accepted. When a requirement thread is
-// told a task is in Client review, the message has Approve and Not approve
-// buttons. Approve moves the task to Done; Not approve moves it back to In
+// the client decides whether that work is accepted. When a requirement's
+// task moves to Client review, Luma posts in the requirement thread with
+// Approve and Not approve buttons. Approve moves the task to Done; Not approve moves it back to In
 // progress. Either way the task's thread is told. Slack cannot tell the team
 // from the client, so anyone in the external channel can click them.
 export default {
@@ -49,7 +51,7 @@ export default {
     }
 
     const closed = await applyStatus(env, command.channel, command.threadTs, task, status);
-    return confirmation(command.channel, command.threadTs, task, status, command.user, closed);
+    return afterChange(env, command.channel, command.threadTs, task, status, command.user, closed);
   },
   actions: {
     [SELECT_ACTION]: async (payload, context) => {
@@ -109,7 +111,7 @@ async function selectStatus(payload, env) {
   let reply = NOT_A_TASK;
   if (task) {
     const closed = await applyStatus(env, channel, ts, task, status);
-    reply = confirmation(channel, ts, task, status, payload.user.id, closed);
+    reply = await afterChange(env, channel, ts, task, status, payload.user.id, closed);
   }
   await callSlack(env, "chat.update", {
     channel,
@@ -131,6 +133,17 @@ async function applyStatus(env, channel, ts, task, status) {
     await setPinned(env, channel, ts, status !== "DONE");
   }
   return !CLOSED_STATUSES.includes(previous) && CLOSED_STATUSES.includes(status);
+}
+
+// Returns the confirmation for a status change. Client review on a task from
+// a requirement needs the client, so they are asked straight away instead of
+// asking whether to tell them.
+async function afterChange(env, channel, ts, task, status, user, closed) {
+  if (closed && status === "CLIENT_REVIEW" && task.source?.requirement) {
+    await announce(env, channel, ts, task, user);
+    return `${changedText(user, status)}\nLuma asked the client to review it in the requirement thread.`;
+  }
+  return confirmation(channel, ts, task, status, user, closed);
 }
 
 function confirmation(channel, ts, task, status, user, closed) {
