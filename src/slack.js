@@ -88,6 +88,12 @@ export async function respondLater(responseUrl, body) {
     body: JSON.stringify({ response_type: "ephemeral", ...body }),
   });
   if (!response.ok) throw new Error(`Slack response_url returned HTTP ${response.status}`);
+  // Slack can refuse a message, such as one with invalid blocks, with an OK
+  // status and { ok: false } as the reply.
+  if (response.headers.get("content-type")?.includes("json")) {
+    const result = await response.json();
+    if (result.ok === false) throw new Error(`Slack response_url refused the message: ${result.error}`);
+  }
 }
 
 // A reply that acknowledges a command with a ✅ on its message rather than a

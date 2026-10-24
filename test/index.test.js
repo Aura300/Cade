@@ -2172,6 +2172,13 @@ const historyTask = (ts, { developers = [], reviewers = [], testers = [], ...fie
 const TASKS_USAGE =
   "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
+// A response_url's answer: like the API, it refuses a message whose blocks
+// reuse an action_id, with an OK status and { ok: false }.
+function respondAsSlack(body) {
+  const reused = duplicateActionIds(body.blocks ?? []);
+  return reused.length ? Response.json({ ok: false, error: "invalid_blocks" }) : new Response("ok");
+}
+
 // Slash command answers sent later go to RESPONSE_URL.
 const RESPONSE_URL = "https://hooks.slack.com/commands/T1/1/abc";
 
@@ -2193,7 +2200,7 @@ async function runTasksCommand(text, channel, environment = env) {
   globalThis.fetch = async (url, init) => {
     if (url === RESPONSE_URL) {
       later = JSON.parse(init.body);
-      return new Response("ok");
+      return respondAsSlack(later);
     }
     return fakeFetch(url, init);
   };
@@ -2534,8 +2541,9 @@ function recordResponses(t) {
   const fakeFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     if (url === RESPONSE_URL) {
-      sent.push(JSON.parse(init.body));
-      return new Response("ok");
+      const body = JSON.parse(init.body);
+      sent.push(body);
+      return respondAsSlack(body);
     }
     return fakeFetch(url, init);
   };
@@ -4182,14 +4190,14 @@ test("/cade standup starts with whoever runs it, then everyone by name, then tas
   assert.match(mine.text.text, /\|Mine>  ·  :large_purple_circle: In review/);
   assert.equal(mine.accessory.type, "static_select");
   assert.equal(mine.accessory.initial_option.value, "IN_REVIEW");
-  assert.deepEqual(buttonsOf(later), [["Next: Alice ▶", "standup:go"], ["End", "standup:end"]]);
+  assert.deepEqual(buttonsOf(later), [["Next: Alice ▶", "standup:next"], ["End", "standup:end"]]);
 
   const alice = await clickButton(t, later, "Next: Alice ▶");
   assert.equal(alice.replace_original, true);
   assert.equal(alice.blocks[0].text.text, "*Standup: <@UALICE>*  ·  2 of 4");
   // Done tasks are left out.
   assert.equal(alice.blocks[1].elements[0].text, "1 open task  ·  aura300");
-  assert.deepEqual(buttonsOf(alice), [["◀ Back", "standup:go"], ["Next: Bob ▶", "standup:go"], ["End", "standup:end"]]);
+  assert.deepEqual(buttonsOf(alice), [["◀ Back", "standup:back"], ["Next: Bob ▶", "standup:next"], ["End", "standup:end"]]);
 
   const bob = await clickButton(t, alice, "Next: Bob ▶");
   // Most urgent first.
@@ -4206,7 +4214,7 @@ test("/cade standup starts with whoever runs it, then everyone by name, then tas
   const [unassigned] = nobody.blocks.filter((block) => block.accessory);
   assert.match(unassigned.text.text, /\|Nobody's>/);
   assert.equal(unassigned.accessory.type, "users_select");
-  assert.deepEqual(buttonsOf(nobody), [["◀ Back", "standup:go"], ["Finish", "standup:end"]]);
+  assert.deepEqual(buttonsOf(nobody), [["◀ Back", "standup:back"], ["Finish", "standup:end"]]);
 
   const back = await clickButton(t, nobody, "◀ Back");
   assert.equal(back.blocks[0].text.text, "*Standup: <@UBOB>*  ·  3 of 4");
@@ -4242,7 +4250,7 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
   assert.equal(later.blocks[0].text.text, "*Unassigned aura300 tasks*  ·  1 of 2");
   const first = later.blocks.find((block) => block.accessory);
   assert.match(first.text.text, /\|Urgent>/);
-  assert.deepEqual(buttonsOf(later), [["Skip ▶", "standup:go"], ["End", "standup:end"]]);
+  assert.deepEqual(buttonsOf(later), [["Skip ▶", "standup:next"], ["End", "standup:end"]]);
 
   calls.length = 0;
   const sent = recordResponses(t);

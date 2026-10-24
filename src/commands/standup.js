@@ -5,7 +5,10 @@ import { REQUESTS, STATUSES, loadTask, saveTask } from "../tasks.js";
 import { setStatus, statusOption } from "./status.js";
 import { OPEN, byUrgency, groupTasks, line } from "./tasks.js";
 
-const GO_ACTION = "standup:go";
+// Back and Next move to the step their value names. Slack wants each button
+// in a block to have its own action_id, so they have one each.
+const BACK_ACTION = "standup:back";
+const NEXT_ACTION = "standup:next";
 const END_ACTION = "standup:end";
 // A step shows up to MAX_SHOWN tasks, each with its own menu, and Slack wants
 // each menu's action_id to be different, so each place has its own.
@@ -46,9 +49,14 @@ export default {
     context.waitUntil((async () => respondLater(command.responseUrl, await render(context.env, walk)))());
   },
   actions: {
-    [GO_ACTION]: async (payload, context) => {
-      context.waitUntil(show(payload, context.env, JSON.parse(payload.actions[0].value)));
-    },
+    ...Object.fromEntries(
+      [BACK_ACTION, NEXT_ACTION].map((id) => [
+        id,
+        async (payload, context) => {
+          context.waitUntil(show(payload, context.env, JSON.parse(payload.actions[0].value)));
+        },
+      ]),
+    ),
     [END_ACTION]: async (payload) => {
       await respondLater(payload.response_url, { delete_original: true });
     },
@@ -174,19 +182,19 @@ async function render(env, walk) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${more} more, after these._`)] });
   }
 
-  const go = (i, text, style) => ({
+  const go = (action_id, i, text, style) => ({
     type: "button",
-    action_id: GO_ACTION,
+    action_id,
     text: plainText(text),
     value: JSON.stringify({ ...walk, i }),
     ...(style && { style }),
   });
   const buttons = [];
-  if (walk.i > 0) buttons.push(go(walk.i - 1, "◀ Back"));
+  if (walk.i > 0) buttons.push(go(BACK_ACTION, walk.i - 1, "◀ Back"));
   const next = all[walk.i + 1];
   if (next) {
     const label = walk.m === "unassigned" ? "Skip" : `Next: ${next.name ?? "No developer"}`;
-    buttons.push(go(walk.i + 1, `${label} ▶`.slice(0, 75), "primary"));
+    buttons.push(go(NEXT_ACTION, walk.i + 1, `${label} ▶`.slice(0, 75), "primary"));
   }
   buttons.push({
     type: "button",
