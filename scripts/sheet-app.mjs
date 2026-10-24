@@ -98,7 +98,7 @@ function option(args, name) {
   return at === -1 ? undefined : args[at + 1];
 }
 
-async function create(args) {
+export async function create(args) {
   if (await exists(APP_FILE)) {
     throw new Error("A Sheet is already set up (.sheet-app.json). Use npm run sheet:update to change its script.");
   }
@@ -141,7 +141,7 @@ Run, and allow it:
 ${sheet ? `\nThe spreadsheet: ${sheet}\n` : ""}`);
 }
 
-async function update() {
+export async function update() {
   let app;
   try {
     app = JSON.parse(await readFile(APP_FILE, "utf8"));

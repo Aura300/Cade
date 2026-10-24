@@ -5,9 +5,9 @@
 //   npm run slack:create -- https://luma.example.workers.dev [--name Luma] [--command /luma]
 //   npm run slack:update
 //
-// Both need SLACK_CONFIG_TOKEN: an app configuration token for the workspace,
-// from https://api.slack.com/apps ("Your App Configuration Tokens"). It lasts
-// 12 hours and is only read from the environment, never stored.
+// Both need an app configuration token for the workspace, from
+// https://api.slack.com/apps ("Your App Configuration Tokens"). They ask for
+// it, hidden, or read SLACK_CONFIG_TOKEN. It lasts 12 hours and is never stored.
 //
 // Creating stores the app's signing secret in the Worker with `wrangler secret
 // put`, then asks for the bot token once the app is installed, which only a
@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { askHidden } from "./prompt.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MANIFEST = `${ROOT}slack/manifest.json`;
@@ -78,13 +79,15 @@ function putSecret(name, value) {
   });
 }
 
-function configToken() {
-  const token = process.env.SLACK_CONFIG_TOKEN;
-  if (!token) {
-    throw new Error(
-      "Set SLACK_CONFIG_TOKEN to an app configuration token from https://api.slack.com/apps (Your App Configuration Tokens).",
-    );
-  }
+// The app configuration token: from SLACK_CONFIG_TOKEN, or asked for, hidden,
+// so it never has to be typed into a command.
+async function configToken() {
+  if (process.env.SLACK_CONFIG_TOKEN) return process.env.SLACK_CONFIG_TOKEN;
+  const where = "an app configuration token from https://api.slack.com/apps (Your App Configuration Tokens)";
+  if (!process.stdin.isTTY) throw new Error(`Run this in a terminal to be asked for ${where}, or set SLACK_CONFIG_TOKEN.`);
+  console.log(`This needs ${where}.`);
+  const token = await askHidden("App configuration token (xoxe.xoxp-…, hidden): ");
+  if (!token) throw new Error("No token given.");
   return token;
 }
 
@@ -93,7 +96,7 @@ function option(args, name) {
   return at === -1 ? undefined : args[at + 1];
 }
 
-async function create(args) {
+export async function create(args) {
   const settings = {
     workerUrl: args.find((arg) => arg.startsWith("https://")) ?? args[0],
     name: option(args, "name") ?? DEFAULTS.name,
@@ -101,7 +104,7 @@ async function create(args) {
   };
   const problems = checkSettings(settings);
   if (problems.length) throw new Error(problems.join("\n"));
-  const token = configToken();
+  const token = await configToken();
   const template = JSON.parse(await readFile(MANIFEST, "utf8"));
 
   console.log(`Creating the Slack app "${settings.name}" for ${settings.workerUrl}…`);
@@ -140,14 +143,14 @@ async function create(args) {
   console.log("Stored. Next: invite the app to your channels (see GETTING_STARTED.md).");
 }
 
-async function update() {
+export async function update() {
   let app;
   try {
     app = JSON.parse(await readFile(APP_FILE, "utf8"));
   } catch {
     throw new Error("No .slack-app.json here: create the app with npm run slack:create first.");
   }
-  const token = configToken();
+  const token = await configToken();
   const template = JSON.parse(await readFile(MANIFEST, "utf8"));
   await slack("apps.manifest.update", token, {
     app_id: app.appId,

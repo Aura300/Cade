@@ -8,9 +8,9 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { readConfig } from "./config.mjs";
+import { askHidden } from "./prompt.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -33,22 +33,6 @@ export function envFile(settings) {
       return `${name}='${value}'`;
     })
     .join("\n");
-}
-
-// Asks a question without showing what's typed.
-function askHidden(question) {
-  return new Promise((resolve) => {
-    const prompt = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    prompt._writeToOutput = (text) => {
-      // Echo the question and the final line break, not the answer.
-      if (text.startsWith(question) || text === "\r\n" || text === "\n") process.stdout.write(text);
-    };
-    prompt.question(question, (answer) => {
-      prompt.close();
-      process.stdout.write("\n");
-      resolve(answer.trim());
-    });
-  });
 }
 
 // A secret set in the environment, even to nothing (to skip an optional

@@ -8,6 +8,30 @@ Every step says what to run, what you should see, and what to do if it goes
 wrong, so a person or an AI agent can follow it. Steps marked **(person)**
 need someone to click in a browser; an agent should stop there and ask.
 
+## Set up with an AI agent
+
+An AI coding agent (such as Claude Code) can take you through this guide,
+running the commands and stopping where you need to act. Open it in this
+folder and say:
+
+> Set up Luma for me by following GETTING_STARTED.md, one step at a time.
+> Before each step, tell me what it does and what you'll run. Run the
+> commands yourself, check the result against the step's **Expect**, and
+> fix what you can using its **If it fails**. Stop and tell me exactly what
+> to do whenever a step needs a person: browser logins, approvals, Slack
+> and Google settings, and creating or inviting channels. Ask me for every
+> value you need (names, channel IDs, the time zone) instead of guessing.
+> Never ask me for a token or secret, and never put one in a file, a
+> commit or a command: the commands that need one (`slack:create`,
+> `slack:update`, `wrangler secret put`, `npm run dev`) ask for it
+> themselves, hidden. For those, give me the exact command to run in my own
+> terminal, wait for me, then check the result. Ask before deleting
+> anything, and before running a step a second time.
+
+This keeps your tokens away from the agent: you type them into hidden
+prompts in your own terminal, and the agent only sees whether the step
+worked.
+
 ## What you need
 
 - Node.js 20 or newer, and git.
@@ -50,7 +74,7 @@ Start from `luma.config.example.json`. `npm run config` checks the file
 | --- | --- | --- |
 | Cloudflare login | Deploying and setting secrets with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** in `CLOUDFLARE_API_TOKEN`. |
 | Google login | Creating or updating the Sheet's script (`npm run sheet:create`, `sheet:update`). | `npx clasp login` (step 8). |
-| `SLACK_CONFIG_TOKEN` | Creating or updating the Slack app (`npm run slack:create`, `slack:update`). Set only for that command. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
+| App configuration token | Creating or updating the Slack app (`npm run slack:create`, `slack:update`), which ask for it, hidden. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
 
 `npm run dev` (see [README.md](README.md)) uses the same config file and asks for the
 secrets each time, without saving them.
@@ -102,7 +126,7 @@ Token** (`xoxe.xoxp-…`). It lasts 12 hours; generate a new one when needed.
 ## 5. Create the Slack app
 
 ```sh
-SLACK_CONFIG_TOKEN=xoxe.xoxp-… npm run slack:create -- https://luma.<your-subdomain>.workers.dev
+npm run slack:create -- https://luma.<your-subdomain>.workers.dev
 ```
 
 Options: `--name "Acme Luma"` (default `Luma`, up to 35 characters) and
@@ -123,7 +147,7 @@ link. The app's ID is saved in `.slack-app.json` (not committed).
 **If it fails:**
 - `invalid_auth` or `token_expired`: get a new token (step 4).
 - Turning on Event Subscriptions fails: check `npm run deploy` succeeded,
-  then run `SLACK_CONFIG_TOKEN=… npm run slack:update`.
+  then run `npm run slack:update`.
 
 ## 6. Install the app and store the bot token (person)
 
@@ -234,7 +258,7 @@ git pull
 npm install
 npm test
 npm run deploy
-SLACK_CONFIG_TOKEN=… npm run slack:update   # only if slack/manifest.json changed
+npm run slack:update                        # only if slack/manifest.json changed
 npm run sheet:update                        # only if google-sheet/Code.gs changed
 ```
 

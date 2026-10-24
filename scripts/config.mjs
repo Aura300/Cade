@@ -60,35 +60,40 @@ export function checkZone(zone) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  let dir;
+// Checks luma.config.json and uploads it as Worker secrets. Throws, having
+// uploaded nothing, if the file is missing or wrong.
+export async function uploadConfig() {
+  let json;
   try {
-    let json;
-    try {
-      json = await readFile(FILE, "utf8");
-    } catch {
-      throw new Error("No luma.config.json: copy luma.config.example.json to luma.config.json and fill it in.");
-    }
-    const secrets = readConfig(json);
-    for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
-      const incidents = pair.incidents ? `, incidents ${pair.incidents}` : "";
-      console.log(`${pair.name}: external ${pair.external} → tasks ${pair.tasks}${incidents}`);
-    }
-    if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
-    if (secrets.SHEET_URL) console.log(`sheetUrl: ${secrets.SHEET_URL}`);
+    json = await readFile(FILE, "utf8");
+  } catch {
+    throw new Error("No luma.config.json: copy luma.config.example.json to luma.config.json and fill it in.");
+  }
+  const secrets = readConfig(json);
+  for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
+    const incidents = pair.incidents ? `, incidents ${pair.incidents}` : "";
+    console.log(`${pair.name}: external ${pair.external} → tasks ${pair.tasks}${incidents}`);
+  }
+  if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
+  if (secrets.SHEET_URL) console.log(`sheetUrl: ${secrets.SHEET_URL}`);
 
-    // `wrangler secret bulk` reads them from a file; it's removed straight after.
-    dir = await mkdtemp(join(tmpdir(), "luma-config-"));
+  // `wrangler secret bulk` reads them from a file; it's removed straight after.
+  const dir = await mkdtemp(join(tmpdir(), "luma-config-"));
+  try {
     const file = join(dir, "secrets.json");
     await writeFile(file, JSON.stringify(secrets));
     const code = await new Promise((resolve) => {
       spawn("npx", ["wrangler", "secret", "bulk", file], { cwd: ROOT, stdio: "inherit" }).on("exit", resolve);
     });
-    process.exitCode = code ?? 1;
-  } catch (error) {
+    if (code !== 0) throw new Error("wrangler secret bulk failed.");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  uploadConfig().catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
-  } finally {
-    if (dir) await rm(dir, { recursive: true, force: true });
-  }
+  });
 }
