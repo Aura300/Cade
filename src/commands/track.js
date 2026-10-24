@@ -1,4 +1,5 @@
 import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
+import { POST_ATTEMPTS, countPostAttempt, hasUnpostedTask, insertTask, markTaskPosted } from "../db.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import {
@@ -26,6 +27,9 @@ function alreadyTracked(requirement) {
   const { link, title } = requirement.task;
   return `This requirement is already tracked as <${link}|${escapeSlack(title)}>.`;
 }
+
+const ALREADY_WAITING =
+  "This requirement is already tracked: its task will be posted in the tasks channel in a few minutes.";
 
 // Each channel has one way to track a task:
 //
@@ -166,9 +170,9 @@ async function submit(payload, context) {
   return { response_action: "clear" };
 }
 
-// Posts the task and announces it. `origin` is where it was tracked from, as
-// for the form; `/cade incident` uses this too, with `incident: true`, so the
-// task goes to the pair's incidents channel.
+// Stores the task, then posts it and announces it. `origin` is where it was
+// tracked from, as for the form; `/cade incident` uses this too, with
+// `incident: true`, so the task goes to the pair's incidents channel.
 export async function createTask(env, task, origin) {
   if (origin.requirement) {
     // The requirement's current state, in case the client changed its
@@ -178,12 +182,15 @@ export async function createTask(env, task, origin) {
       console.warn("Could not read the requirement", { ts: origin.threadTs, error: error.message });
       return null;
     });
-    if (requirement?.task) {
+    // A task tracked from the thread may still be waiting to be posted.
+    const waiting = !requirement?.task &&
+      (await hasUnpostedTask(env, { channel: origin.channel, threadTs: origin.threadTs }));
+    if (requirement?.task || waiting) {
       await callSlack(env, "chat.postEphemeral", {
         channel: origin.channel,
         thread_ts: origin.threadTs,
         user: task.createdBy,
-        text: alreadyTracked(requirement),
+        text: waiting ? ALREADY_WAITING : alreadyTracked(requirement),
       });
       return;
     }
@@ -218,21 +225,55 @@ export async function createTask(env, task, origin) {
     }
   }
 
+  // Stored before it is posted, so that if Slack doesn't take it, it is
+  // posted later (see retry.js). What follows the post needs only these.
+  const after = {
+    channel: origin.channel,
+    threadTs: origin.threadTs,
+    promptTs: origin.promptTs,
+    developers: origin.developers,
+    reported: origin.reported,
+  };
+  const id = await insertTask(env, tasksChannel, task, after);
+  await publishTask(env, { id, channel: tasksChannel, task, origin: after, attempts: 0 });
+}
+
+// Posts a stored task that has no root message yet, then pins it, tells the
+// requirement thread and records it in the Sheet. If Slack refuses the post,
+// the task waits for the next retry, and the person who tracked it is told,
+// the first time and when Cade gives up.
+export async function publishTask(env, { id, channel, task, origin, attempts }) {
   let message;
   try {
-    message = await callSlack(env, "chat.postMessage", {
-      channel: tasksChannel,
-      ...taskMessage(task),
-    });
+    message = await callSlack(env, "chat.postMessage", { channel, ...taskMessage(task) });
   } catch (error) {
-    await callSlack(env, "chat.postEphemeral", {
-      channel: origin.channel,
-      thread_ts: origin.threadTs,
-      user: task.createdBy,
-      text: `Sorry, the task "${escapeSlack(task.title)}" could not be created.`,
-    }).catch(() => {});
-    throw error;
+    const tried = await countPostAttempt(env, "tasks", id);
+    console.warn("Could not post the task", { id, attempts: tried, error: error.message });
+    if (attempts === 0 || tried >= POST_ATTEMPTS) {
+      const text = tried >= POST_ATTEMPTS
+        ? `Sorry, the task "${escapeSlack(task.title)}" could not be created.`
+        : `Sorry, the task "${escapeSlack(task.title)}" couldn't be posted yet. Cade will try again in a few minutes.`;
+      await callSlack(env, "chat.postEphemeral", {
+        channel: origin.channel,
+        thread_ts: origin.threadTs,
+        user: task.createdBy,
+        text,
+      }).catch(() => {});
+    }
+    return;
   }
+  // The task's link is stored with it, for the Sheet and the requirement.
+  // It is a convenience, so the task is stored without it if it can't be
+  // looked up.
+  try {
+    ({ permalink: task.link } = await callSlack(env, "chat.getPermalink", {
+      channel: message.channel,
+      message_ts: message.ts,
+    }));
+  } catch (error) {
+    console.warn("Could not link the task", { ts: message.ts, error: error.message });
+  }
+  await markTaskPosted(env, id, message.ts, task.link);
   console.log("Task created", {
     channel: message.channel,
     ts: message.ts,
@@ -252,10 +293,7 @@ export async function createTask(env, task, origin) {
   }
   await syncTask(env, message.channel, message.ts, task);
 
-  const { permalink } = await callSlack(env, "chat.getPermalink", {
-    channel: message.channel,
-    message_ts: message.ts,
-  });
+  const permalink = task.link;
   await updateRequirement(env, task.source, (requirement) => ({
     ...requirement,
     status: clientStatus(task.status),

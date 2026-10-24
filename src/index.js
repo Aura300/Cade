@@ -2,6 +2,7 @@ import { dispatch, dispatchSlash } from "./commands/dispatch.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
 import { actions, intents, views } from "./commands/registry.js";
 import { findIntent, plainMessage } from "./intents.js";
+import { retryUnposted } from "./retry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
 
 const ROUTES = {
@@ -39,6 +40,11 @@ export default {
         ),
     };
     return route(body, request, context);
+  },
+
+  // The cron in wrangler.toml: posts tasks and requirements Slack refused.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(retryUnposted(env));
   },
 };
 

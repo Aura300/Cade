@@ -1,6 +1,7 @@
 import { channelPairs, findPair } from "../channels.js";
 import { callSlack, escapeSlack, mrkdwn, respondLater } from "../slack.js";
-import { PRIORITIES, ROLES, STATUSES, loadTask, taskFromMessage } from "../tasks.js";
+import { openTasks } from "../db.js";
+import { PRIORITIES, ROLES, STATUSES } from "../tasks.js";
 
 // What each role is doing, as the list's headings.
 const DOING = {
@@ -130,9 +131,7 @@ function dueOrder(dueDate) {
 }
 
 // Returns the open tasks `user` is assigned to, as { task, roles, link,
-// incident }, from the group's tasks and incidents channels. Open
-// tasks are the pinned ones, since Cade unpins a task when it is Done, so
-// only pins are read. A task someone unpinned by hand is left out.
+// incident }, from the group's tasks and incidents channels, as stored in D1.
 // Links are built from the workspace's address, `url`, rather than looked up
 // one by one, which would take a Slack call per task.
 async function assignedTasks(env, user, group, url) {
@@ -145,19 +144,8 @@ async function assignedTasks(env, user, group, url) {
 }
 
 async function tasksIn(env, { channel, incident }, user, url) {
-  const { items = [] } = await callSlack(env, "pins.list", { channel });
-  const pinned = items.map((item) => item.message).filter(Boolean);
-  const tasks = await Promise.all(
-    // A pin may not carry the task's details; then the task is loaded.
-    pinned.map(async (message) => ({
-      ts: message.ts,
-      task: taskFromMessage(message) ?? (await loadTask(env, channel, message.ts)),
-    })),
-  );
-
   const found = [];
-  for (const { ts, task } of tasks) {
-    if (!task || task.status === "DONE") continue;
+  for (const { ts, task } of await openTasks(env, channel)) {
     const roles = Object.keys(ROLES).filter((role) => task.people[role].includes(user));
     if (!roles.length) continue;
     // Opens the task's thread, not just its message.

@@ -1,10 +1,10 @@
 import { pairFor } from "./channels.js";
+import { getTask, putTask } from "./db.js";
 import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js";
 
-// Task details live in the root message's metadata, so assignments can be
-// updated without a separate datastore.
-const TASK_EVENT_TYPE = "cade_task";
+// Tasks are stored in D1 (see db.js). The root message in the tasks channel
+// and the task's row in the Google Sheet are rendered from the stored task.
 
 // Slack cannot colour text, so each value is shown with a coloured emoji.
 export const PRIORITIES = {
@@ -84,30 +84,6 @@ export function taskMessage(task) {
         ],
       },
     ],
-    metadata: {
-      event_type: TASK_EVENT_TYPE,
-      event_payload: {
-        title: task.title,
-        priority: task.priority,
-        status: task.status,
-        due_date: task.dueDate,
-        developers: task.people.developer.join(","),
-        reviewers: task.people.reviewer.join(","),
-        testers: task.people.tester.join(","),
-        // Linked pull requests' addresses, comma separated.
-        prs: (task.prs ?? []).join(","),
-        created_by: task.createdBy,
-        // When the task was last set to DONE, as an ISO timestamp.
-        completed_at: task.completedAt ?? "",
-        // The requirement or incident thread the task was tracked from,
-        // whose root message follows the task.
-        source_channel: task.source?.channel ?? "",
-        source_thread_ts: task.source?.threadTs ?? "",
-        source_link: task.source?.link ?? "",
-        // "true" when it is an incident's thread.
-        source_incident: task.source?.incident ? "true" : "",
-      },
-    },
   };
 }
 
@@ -130,52 +106,14 @@ export function prLink(url) {
 
 // Returns the task whose root message is `ts`, or null if it is not a task.
 export async function loadTask(env, channel, ts) {
-  const { messages = [] } = await callSlack(env, "conversations.replies", {
-    channel,
-    ts,
-    limit: 1,
-    include_all_metadata: true,
-  });
-  const root = messages[0];
-  return root?.ts === ts ? taskFromMessage(root) : null;
+  return getTask(env, channel, ts);
 }
 
-// Returns the task a root message holds, or null if it is not a task. The
-// message must have been read with include_all_metadata.
-export function taskFromMessage(message) {
-  // Some methods, such as pins.list, return a message's metadata type without
-  // its payload; such a message has to be loaded to read the task.
-  const payload = message.metadata?.event_payload;
-  if (message.metadata?.event_type !== TASK_EVENT_TYPE || !payload) return null;
-
-  return {
-    title: payload.title,
-    priority: payload.priority,
-    status: payload.status,
-    dueDate: payload.due_date ?? "",
-    people: {
-      developer: list(payload.developers),
-      reviewer: list(payload.reviewers),
-      tester: list(payload.testers),
-    },
-    prs: list(payload.prs),
-    createdBy: payload.created_by,
-    completedAt: payload.completed_at ?? "",
-    // The team's own tasks, tracked with `/cade track`, have none.
-    source: payload.source_channel
-      ? {
-          channel: payload.source_channel,
-          threadTs: payload.source_thread_ts,
-          link: payload.source_link || undefined,
-          incident: payload.source_incident === "true",
-        }
-      : undefined,
-  };
-}
-
+// Stores the task, then renders it to its root message and the Sheet.
 export async function saveTask(env, channel, ts, task) {
-  await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
+  await putTask(env, channel, ts, task);
   console.log("Task saved", { ts, people: task.people });
+  await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
   await syncTask(env, channel, ts, task);
 }
 
@@ -184,10 +122,15 @@ export async function saveTask(env, channel, ts, task) {
 export async function syncTask(env, channel, ts, task, { deleted = false } = {}) {
   if (!sheetEnabled(env)) return;
   try {
-    const { permalink } = await callSlack(env, "chat.getPermalink", {
-      channel,
-      message_ts: ts,
-    });
+    // Tasks keep their link from when they were created; this is in case
+    // looking it up failed then.
+    if (!task.link && !deleted) {
+      ({ permalink: task.link } = await callSlack(env, "chat.getPermalink", {
+        channel,
+        message_ts: ts,
+      }));
+      await putTask(env, channel, ts, task);
+    }
     const names = (ids) => (ids.length ? userNames(env, ids) : "Unassigned");
     await sendRow(env, pairFor(env, channel).name, {
       "Task ID": `${channel}:${ts}`,
@@ -202,7 +145,7 @@ export async function syncTask(env, channel, ts, task, { deleted = false } = {})
       // A Slack message timestamp is the time it was posted.
       "Tracked at": formatTime(env, new Date(Number(ts) * 1000)),
       "Completed at": task.completedAt ? formatTime(env, new Date(task.completedAt)) : "",
-      "Task link": deleted ? "" : permalink,
+      "Task link": deleted ? "" : task.link,
       "Request link": task.source?.link ?? "",
     });
     console.log("Task synced to sheet", { ts, status: task.status, deleted });
@@ -214,10 +157,6 @@ export async function syncTask(env, channel, ts, task, { deleted = false } = {})
 // The status label without its emoji, for the sheet.
 export function statusName(status) {
   return STATUSES[status].replace(/^:[a-z0-9_+-]+:\s*/, "");
-}
-
-function list(value) {
-  return value ? value.split(",") : [];
 }
 
 // Open tasks are pinned in the dev channel; done tasks are unpinned. Pinning

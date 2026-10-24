@@ -27,7 +27,6 @@
         "chat:write",
         "commands",
         "groups:history",
-        "pins:read",
         "pins:write",
         "reactions:write",
         "users:read"

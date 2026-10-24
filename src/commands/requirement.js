@@ -1,4 +1,5 @@
 import { pairFor } from "../channels.js";
+import { POST_ATTEMPTS, countPostAttempt, insertRequirement, markRequirementPosted } from "../db.js";
 import { INCIDENT, requirementMessage } from "../requirements.js";
 import { callSlack, escapeSlack, plainText } from "../slack.js";
 import { noPeople, readTaskForm, setPinned, taskFormBlocks } from "../tasks.js";
@@ -54,7 +55,7 @@ async function submit(payload, context) {
     dueDate,
     createdBy: payload.user.id,
   };
-  context.waitUntil(postRequirement(context.env, origin.channel, requirement));
+  context.waitUntil(createRequirement(context.env, origin.channel, requirement));
   return { response_action: "clear" };
 }
 
@@ -110,55 +111,69 @@ async function submitIncident(payload, context) {
   if (errors) return { response_action: "errors", errors };
 
   const { channel } = JSON.parse(payload.view.private_metadata || "{}");
-  const createdBy = payload.user.id;
-  context.waitUntil(
-    (async () => {
-      const ts = await postRequirement(context.env, channel, {
-        title,
-        status: "DISCUSSION",
-        ...INCIDENT,
-        incident: true,
-        createdBy,
-      });
-      const task = { title, status: "TODO", ...INCIDENT, people: noPeople(), createdBy };
-      await createTask(context.env, task, {
-        channel,
-        threadTs: ts,
-        requirement: true,
-        incident: true,
-        // Tracked as it's reported, so there's nothing to announce.
-        reported: true,
-        ...INCIDENT,
-      });
-    })(),
-  );
+  const incident = {
+    title,
+    status: "DISCUSSION",
+    ...INCIDENT,
+    incident: true,
+    createdBy: payload.user.id,
+  };
+  // Its task is tracked once it is posted (see publishRequirement).
+  context.waitUntil(createRequirement(context.env, channel, incident));
   return { response_action: "clear" };
 }
 
-// Posts the requirement (or incident) and returns its message's ts.
-async function postRequirement(env, channel, requirement) {
+// Stores the requirement (or incident), then posts it.
+async function createRequirement(env, channel, requirement) {
+  const id = await insertRequirement(env, channel, requirement);
+  await publishRequirement(env, { id, channel, requirement, attempts: 0 });
+}
+
+// Posts a stored requirement that has no root message yet and pins it; an
+// incident is then tracked straight away. If Slack refuses the post, it waits
+// for the next retry (see retry.js), and whoever started it is told, the
+// first time and when Cade gives up.
+export async function publishRequirement(env, { id, channel, requirement, attempts }) {
   const noun = requirement.incident ? "incident" : "requirement";
+  let message;
   try {
-    const message = await callSlack(env, "chat.postMessage", {
+    message = await callSlack(env, "chat.postMessage", {
       channel,
       ...requirementMessage(requirement),
     });
-    console.log("Requirement created", {
-      channel,
-      ts: message.ts,
-      incident: Boolean(requirement.incident),
-      createdBy: requirement.createdBy,
-    });
-    // Open requirements are pinned in the external channel, as open tasks
-    // are in the dev channel, until their task is Done.
-    await setPinned(env, channel, message.ts, true);
-    return message.ts;
   } catch (error) {
-    await callSlack(env, "chat.postEphemeral", {
+    const tried = await countPostAttempt(env, "requirements", id);
+    console.warn("Could not post the requirement", { id, attempts: tried, error: error.message });
+    if (attempts === 0 || tried >= POST_ATTEMPTS) {
+      const text = tried >= POST_ATTEMPTS
+        ? `Sorry, the ${noun} "${escapeSlack(requirement.title)}" could not be posted.`
+        : `Sorry, the ${noun} "${escapeSlack(requirement.title)}" couldn't be posted yet. Cade will try again in a few minutes.`;
+      await callSlack(env, "chat.postEphemeral", { channel, user: requirement.createdBy, text }).catch(() => {});
+    }
+    return;
+  }
+  await markRequirementPosted(env, id, message.ts);
+  console.log("Requirement created", {
+    channel,
+    ts: message.ts,
+    incident: Boolean(requirement.incident),
+    createdBy: requirement.createdBy,
+  });
+  // Open requirements are pinned in the external channel, as open tasks
+  // are in the dev channel, until their task is Done.
+  await setPinned(env, channel, message.ts, true);
+
+  if (requirement.incident) {
+    const { title, createdBy } = requirement;
+    const task = { title, status: "TODO", ...INCIDENT, people: noPeople(), createdBy };
+    await createTask(env, task, {
       channel,
-      user: requirement.createdBy,
-      text: `Sorry, the ${noun} "${escapeSlack(requirement.title)}" could not be posted.`,
-    }).catch(() => {});
-    throw error;
+      threadTs: message.ts,
+      requirement: true,
+      incident: true,
+      // Tracked as it's reported, so there's nothing to announce.
+      reported: true,
+      ...INCIDENT,
+    });
   }
 }

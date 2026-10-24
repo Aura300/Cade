@@ -4,7 +4,7 @@
 app for tracking work between a client and a team: the client starts
 requirements and reports incidents in a shared channel, and
 the team tracks them as tasks in its own channels. It runs as a single
-Cloudflare Worker, with no database.
+Cloudflare Worker, with its tasks in a D1 database.
 
 - To set Cade up, configure it and learn its commands, see
   [GETTING_STARTED.md](GETTING_STARTED.md).
@@ -35,6 +35,7 @@ Other scripts:
 | --- | --- |
 | `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
+| `npm run db:migrate` | Applies `migrations/` to the deployed D1 database (`npm run dev` does this for the local one) |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
 | `npm run sheet:create` | Creates the Google Sheet and its web app with clasp, and gives the Worker its address and secret |
@@ -84,14 +85,26 @@ that didn't mean it.
 
 ### Where things are kept
 
-There is no database. A task lives in its root message in the dev channel:
-its details are the message's metadata (`cade_task`), read back with
-`loadTask` and written with `saveTask` in `tasks.js`. A requirement or
-incident lives the same way in its root message in the external channel
-(`cade_requirement`, in `requirements.js`). Open tasks and requirements are
-pinned, and Cade unpins them when they're Done, so `/cade tasks` reads only
-pins. The Google Sheet, if set, is a record kept alongside (`sheet.js`,
-`google-sheet/Code.gs`), never read back.
+Tasks and requirements are stored in D1, the `DB` binding (`db.js`, with
+the tables in `migrations/`). A new one is stored before its root message is
+posted (`createTask` in `commands/track.js`, `createRequirement` in
+`commands/requirement.js`), with `ts` empty until Slack takes the post; if
+Slack refuses it, the cron in `wrangler.toml` posts it again every five
+minutes (`retry.js`, through `publishTask` and `publishRequirement`), up to
+five tries in all. Once posted, a row is found by its channel and `ts`.
+`loadTask` and `saveTask` in `tasks.js` read and write a
+task; `saveTask` stores the row first, then renders it to the root message
+in the dev channel (`taskMessage`) and to its row in the Google Sheet
+(`syncTask`). A requirement or incident works the same way in the external
+channel (`requirements.js`). Slack and the Sheet are only written to, never
+read back: `/cade tasks` is a query of open tasks. A task with
+`source_channel` set was tracked from a requirement or incident thread; the
+team's own tasks have none. Deleted tasks and requirements keep their rows,
+with `deleted_at` set. Open tasks and requirements are still pinned, for
+people to find in Slack.
+
+To change the tables, add a numbered file to `migrations/` and run
+`npm run db:migrate` before deploying.
 
 ### Files
 
@@ -102,7 +115,9 @@ pins. The Google Sheet, if set, is a record kept alongside (`sheet.js`,
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
 | `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `tasks`, `delete` |
-| `src/tasks.js` | The task message: layout, metadata, saving, pins |
+| `src/db.js` | Reading and writing tasks and requirements in D1 |
+| `src/retry.js` | The cron's job: posting tasks and requirements Slack refused |
+| `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |
 | `src/requirements.js` | The requirement message, and finding a thread's task or requirement |
 | `src/channels.js` | `CHANNEL_PAIRS`: which channel plays which role |
 | `src/intents.js` | Recognising intents in plain messages |
@@ -110,8 +125,9 @@ pins. The Google Sheet, if set, is a record kept alongside (`sheet.js`,
 | `src/sheet.js` | Writing rows to the Google Sheet |
 | `google-sheet/` | The Sheet's Apps Script (`Code.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
 | `scripts/` | `config`, `dev`, `slack-app` and `sheet-app`, behind the npm scripts above |
+| `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
-| `test/index.test.js` | The tests |
+| `test/index.test.js` | The tests, with `test/d1.js`, a stand-in database on Node's SQLite |
 
 ### Adding a command
 

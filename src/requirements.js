@@ -1,11 +1,11 @@
 import { roleOf } from "./channels.js";
+import { getRequirement, putRequirement } from "./db.js";
 import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
 import { PRIORITIES, STATUSES, loadTask, saveTask } from "./tasks.js";
 
 // A requirement is a root message Cade posts in an external channel for
 // `/cade requirement`; its thread is where the requirement is discussed. Like
-// tasks, its details live in the root message's metadata.
-const REQUIREMENT_EVENT_TYPE = "cade_requirement";
+// tasks, it is stored in D1 and its root message is rendered from it.
 
 // A requirement is in discussion until a task is tracked from its thread.
 // After that it shows the task's status as the client sees it: the team's
@@ -60,60 +60,17 @@ export function requirementMessage(requirement) {
       { type: "section", text: mrkdwn(details) },
       { type: "context", elements: [mrkdwn(people.join("\n"))] },
     ],
-    metadata: {
-      event_type: REQUIREMENT_EVENT_TYPE,
-      event_payload: {
-        title: requirement.title,
-        status: requirement.status,
-        priority: requirement.priority ?? "",
-        due_date: requirement.dueDate ?? "",
-        created_by: requirement.createdBy,
-        incident: requirement.incident ? "true" : "",
-        // The task most recently tracked from the thread.
-        task_channel: requirement.task?.channel ?? "",
-        task_ts: requirement.task?.ts ?? "",
-        task_title: requirement.task?.title ?? "",
-        task_link: requirement.task?.link ?? "",
-        tracked_by: requirement.task?.trackedBy ?? "",
-      },
-    },
   };
 }
 
 // Returns the requirement whose root message is `ts`, or null if it is not one.
 export async function loadRequirement(env, channel, ts) {
-  const { messages = [] } = await callSlack(env, "conversations.replies", {
-    channel,
-    ts,
-    limit: 1,
-    include_all_metadata: true,
-  });
-  const root = messages[0];
-  if (root?.ts !== ts || root.metadata?.event_type !== REQUIREMENT_EVENT_TYPE) {
-    return null;
-  }
-
-  const payload = root.metadata.event_payload;
-  return {
-    title: payload.title,
-    status: payload.status,
-    priority: payload.priority ?? "",
-    dueDate: payload.due_date ?? "",
-    createdBy: payload.created_by,
-    incident: payload.incident === "true",
-    task: payload.task_ts
-      ? {
-          channel: payload.task_channel,
-          ts: payload.task_ts,
-          title: payload.task_title,
-          link: payload.task_link,
-          trackedBy: payload.tracked_by,
-        }
-      : undefined,
-  };
+  return getRequirement(env, channel, ts);
 }
 
+// Stores the requirement, then renders it to its root message.
 export async function saveRequirement(env, channel, ts, requirement) {
+  await putRequirement(env, channel, ts, requirement);
   await callSlack(env, "chat.update", { channel, ts, ...requirementMessage(requirement) });
   console.log("Requirement saved", { ts, status: requirement.status });
 }

@@ -78,6 +78,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const groups = JSON.parse(config.CHANNEL_PAIRS).map((pair) => pair.name).join(", ");
     console.log(`Using cade.config.json: ${groups}${config.TIMEZONE ? `; timezone ${config.TIMEZONE}` : ""}`);
 
+    // The local database keeps its tasks between runs; this only adds tables
+    // from migrations it hasn't had yet.
+    const migrated = await new Promise((resolve) => {
+      spawn("npx", ["wrangler", "d1", "migrations", "apply", "DB", "--local"], { cwd: ROOT, stdio: "inherit" })
+        .on("exit", resolve);
+    });
+    if (migrated !== 0) throw new Error("Could not set up the local database.");
+
     dir = await mkdtemp(join(tmpdir(), "cade-dev-"));
     const file = join(dir, ".env");
     await writeFile(file, envFile({ ...config, ...secrets }), { mode: 0o600 });

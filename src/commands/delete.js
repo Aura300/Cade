@@ -1,4 +1,5 @@
 import { roleOf } from "../channels.js";
+import { markRequirementDeleted, markTaskDeleted } from "../db.js";
 import { NOT_A_REQUIREMENT, loadRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
@@ -128,7 +129,7 @@ async function deleteTask(env, channel, ts, user) {
   if (!task) return;
 
   await deleteReplies(env, channel, ts);
-  // The permalink is looked up while the task message still exists.
+  await markTaskDeleted(env, channel, ts);
   await syncTask(env, channel, ts, task, { deleted: true });
   // Deleting a message also removes its pin.
   await callSlack(env, "chat.delete", { channel, ts });
@@ -144,6 +145,7 @@ async function deleteRequirement(env, channel, ts, user) {
   }
 
   await deleteReplies(env, channel, ts);
+  await markRequirementDeleted(env, channel, ts);
   await callSlack(env, "chat.delete", { channel, ts });
   console.log("Requirement deleted", { ts, user });
 }

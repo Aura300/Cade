@@ -1,8 +1,9 @@
 # Getting started
 
 Self-host Cade for your team: one Cloudflare Worker, one Slack app, and an
-optional Google Sheet. There is no server or database to run; Cade keeps
-everything in your Slack messages (and your Sheet, if you add one).
+optional Google Sheet. There is no server to run; Cade keeps its tasks in
+a Cloudflare D1 database that comes with the Worker, and shows them in Slack
+(and your Sheet, if you add one).
 
 Every step says what to run, what you should see, and what to do if it goes
 wrong, so a person or an AI agent can follow it. Steps marked **(person)**
@@ -66,7 +67,7 @@ Start from `cade.config.example.json`. `npm run config` checks the file
 
 | Credential | What it's for | How to get it |
 | --- | --- | --- |
-| Cloudflare login | Deploying and setting secrets with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** in `CLOUDFLARE_API_TOKEN`. |
+| Cloudflare login | Deploying, setting secrets and creating the database with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** and **D1 → Edit** in `CLOUDFLARE_API_TOKEN`. |
 | Google login | Creating or updating the Sheet's script (`npm run sheet:create`, `sheet:update`). | `npx clasp login` (step 8). |
 | App configuration token | Creating or updating the Slack app (`npm run slack:create`, `slack:update`), which ask for it, hidden. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
 
@@ -99,9 +100,29 @@ again; on a machine without a browser, use an API token instead
 ## 3. Name and deploy the Worker
 
 In `wrangler.toml`, set `name` (for example `cade`). It must be unique in
-your Cloudflare account, and becomes part of the URL. All other settings are
-Worker secrets, set in later steps, so nothing else in the file needs
-changing.
+your Cloudflare account, and becomes part of the URL.
+
+Then create the database the tasks are kept in, and its tables:
+
+```sh
+npx wrangler d1 create cade
+```
+
+**Expect:** a `database_id`. Put it in `wrangler.toml`, in place of
+`REPLACE_WITH_YOUR_DATABASE_ID` under `[[d1_databases]]`. (If Wrangler offers
+to add the database to `wrangler.toml` itself, decline, since the entry
+already exists; just copy the ID.) Then:
+
+```sh
+npm run db:migrate
+```
+
+**Expect:** `0001_tasks_and_requirements.sql` listed with ✅. **If it
+fails** with "Couldn't find a D1 DB": the `database_id` in `wrangler.toml`
+doesn't match the one `d1 create` printed.
+
+All other settings are Worker secrets, set in later steps, so nothing else
+in the file needs changing.
 
 ```sh
 npm run deploy
@@ -251,6 +272,7 @@ Information**); `not_in_channel` means the app isn't invited;
 git pull
 npm install
 npm test
+npm run db:migrate                          # only if migrations/ has new files
 npm run deploy
 npm run slack:update                        # only if slack/manifest.json changed
 npm run sheet:update                        # only if google-sheet/Code.gs changed
@@ -261,11 +283,14 @@ the app's page (step 6); the bot token usually stays the same.
 
 ## Limits to know
 
-- Slack's free plan hides messages older than 90 days, including old tasks.
-- Cloudflare's free plan allows 50 Slack calls per request, which `/cade
-  tasks` can reach with around 45 open tasks in one group.
-- Open tasks are the pinned ones: a task unpinned by hand drops out of
-  `/cade tasks`.
+- Slack's free plan hides messages older than 90 days, including old tasks'
+  threads. The tasks themselves stay in the database (and the Sheet).
+- D1's free plan allows 100,000 row writes a day and 500 MB per database;
+  each change to a task is a single row write.
+- If Slack won't take a new task, requirement or incident (for example
+  while it is rate limiting), Cade keeps it and tries again every five
+  minutes, five times in all, telling whoever made it the first time and if
+  it gives up.
 - Cade can only delete its own messages; people's replies stay.
 
 ## Using Cade
@@ -391,9 +416,8 @@ In any other channel it shows every group, one after the other. Slack
 doesn't allow slash commands in threads, so use it from the channel.
 
 The list isn't posted or kept anywhere: ask again for a fresh one. Done
-tasks are left out. Open tasks are the pinned ones (Cade unpins a task when
-it is Done), so Cade reads only the pins of the dev and incidents channels.
-A task someone unpins by hand won't appear until it is pinned again.
+tasks are left out. The list comes from Cade's database, so it doesn't
+depend on what's pinned.
 
 ### Incidents
 
@@ -519,8 +543,8 @@ In a task's thread in `#acme-dev` or the incidents channel:
 Each command updates the root message and Cade confirms in the thread. The
 mention works whatever the bot is named.
 
-The task's details are stored as Slack message metadata on the root message,
-so the Worker needs no database.
+The task's details are stored in the Worker's D1 database; the root message
+shows them and is rewritten from the database on every change.
 
 ### Google Sheet
 
