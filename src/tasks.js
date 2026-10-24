@@ -44,9 +44,7 @@ export function noPeople() {
 }
 
 export function taskMessage(task) {
-  let thread = "the request thread";
-  if (task.source?.incident) thread = "the incident thread";
-  else if (task.source?.requirement) thread = "the requirement thread";
+  const thread = task.source?.incident ? "the incident thread" : "the requirement thread";
   const from = task.source?.link ? ` from <${task.source.link}|${thread}>` : "";
   // The title, the task's details, who works on it, its linked pull requests
   // (when it has any), then who tracked it.
@@ -94,15 +92,12 @@ export function taskMessage(task) {
         created_by: task.createdBy,
         // When the task was last set to DONE, as an ISO timestamp.
         completed_at: task.completedAt ?? "",
-        // The external thread the task was tracked from, for the
-        // announcement when it is deleted.
+        // The requirement or incident thread the task was tracked from,
+        // whose root message follows the task.
         source_channel: task.source?.channel ?? "",
         source_thread_ts: task.source?.threadTs ?? "",
         source_link: task.source?.link ?? "",
-        // "true" when the source thread is a requirement started with
-        // `/luma requirement`, whose root message follows the task.
-        source_requirement: task.source?.requirement ? "true" : "",
-        // "true" when that requirement is an incident.
+        // "true" when it is an incident's thread.
         source_incident: task.source?.incident ? "true" : "",
       },
     },
@@ -152,22 +147,19 @@ export function taskFromMessage(message) {
     status: payload.status,
     dueDate: payload.due_date ?? "",
     people: {
-      // Tasks tracked before roles existed stored everyone as `assignees`;
-      // they are treated as developers.
-      developer: list(payload.developers ?? payload.assignees),
+      developer: list(payload.developers),
       reviewer: list(payload.reviewers),
       tester: list(payload.testers),
     },
     prs: list(payload.prs),
     createdBy: payload.created_by,
     completedAt: payload.completed_at ?? "",
-    // Tasks tracked before the source thread was stored have none.
+    // The team's own tasks, tracked with `/luma track`, have none.
     source: payload.source_channel
       ? {
           channel: payload.source_channel,
           threadTs: payload.source_thread_ts,
           link: payload.source_link || undefined,
-          requirement: payload.source_requirement === "true",
           incident: payload.source_incident === "true",
         }
       : undefined,

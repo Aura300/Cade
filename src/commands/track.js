@@ -1,6 +1,6 @@
 import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
-import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
+import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
 import {
   PRIORITIES,
   noPeople,
@@ -13,6 +13,9 @@ import {
 
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
+// "Track and assign", offered when a requirement thread asks someone to start
+// working on it before it is tracked (see suggestAssignment in assign.js).
+export const TRACK_ASSIGN_ACTION = "track:assign";
 
 function notInRequirement(env, channel) {
   return `Use \`@LUMA track\` in the thread of a requirement started with \`/luma requirement\`. For the team's own work, use \`/luma track\` in <#${tasksChannelFor(env, channel)}>.`;
@@ -47,6 +50,7 @@ export default {
   description: "Track a requirement as a task (in its thread)",
   usage: "@LUMA track",
   slashUsage: "/luma track",
+  section: "start",
   channel: "external",
   slashChannel: "tasks",
   async run(command, { env }) {
@@ -88,6 +92,11 @@ export default {
     await openModal(env, command.triggerId, { channel: command.channel });
   },
   actions: {
+    [TRACK_ASSIGN_ACTION]: async (payload, { env }) => {
+      // The form opens straight away; the private question it came from goes.
+      await openModal(env, payload.trigger_id, JSON.parse(payload.actions[0].value));
+      await respondLater(payload.response_url, { delete_original: true });
+    },
     [OPEN_ACTION]: async (payload, { env }) => {
       const origin = JSON.parse(payload.actions[0].value);
       // The button's own message is replaced by the announcement later.
@@ -99,7 +108,8 @@ export default {
 
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
 // From a requirement thread it also has `requirement: true` and the
-// requirement's title, priority and due date, to show in the form. From `/luma track` it has only the channel.
+// requirement's title, priority and due date, to show in the form, and from
+// "Track and assign" the `developers` to start the task with. From `/luma track` it has only the channel.
 async function openModal(env, triggerId, origin) {
   await callSlack(env, "views.open", {
     trigger_id: triggerId,
@@ -115,7 +125,7 @@ function trackView(origin) {
     title: plainText("Track task"),
     submit: plainText("Create"),
     close: plainText("Cancel"),
-    blocks: fromRequirement(origin)
+    blocks: origin.requirement
       ? [
           ...taskFormBlocks("Task title", origin, { details: false }),
           {
@@ -133,12 +143,6 @@ function trackView(origin) {
         ]
       : taskFormBlocks("Task title", origin),
   };
-}
-
-// Whether the task takes its priority and due date from a requirement.
-// Requirements started before they had a priority still ask for one.
-function fromRequirement(origin) {
-  return Boolean(origin.requirement && PRIORITIES[origin.priority]);
 }
 
 async function submit(payload, context) {
@@ -167,8 +171,12 @@ async function submit(payload, context) {
 export async function createTask(env, task, origin) {
   if (origin.requirement) {
     // The requirement's current state, in case the client changed its
-    // priority, or someone else tracked it, while the form was open.
-    const requirement = await loadRequirement(env, origin.channel, origin.threadTs);
+    // priority, or someone else tracked it, while the form was open. If it
+    // can't be read, the values the form was opened with are used.
+    const requirement = await loadRequirement(env, origin.channel, origin.threadTs).catch((error) => {
+      console.warn("Could not read the requirement", { ts: origin.threadTs, error: error.message });
+      return null;
+    });
     if (requirement?.task) {
       await callSlack(env, "chat.postEphemeral", {
         channel: origin.channel,
@@ -178,10 +186,14 @@ export async function createTask(env, task, origin) {
       });
       return;
     }
-    if (fromRequirement(origin)) {
-      task.priority = requirement?.priority || origin.priority;
-      task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
-    }
+    task.priority = requirement?.priority || origin.priority;
+    task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
+  }
+  // Tracked because someone was asked to start working on it: they are its
+  // developers, and the work is under way.
+  if (origin.developers?.length) {
+    task.people.developer = origin.developers;
+    task.status = "IN_PROGRESS";
   }
   const tasksChannel = origin.incident
     ? pairFor(env, origin.channel).incidents
@@ -190,7 +202,6 @@ export async function createTask(env, task, origin) {
     task.source = {
       channel: origin.channel,
       threadTs: origin.threadTs,
-      requirement: Boolean(origin.requirement),
       incident: Boolean(origin.incident),
     };
     // The task message links back to the thread it was tracked from. The link
@@ -248,13 +259,10 @@ export async function createTask(env, task, origin) {
     },
   }));
 
-  // `/luma track` in a tasks channel has no prompt; the task message is enough.
-  if (!origin.promptTs) return;
-  const text = `<@${task.createdBy}> tracked a task: <${permalink}|${escapeSlack(task.title)}>`;
-  await callSlack(env, "chat.update", {
-    channel: origin.channel,
-    ts: origin.promptTs,
-    text,
-    blocks: [{ type: "section", text: mrkdwn(text) }],
-  });
+  // The Track task button has done its job, and the requirement's message
+  // now says who tracked it and links to the task, so the button goes.
+  // `/luma track` in a tasks channel has none.
+  if (origin.promptTs) {
+    await callSlack(env, "chat.delete", { channel: origin.channel, ts: origin.promptTs });
+  }
 }

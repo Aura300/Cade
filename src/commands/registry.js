@@ -13,6 +13,7 @@ import unassign from "./unassign.js";
 //     name, description,
 //     usage?: how to send it as an `@LUMA name` message,
 //     slashUsage?: how to send it as `/luma name`,
+//     section: where help lists it: "start", "thread" or "work",
 //     aliases?: other names that run the same handler,
 //     channel?: "external", "tasks" or both as a list: the channels in
 //               CHANNEL_PAIRS it works in,

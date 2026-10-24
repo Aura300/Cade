@@ -72,11 +72,9 @@ message shows the title; then the status, priority and due date; then the
 developer, reviewer and tester ("Unassigned" until someone is assigned);
 then who tracked it, with a link back to the requirement thread if there is
 one. From a requirement thread, Luma replies with a **Track task** button
-(Slack only opens forms from a click) and turns it into "@you tracked a
-task: *title*", linking to the new task.
-
-Tasks tracked from ordinary external threads before this change keep
-working: their status changes can still be shared with that thread.
+(Slack only opens forms from a click) and removes it once the task is
+created, since the requirement message then says who tracked it and links
+to the task.
 
 ### Requirements
 
@@ -105,8 +103,8 @@ changes what follows who knows it:
   `@LUMA status`. The requirement shows it as the client sees it: **In
   discussion** until a task is tracked, then 🔵 **In progress** while the
   task is To do, In progress, In review or In testing, then **Client
-  review** and **Done**. **Inform external thread** only decides whether a
-  message is also posted in the requirement thread.
+  review** and **Done**. When the task reaches Client review or Done, Luma
+  also posts it in the requirement thread, without asking.
 - **The client can accept work, if the team asks.** The team can set a task
   to Done directly. Client review is an optional step for work the client
   should check first: when the dev channel moves a requirement's task to
@@ -125,6 +123,18 @@ form asks only for the task title, starting with the requirement's name, and
 shows the priority and due date the task will take from the requirement.
 The requirement then links to the task. Deleting the task puts the
 requirement back to In discussion, keeping its priority and due date.
+
+Asking a developer to start in the requirement thread works too: write
+"@rex please start working on this" there, and Luma asks you, in a message
+only you see:
+
+- before the requirement is tracked, **Track and assign** opens the track
+  form; the task starts with @rex as developer and 🔵 In progress;
+- once it's tracked, **Assign as developer** (or **Assign and move to In
+  progress**) assigns them to its task, as in the task's thread.
+
+Only developer hand-offs are offered there; reviews and testing are asked
+for in the task's thread.
 
 To remove a requirement, send **`@LUMA remove`** (or `@LUMA delete`) in its
 thread. It asks for confirmation the same way as deleting a task, then
@@ -184,14 +194,10 @@ the other tasks.
 
 In a task's thread in `#aura300-dev` or the incidents channel:
 
-- `@LUMA assign developer @person [@person …]` adds people as developers;
-  `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the
-  same way. Each role can have several people. Developers and testers are
-  asked to start straight away. Reviewers can be added ahead of time: until
-  a PR is linked, Luma doesn't name them, so they aren't notified.
-- Handing a task over in your own words works too. A reply in a task's
-  thread that mentions people with a hand-off phrase makes Luma ask you,
-  in a message only you see, whether to assign them, with **Assign as
+- **Just say it.** The main way to assign is to write it in the thread as
+  you normally would. A reply that mentions people with a hand-off phrase
+  makes Luma ask you, in a message only you see, whether to assign them,
+  with **Assign as
   developer** (or reviewer, tester) and **Not now**:
   - **developer:** "start working", "work on", "look into", "pick this up",
     "take this", "handle this", "fix this";
@@ -206,9 +212,16 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   people were assigned ahead of time, Luma offers just **Move to …**.
   Reviews move with linked PRs instead. `@LUMA assign` never changes the
   status, so people can be added in advance.
-  Assigning says "@you added a developer" in the thread without mentioning
-  them again, since your message already did. A message with a PR link gets
+  Assigning posts nothing in the thread, since your message already asked
+  them and the task card shows who it is; only a status change is posted,
+  as "@you moved the task to 🔵 In progress". A message with a PR link gets
   the PR question below instead.
+- `@LUMA assign developer @person [@person …]`, for exact control, adds
+  people as developers;
+  `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the
+  same way. Each role can have several people. Developers and testers are
+  asked to start straight away. Reviewers can be added ahead of time: until
+  a PR is linked, Luma doesn't name them, so they aren't notified.
 - `@LUMA unassign developer @person` removes people from that role;
   `@LUMA unassign @person` removes them from every role.
 - `@LUMA status` replies with a menu of statuses (To do, In progress, In
@@ -220,12 +233,10 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   so the channel's pins list shows the open tasks. A requirement or
   incident is pinned in the external channel the same way: from when it is
   posted until its task is Done, and again if the task is reopened or
-  deleted. When a task moves from an
-  open status (To do, In progress, In review, In testing) to Client review
-  or Done, the confirmation asks whether to tell the external thread the
-  task was tracked from: **Inform external thread** posts "@you marked a
-  task as Done: *title*" there, linking back to the task; **I'll tell them**
-  posts nothing. Moving between Client review and Done doesn't ask again.
+  deleted. When a task reaches Client review or Done, Luma posts "@you
+  marked a task as Done: *title*" in the requirement thread straight away,
+  linking back to the task (Client review comes with the client's Approve
+  buttons). When the client approves, nothing more is posted there.
 - `@LUMA priority high` changes the priority (Urgent, High, Medium, Low);
   `@LUMA priority` replies with a menu. `@LUMA due 30/11/2026` changes the
   due date (YYYY-MM-DD also works), `@LUMA due none` removes it, and
@@ -245,20 +256,22 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   is linked is asked straight away.
 - PR links pasted into a task's thread without `@LUMA pr add` aren't lost:
   Luma asks whoever posted them, in a message only they can see, whether to
-  link them, with **Link PRs** and **Not now**. **Link PRs** works just like
-  `@LUMA pr add`; either button removes the question. PRs already linked
-  aren't asked about. If the message also mentions people who aren't
-  reviewers yet, Luma offers to add them as reviewers too (**Link and add
-  reviewer** or **Just link**; or just **Add reviewer** when the PRs are
-  already linked), and asks them to review.
+  link them, with **Link PRs** and **Not now**; either button removes the
+  question. PRs already linked aren't asked about. If the message also
+  mentions people who aren't reviewers yet, Luma offers to add them as
+  reviewers too (**Link and add reviewer** or **Just link**; or just **Add
+  reviewer** when the PRs are already linked). Since you wrote the message,
+  Luma posts only what's new: the task moving to 🟣 In review, a review
+  request for reviewers your message didn't mention, or, with no reviewer
+  at all, who should review.
 - `@LUMA delete` (or `@LUMA remove`) replies with a prominent **Cancel**
   button and a plain **Delete task** button. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once
   confirmed, Luma deletes the task message and all of its own replies in the
   thread, which also removes the pin. Slack only lets a bot delete its own
   messages, so people's replies stay in the thread under a "This message was
-  deleted" placeholder. Luma then posts "@you untracked a task: *title*"
-  in the external thread the task was tracked from.
+  deleted" placeholder. The requirement it was tracked from goes back to
+  "Not tracked yet"; nothing is posted in its thread.
 
 Each command updates the root message and Luma confirms in the thread. The
 mention works whatever the bot is named.

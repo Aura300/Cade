@@ -32,6 +32,7 @@ export default {
   aliases: ["remove"],
   description: "Delete the task or requirement and Luma's messages in its thread",
   usage: "@LUMA delete",
+  section: "thread",
   channel: ["tasks", "incidents", "external"],
   inThread: true,
   async run(command, { env }) {
@@ -88,7 +89,6 @@ export default {
     [DELETE_ACTION]: async (payload, context) => {
       const request = await authorize(payload, context.env);
       if (!request) return;
-      // Buttons posted before requirements could be deleted have no kind.
       const remove = request.kind === "requirement" ? deleteRequirement : deleteTask;
       context.waitUntil(remove(context.env, request.channel, request.ts, payload.user.id));
     },
@@ -130,24 +130,16 @@ async function deleteTask(env, channel, ts, user) {
   await callSlack(env, "chat.delete", { channel, ts });
   console.log("Task deleted", { ts, user });
 
+  // The requirement's message shows it's no longer tracked, so nothing is
+  // posted in its thread.
   if (task.source) {
-    // Matches the "tracked a task" announcement, without the link.
-    const text = `<@${user}> untracked a task: ${escapeSlack(task.title)}`;
-    await callSlack(env, "chat.postMessage", {
-      channel: task.source.channel,
-      thread_ts: task.source.threadTs,
-      text,
-      blocks: [{ type: "section", text: mrkdwn(text) }],
-    });
     await updateRequirement(env, task.source, (requirement) =>
       requirement.task?.ts === ts
         ? { ...requirement, status: "DISCUSSION", task: undefined }
         : null,
     );
     // Back in discussion, so pinned again even if the task was Done.
-    if (task.source.requirement) {
-      await setPinned(env, task.source.channel, task.source.threadTs, true);
-    }
+    await setPinned(env, task.source.channel, task.source.threadTs, true);
   }
 
   await callSlack(env, "chat.postEphemeral", {

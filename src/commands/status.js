@@ -3,12 +3,9 @@ import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, saveTask, setPinned } from "../tasks.js";
 
 const SELECT_ACTION = "status:select";
-const INFORM_ACTION = "status:inform";
-const SKIP_ACTION = "status:skip";
 const APPROVE_ACTION = "status:approve";
 const REJECT_ACTION = "status:reject";
-// The external thread only needs to hear when a task leaves the open statuses
-// for one of these.
+// The external thread only needs to hear when a task reaches one of these.
 const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 
 // `@LUMA status` in a task thread replies with a menu of statuses; picking one
@@ -18,24 +15,24 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 // of DONE pins it again. The same goes for the requirement it was tracked
 // from, in the external channel.
 //
-// When a task moves from an open status to CLIENT_REVIEW or DONE, the
-// confirmation asks whether Luma should tell the external thread the task was
-// tracked from, or whether someone will tell them themselves. A requirement
-// the task was tracked from always shows the current status, either way. A
-// requirement's task moving to CLIENT_REVIEW is the exception: the client is
-// asked to review it straight away (see below).
+// When a task reaches CLIENT_REVIEW or DONE, Luma tells the external thread
+// it was tracked from, and the requirement it was tracked from always shows
+// the current status.
 //
 // Only the dev channel sets statuses, and it can set Done directly. Client
 // review is an optional step for work the client should check first, and
 // the client decides whether that work is accepted. When a requirement's
-// task moves to Client review, Luma posts in the requirement thread with
-// Approve and Not approve buttons. Approve moves the task to Done; Not approve moves it back to In
-// progress. Either way the task's thread is told. Slack cannot tell the team
+// task moves to Client review, Luma's post in the requirement thread has
+// Approve and Not approve buttons. Approve moves the task to Done; Not
+// approve moves it back to In progress. Either way the task's thread is told,
+// and nothing more is posted in the requirement thread, where the client just
+// decided. Slack cannot tell the team
 // from the client, so anyone in the external channel can click them.
 export default {
   name: "status",
   description: "Update the task's status (in its thread)",
   usage: "@LUMA status",
+  section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
@@ -51,30 +48,18 @@ export default {
       return statusPicker(prompt, task.status);
     }
 
-    const closed = await applyStatus(env, command.channel, command.threadTs, task, status);
-    return afterChange(env, command.channel, command.threadTs, task, status, command.user, closed);
+    const reached = await applyStatus(env, command.channel, command.threadTs, task, status);
+    return afterChange(env, command.channel, command.threadTs, task, status, command.user, reached);
   },
   actions: {
     [SELECT_ACTION]: async (payload, context) => {
       context.waitUntil(selectStatus(payload, context.env));
-    },
-    [INFORM_ACTION]: async (payload, context) => {
-      context.waitUntil(inform(payload, context.env));
     },
     [APPROVE_ACTION]: async (payload, context) => {
       context.waitUntil(review(payload, context.env, true));
     },
     [REJECT_ACTION]: async (payload, context) => {
       context.waitUntil(review(payload, context.env, false));
-    },
-    [SKIP_ACTION]: async (payload, context) => {
-      const request = JSON.parse(payload.actions[0].value);
-      await resolvePrompt(
-        payload,
-        context.env,
-        request,
-        `<@${payload.user.id}> will tell the external thread.`,
-      );
     },
   },
 };
@@ -111,8 +96,8 @@ async function selectStatus(payload, env) {
   const task = await loadTask(env, channel, ts);
   let reply = NOT_A_TASK;
   if (task) {
-    const closed = await applyStatus(env, channel, ts, task, status);
-    reply = await afterChange(env, channel, ts, task, status, payload.user.id, closed);
+    const reached = await applyStatus(env, channel, ts, task, status);
+    reply = await afterChange(env, channel, ts, task, status, payload.user.id, reached);
   }
   await callSlack(env, "chat.update", {
     channel,
@@ -121,8 +106,8 @@ async function selectStatus(payload, env) {
   });
 }
 
-// Saves the new status and returns whether the task just moved from an open
-// status to a closed one.
+// Saves the new status and returns whether the task just reached a status
+// the external thread hears about.
 async function applyStatus(env, channel, ts, task, status) {
   const previous = task.status;
   task.status = status;
@@ -133,81 +118,23 @@ async function applyStatus(env, channel, ts, task, status) {
   if ((previous === "DONE") !== (status === "DONE")) {
     await setPinned(env, channel, ts, status !== "DONE");
     // The requirement it was tracked from is pinned until it is Done too.
-    if (task.source?.requirement) {
+    if (task.source) {
       await setPinned(env, task.source.channel, task.source.threadTs, status !== "DONE");
     }
   }
-  return !CLOSED_STATUSES.includes(previous) && CLOSED_STATUSES.includes(status);
+  return status !== previous && CLOSED_STATUSES.includes(status);
 }
 
-// Returns the confirmation for a status change. Client review on a task from
-// a requirement needs the client, so they are asked straight away instead of
-// asking whether to tell them.
-async function afterChange(env, channel, ts, task, status, user, closed) {
-  if (closed && status === "CLIENT_REVIEW" && task.source?.requirement) {
-    await announce(env, channel, ts, task, user);
-    return `${changedText(user, status)}\nLuma asked the client to review it in the requirement thread.`;
-  }
-  return confirmation(channel, ts, task, status, user, closed);
-}
-
-function confirmation(channel, ts, task, status, user, closed) {
+// Tells the external thread, if the task has one and just reached Client
+// review or Done, and returns the confirmation for the task's thread.
+async function afterChange(env, channel, ts, task, status, user, reached) {
   const text = changedText(user, status);
-  if (!closed || !task.source) return text;
-
-  // The buttons carry everything needed to post the announcement later.
-  const value = JSON.stringify({ channel, ts, status, user });
-  return {
-    text,
-    blocks: [
-      { type: "section", text: mrkdwn(`${text}\nShould Luma tell the external thread?`) },
-      {
-        type: "actions",
-        elements: [
-          {
-            type: "button",
-            action_id: INFORM_ACTION,
-            text: plainText("Inform external thread"),
-            style: "primary",
-            value,
-          },
-          {
-            type: "button",
-            action_id: SKIP_ACTION,
-            text: plainText("I'll tell them"),
-            value,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-async function inform(payload, env) {
-  const request = JSON.parse(payload.actions[0].value);
-  const task = await loadTask(env, request.channel, request.ts);
-
-  let outcome;
-  if (!task) {
-    outcome = NOT_A_TASK;
-  } else if (task.status !== request.status) {
-    // Someone changed the status again before the button was clicked.
-    outcome = `Not sent: the status is now ${STATUSES[task.status]}.`;
-  } else {
-    await announce(env, request.channel, request.ts, task, request.user);
-    outcome = `<@${payload.user.id}> informed the external thread.`;
-  }
-  await resolvePrompt(payload, env, request, outcome);
-}
-
-// Replaces the buttons with the original confirmation and what was decided.
-async function resolvePrompt(payload, env, request, outcome) {
-  const text = `${changedText(request.user, request.status)}\n${outcome}`;
-  await callSlack(env, "chat.update", {
-    channel: payload.channel.id,
-    ts: payload.message.ts,
-    ...asMessage(text),
-  });
+  if (!reached || !task.source) return text;
+  await announce(env, channel, ts, task, user);
+  const told = status === "CLIENT_REVIEW"
+    ? "Luma asked the client to review it in the requirement thread."
+    : "Luma told the requirement thread.";
+  return `${text}\n${told}`;
 }
 
 // Matches the "tracked a task" announcement in the external thread.
@@ -217,7 +144,7 @@ async function announce(env, channel, ts, task, user) {
     message_ts: ts,
   });
   const text = `<@${user}> marked a task as ${STATUSES[task.status]}: <${permalink}|${escapeSlack(task.title)}>`;
-  const asksForReview = task.status === "CLIENT_REVIEW" && task.source.requirement;
+  const asksForReview = task.status === "CLIENT_REVIEW";
   await callSlack(env, "chat.postMessage", {
     channel: task.source.channel,
     thread_ts: task.source.threadTs,

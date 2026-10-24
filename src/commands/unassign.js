@@ -7,6 +7,7 @@ export default {
   name: "unassign",
   description: "Unassign people from a role, or from every role (in its thread)",
   usage: "@LUMA unassign developer @person",
+  section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {

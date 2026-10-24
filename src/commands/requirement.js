@@ -16,6 +16,7 @@ export default {
   name: "requirement",
   description: "Start a thread to discuss a new requirement",
   slashUsage: "/luma requirement",
+  section: "start",
   channel: "external",
   async slash(command, { env }) {
     await callSlack(env, "views.open", {
@@ -67,6 +68,7 @@ export const incident = {
   name: "incident",
   description: "Report an incident, tracked straight away in the incidents channel",
   slashUsage: "/luma incident",
+  section: "start",
   channel: "external",
   async slash(command, { env }) {
     if (!pairFor(env, command.channel).incidents) {

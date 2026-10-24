@@ -44,7 +44,7 @@ export function requirementMessage(requirement) {
   const label = requirement.incident ? "Incident" : "Requirement";
   const details = [
     `*Status:* ${REQUIREMENT_STATUSES[requirement.status]}`,
-    `*Priority:* ${priority ? `${PRIORITIES[priority]} ${priority}` : "_None_"}`,
+    `*Priority:* ${PRIORITIES[priority]} ${priority}`,
     `*Due:* ${requirement.dueDate || "_None_"}`,
   ].join("  ·  ");
   const people = [
@@ -118,11 +118,11 @@ export async function saveRequirement(env, channel, ts, requirement) {
   console.log("Requirement saved", { ts, status: requirement.status });
 }
 
-// Updates the requirement a task was tracked from, if it was. `change` gets
+// Updates the requirement (or incident) a task was tracked from, if it was. `change` gets
 // the requirement and returns its new state, or null to leave it. The root
 // message is a summary, so failures are logged rather than failing the command.
 export async function updateRequirement(env, source, change) {
-  if (!source?.requirement) return;
+  if (!source) return;
   try {
     const requirement = await loadRequirement(env, source.channel, source.threadTs);
     if (!requirement) return;
@@ -158,7 +158,7 @@ export async function findDetails(env, channel, threadTs) {
   if (role !== "external") {
     const task = await loadTask(env, channel, threadTs);
     if (!task) return null;
-    let kind = task.source?.requirement ? "client" : "task";
+    let kind = task.source ? "client" : "task";
     if (role === "incidents") kind = "incident";
     return { kind, channel, ts: threadTs, item: task };
   }

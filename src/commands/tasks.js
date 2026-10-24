@@ -34,6 +34,7 @@ export default {
   name: "tasks",
   description: "Show your open tasks by role, only to you (`development`, `review` or `testing` for one)",
   slashUsage: "/luma tasks",
+  section: "work",
   async slash(command, context) {
     const roles = findRoles(command.text);
     if (!roles) return askForRole(command.text);

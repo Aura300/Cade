@@ -23,6 +23,7 @@ export const priority = {
   name: "priority",
   description: "Change the priority (in a requirement thread, or a task thread with no requirement)",
   usage: "@LUMA priority high",
+  section: "thread",
   channel: ["external", "tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
@@ -55,6 +56,7 @@ export const due = {
   name: "due",
   description: "Change the due date (in a requirement thread, or a task thread with no requirement)",
   usage: "@LUMA due 31/12/2026",
+  section: "thread",
   channel: ["external", "tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
@@ -153,8 +155,7 @@ function priorityPicker(prompt, current) {
           action_id: PRIORITY_ACTION,
           placeholder: plainText("Select a priority"),
           options: Object.keys(PRIORITIES).map(option),
-          // Requirements started before they had a priority have none.
-          initial_option: PRIORITIES[current] ? option(current) : undefined,
+          initial_option: option(current),
         },
       },
     ],

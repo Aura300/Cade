@@ -81,8 +81,6 @@ app already uses for other purposes.
 | `pins:read` | Finding the open tasks for `/luma tasks`, which are the pinned ones |
 | `pins:write` | Pinning open tasks and requirements and unpinning done ones |
 
-If you added `im:history` for an earlier version of `tasks`, you can remove
-it.
 | `users:read` | Writing people's names, not user IDs, to the Google Sheet |
 | `commands` | The `/luma` slash command (added automatically in step 5) |
 
@@ -109,9 +107,7 @@ the **Cancel** / **Delete task** buttons all use it.
    - `message.groups`
 4. Click **Save Changes**.
 
-This is how Luma receives `@LUMA` commands. If you added `message.im`, or
-turned on the App Home **Messages Tab**, for an earlier version of `tasks`,
-you can remove them.
+This is how Luma receives `@LUMA` commands.
 
 > A Slack app has only one Interactivity Request URL and one Events Request
 > URL. If either was already set to another service, that service will stop
@@ -186,6 +182,7 @@ Try these in the test channels first.
 | Click **Approve** | The task becomes ✅ Done and is unpinned, the requirement shows Done, and the task's thread is told |
 | Click **Not approve** (after moving the task to Client review again) | The task and requirement go back to 🔵 In progress, and the task's thread is told |
 | `@LUMA status in review` in that task's thread | The requirement message still shows 🔵 In progress; `@LUMA status client review` changes it to Client review straight away |
+| In an untracked requirement's thread: "@someone please start working on this" | Only you see **Track and assign**; it opens the form, and the task starts with them as developer, 🔵 In progress |
 | `@LUMA track` again in the same requirement thread | Luma says it's already tracked, with a link to the task |
 | `@LUMA track` in a thread Luma didn't start, or in `#test-dev` | Luma explains where to use it; nothing is tracked |
 | `/luma track` in `#test-dev` | The full form opens straight away; the task is created in `#test-dev` with no external thread |
@@ -196,8 +193,7 @@ Try these in the test channels first.
 | "@someone please test this" on a task in review | **Assign and move to In testing** adds them as tester and moves the task to 🟠 In testing |
 | `@LUMA assign reviewer @someone`, `@LUMA assign tester @someone` | They appear as **Reviewer** / **Tester** |
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
-| `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and Luma asks whether to inform the external thread |
-| Click **Inform external thread** | The original external thread gets "marked a task as ✅ Done" |
+| `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and the requirement thread gets "marked a task as ✅ Done" without asking |
 | `/luma incident` in `#aura300-external` | A form asks only what the incident is; submitting posts "**Incident:** …" (🔴 Urgent, due Immediate) and the task appears, pinned, in the incidents channel |
 | `@LUMA priority low` in the incident's thread, in either channel | Luma says incidents are always Urgent and due Immediate |
 | `@LUMA status client review` in the incident's task thread | The incident thread gets **Approve** / **Not approve**, mentioning the reporter |

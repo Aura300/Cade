@@ -32,6 +32,7 @@ export default {
   name: "pr",
   description: "Link or unlink pull requests (in a task thread)",
   usage: "@LUMA pr add <link>",
+  section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
@@ -51,8 +52,13 @@ export default {
     if (!task) return NOT_A_TASK;
 
     if (adding) {
-      const reply = await linkPullRequests(env, command.channel, command.threadTs, task, urls, command.user);
-      return reply ?? "Those pull requests are already linked to this task.";
+      const linked = await addPullRequests(env, command.channel, command.threadTs, task, urls);
+      if (!linked) return "Those pull requests are already linked to this task.";
+      const status = linked.moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
+      const text = `<@${command.user}> linked ${linked.added.map(prLink).join(", ")}${status}.`;
+      const reviewers = task.people.reviewer;
+      if (reviewers.length) return `${text}\n${reviewRequest(reviewers, linked.added)}`;
+      return reviewerPicker(text, linked.added);
     }
 
     const removed = urls.filter((url) => task.prs.includes(url));
@@ -81,9 +87,10 @@ export default {
 // on (testing, client review, done) stay where they are.
 const BEFORE_REVIEW = ["TODO", "IN_PROGRESS"];
 
-// Links the pull requests that aren't linked yet and returns the reply for
-// the task's thread, or null when they all were.
-async function linkPullRequests(env, channel, ts, task, urls, user) {
+// Links the pull requests that aren't linked yet, moving the task to In
+// review if it hadn't got that far. Returns { added, moved }, or null when
+// they were all linked already.
+async function addPullRequests(env, channel, ts, task, urls) {
   const added = urls.filter((url) => !task.prs.includes(url));
   if (!added.length) return null;
   task.prs = [...task.prs, ...added];
@@ -92,11 +99,7 @@ async function linkPullRequests(env, channel, ts, task, urls, user) {
   const moved = BEFORE_REVIEW.includes(task.status);
   if (moved) task.status = "IN_REVIEW";
   await saveTask(env, channel, ts, task);
-  const status = moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
-  const linked = `<@${user}> linked ${added.map(prLink).join(", ")}${status}.`;
-  const reviewers = task.people.reviewer;
-  if (reviewers.length) return `${linked}\n${reviewRequest(reviewers, added)}`;
-  return reviewerPicker(linked, added);
+  return { added, moved };
 }
 
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
@@ -116,6 +119,10 @@ export function pullRequestsIn(text) {
 // a command, asks whoever posted it, privately, whether to link the ones not
 // linked yet, and whether to add the people it mentions who aren't reviewers
 // yet as reviewers. Mentions in a message only one person sees notify no one.
+//
+// The person clicking wrote the message, so accepting adds little to the
+// thread: only a status change, and a review request for reviewers the
+// message didn't mention.
 export async function suggestPullRequests(event, env, botUserId) {
   const inThread = event.thread_ts && event.thread_ts !== event.ts;
   if (!inThread || event.subtype || event.bot_id) return;
@@ -132,7 +139,8 @@ export async function suggestPullRequests(event, env, botUserId) {
   if (!unlinked.length && !reviewers.length) return;
 
   const question = suggestion(unlinked, urls, reviewers);
-  const base = { channel: event.channel, ts: event.thread_ts };
+  // Who the message mentioned, so they aren't asked again.
+  const base = { channel: event.channel, ts: event.thread_ts, mentioned };
   const button = (label, fields, style, actionId = SUGGEST_LINK_ACTION) => ({
     type: "button",
     action_id: actionId,
@@ -178,24 +186,28 @@ function suggestion(unlinked, urls, reviewers) {
   return `${posted} and mentioned ${people}. Link ${them} to this task and add ${people} ${as}?`;
 }
 
-// Applies the chosen suggestion: adds the reviewers, links the pull requests,
-// says so in the task's thread as `@LUMA pr add` and `@LUMA assign reviewer`
-// would, and removes the private question.
+// Applies the chosen suggestion, adding the reviewers and linking the pull
+// requests, and removes the private question. The thread only hears what's
+// new to it: the task moving to In review, a review request for reviewers
+// the message didn't mention, or, with no reviewer at all, who should review.
 async function acceptSuggestion(payload, env) {
-  const { channel, ts, urls = [], reviewers = [] } = JSON.parse(payload.actions[0].value);
+  const { channel, ts, urls = [], reviewers = [], mentioned = [] } = JSON.parse(payload.actions[0].value);
   const user = payload.user.id;
   const task = await loadTask(env, channel, ts);
   let reply = null;
   if (task) {
-    // Reviewers first, so linking asks them to review.
     const added = reviewers.filter((id) => !task.people.reviewer.includes(id));
     task.people.reviewer = [...task.people.reviewer, ...added];
-    reply = await linkPullRequests(env, channel, ts, task, urls, user);
-    if (!reply && added.length) {
-      await saveTask(env, channel, ts, task);
-      reply = `<@${user}> added ${mentions(added)} as ${added.length === 1 ? "reviewer" : "reviewers"}.`;
-      if (task.prs.length) reply += `\n${reviewRequest(added, task.prs)}`;
-    }
+    const linked = await addPullRequests(env, channel, ts, task, urls);
+    // Linking saves the task; adding only reviewers needs its own save.
+    if (!linked && added.length) await saveTask(env, channel, ts, task);
+
+    const lines = [];
+    if (linked?.moved) lines.push(`<@${user}> moved the task to ${STATUSES.IN_REVIEW}.`);
+    const unasked = task.people.reviewer.filter((id) => !mentioned.includes(id));
+    if (linked && unasked.length) lines.push(reviewRequest(unasked, linked.added));
+    if (linked && !task.people.reviewer.length) reply = reviewerPicker(lines.join("\n"), linked.added);
+    else if (lines.length) reply = lines.join("\n");
   }
   if (reply) {
     await callSlack(env, "chat.postMessage", {
@@ -212,8 +224,12 @@ function reviewRequest(reviewers, urls) {
   return `${mentions(reviewers)}, please review ${urls.map(prLink).join(", ")}.`;
 }
 
-function reviewerPicker(linked, urls) {
-  const prompt = `${linked}\nThere's no reviewer yet. Who should review ${urls.length === 1 ? "it" : "them"}?`;
+// Asks who should review the pull requests, after `lead` (what happened, if
+// anything worth saying).
+function reviewerPicker(lead, urls) {
+  const them = urls.length === 1 ? urls.map(prLink).join("") : "them";
+  const question = `There's no reviewer yet. Who should review ${lead ? (urls.length === 1 ? "it" : "them") : them}?`;
+  const prompt = lead ? `${lead}\n${question}` : question;
   return {
     text: prompt,
     blocks: [

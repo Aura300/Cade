@@ -77,9 +77,29 @@ function channelHint(scope, env, from) {
   return channels.length ? ` in ${channels.map((id) => `<#${id}>`).join(" or ")}` : "";
 }
 
+// Help is three lines, one per section, listing each command's forms. In a
+// task thread, saying it in your own words comes first: Luma offers to
+// assign people or link PRs from what you write, and the commands are there
+// for anything else.
+const SECTIONS = [
+  ["start", "Start"],
+  ["thread", "In a task thread"],
+  ["work", "Your work"],
+];
+
 function usage() {
-  const lines = [...new Set(Object.values(commands))].flatMap(({ usage, slashUsage, description }) =>
-    [slashUsage, usage].filter(Boolean).map((form) => `• \`${form}\` – ${description}`),
-  );
-  return `Available commands:\n${lines.join("\n")}\n• \`@LUMA help\` – Show this list`;
+  const handlers = [...new Set(Object.values(commands))];
+  const lines = SECTIONS.map(([section, title]) => {
+    const forms = handlers
+      .filter((handler) => handler.section === section)
+      .flatMap(({ slashUsage, usage }) => [slashUsage, usage].filter(Boolean))
+      .map((form) => `\`${form}\``)
+      .join(" · ");
+    const words =
+      section === "thread"
+        ? "Just say it: write \"@person please look into this\" or paste a PR link, and Luma offers to assign or link. Or: "
+        : "";
+    return `*${title}:* ${words}${forms}`;
+  });
+  return `${lines.join("\n")}\n\`@LUMA help\` or \`/luma help\` shows this.`;
 }

@@ -1,7 +1,8 @@
 import { roleOf } from "../channels.js";
-import { callSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
-import { clientStatus, reflectOnRequirement } from "../requirements.js";
+import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
 import { NOT_A_TASK, ROLES, STATUSES, loadTask, parseRole, prLink, saveTask, statusName } from "../tasks.js";
+import { TRACK_ASSIGN_ACTION } from "./track.js";
 
 const SUGGEST_ASSIGN_ACTION = "assign:suggest";
 const SUGGEST_SKIP_ACTION = "assign:suggest-skip";
@@ -41,6 +42,7 @@ export default {
   name: "assign",
   description: "Assign a developer, reviewer or tester (in its thread)",
   usage: "@LUMA assign developer @person",
+  section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
@@ -91,9 +93,25 @@ export async function suggestAssignment(event, env, botUserId) {
     (id) => id !== botUserId,
   );
   if (!mentioned.length) return;
-  if (!["tasks", "incidents"].includes(roleOf(env, event.channel))) return;
 
-  const task = await loadTask(env, event.channel, event.thread_ts);
+  // In a task's thread the hand-off is about that task. In a requirement's
+  // thread, asking someone to start working is about its task; before there
+  // is one, Luma offers to track it with them as developers.
+  let target = { channel: event.channel, ts: event.thread_ts };
+  let of = "";
+  const place = roleOf(env, event.channel);
+  if (place === "external") {
+    if (role !== "developer") return;
+    const requirement = await loadRequirement(env, event.channel, event.thread_ts);
+    if (!requirement) return;
+    if (!requirement.task) return offerTracking(env, event, requirement, mentioned);
+    target = { channel: requirement.task.channel, ts: requirement.task.ts };
+    of = ` of <${requirement.task.link}|${escapeSlack(requirement.task.title)}>`;
+  } else if (!["tasks", "incidents"].includes(place)) {
+    return;
+  }
+
+  const task = await loadTask(env, target.channel, target.ts);
   if (!task) return;
   const people = mentioned.filter((id) => !task.people[role].includes(id));
   // Handing a task over moves it on, even when the people were assigned
@@ -104,17 +122,17 @@ export async function suggestAssignment(event, env, botUserId) {
   const label = ROLES[role].toLowerCase();
   const them = people.length > 1 ? "them all" : "them";
   const asked = `You asked ${mentions(people.length ? people : mentioned)} to ${ASKED[role]}.`;
-  let question = `${asked} Assign ${them} as ${label}?`;
+  let question = `${asked} Assign ${them} as ${label}${of}?`;
   let button = `Assign as ${label}`;
   if (moveTo) {
     const status = STATUSES[moveTo];
     const name = statusName(moveTo);
     question = people.length
-      ? `${asked} Assign ${them} as ${label} and move the task to ${status}?`
+      ? `${asked} Assign ${them} as ${label}${of} and move the task to ${status}?`
       : `${asked} Move the task to ${status}?`;
     button = people.length ? `Assign and move to ${name}` : `Move to ${name}`;
   }
-  const value = JSON.stringify({ channel: event.channel, ts: event.thread_ts, role, people, moveTo });
+  const value = JSON.stringify({ channel: target.channel, ts: target.ts, role, people, moveTo });
   await callSlack(env, "chat.postEphemeral", {
     channel: event.channel,
     thread_ts: event.thread_ts,
@@ -155,6 +173,51 @@ function nextStatus(role, status) {
   return move?.from.includes(status) ? move.to : null;
 }
 
+// Asks whoever wrote it, privately, whether to track the requirement now with
+// the people asked to start working on it as developers.
+async function offerTracking(env, event, requirement, developers) {
+  const them = developers.length > 1 ? "them all" : "them";
+  const question = `You asked ${mentions(developers)} to work on this. Track it as a task and assign ${them} as developer?`;
+  const { title, priority, dueDate, incident } = requirement;
+  const origin = {
+    channel: event.channel,
+    threadTs: event.thread_ts,
+    requirement: true,
+    incident,
+    title,
+    priority,
+    dueDate,
+    developers,
+  };
+  await callSlack(env, "chat.postEphemeral", {
+    channel: event.channel,
+    thread_ts: event.thread_ts,
+    user: event.user,
+    text: question,
+    blocks: [
+      { type: "section", text: mrkdwn(question) },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: TRACK_ASSIGN_ACTION,
+            text: plainText("Track and assign"),
+            style: "primary",
+            value: JSON.stringify(origin),
+          },
+          {
+            type: "button",
+            action_id: SUGGEST_SKIP_ACTION,
+            text: plainText("Not now"),
+            value: JSON.stringify({ channel: event.channel }),
+          },
+        ],
+      },
+    ],
+  });
+}
+
 // How the question describes what the message asked for.
 const ASKED = {
   developer: "work on this",
@@ -163,10 +226,9 @@ const ASKED = {
 };
 
 // Assigns the suggested people and moves the task on as the question said,
-// then says so in the thread without mentioning them
-// again (the message that asked them already did) and removes the private
-// question. Reviewers are asked to review if a PR is linked, as `@LUMA assign
-// reviewer` would.
+// and removes the private question. The person clicking wrote the message
+// that asked them, so the thread only hears about a status change; the task
+// card shows who was assigned.
 async function acceptAssignment(payload, env) {
   const { channel, ts, role, people, moveTo } = JSON.parse(payload.actions[0].value);
   const task = await loadTask(env, channel, ts);
@@ -181,15 +243,10 @@ async function acceptAssignment(payload, env) {
     // this keeps it right if that ever changes.
     if (moved) await reflectOnRequirement(env, ts, task, { status: clientStatus(task.status) });
 
-    const label = ROLES[role].toLowerCase();
-    const parts = [];
-    if (added.length) parts.push(`added ${added.length === 1 ? `a ${label}` : `${added.length} ${label}s`}`);
-    if (moved) parts.push(`moved the task to ${STATUSES[moveTo]}`);
-    let text = `<@${payload.user.id}> ${parts.join(" and ")}.`;
-    if (role === "reviewer" && task.prs.length) {
-      text = `${text}\n${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`;
+    if (moved) {
+      const text = `<@${payload.user.id}> moved the task to ${STATUSES[moveTo]}.`;
+      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
     }
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
   }
   // An ephemeral message can only be changed through its response_url.
   await respondLater(payload.response_url, { delete_original: true });
