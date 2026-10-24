@@ -3762,3 +3762,13 @@ test("the Slack app's description fits Slack's 140 characters", async () => {
   const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
   assert.ok(template.display_information.description.length <= 140);
 });
+
+test("the setup prompt keeps tokens away from the agent", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const prompt = await readFile(new URL("../scripts/setup-prompt.md", import.meta.url), "utf8");
+  assert.match(prompt, /^Set up Cade for me by following GETTING_STARTED\.md/);
+  assert.match(prompt, /Never ask me for a token or secret/);
+  assert.match(prompt, /separate terminal window/);
+  const guide = await readFile(new URL("../GETTING_STARTED.md", import.meta.url), "utf8");
+  assert.match(guide, /npm run setup/);
+});

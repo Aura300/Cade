@@ -33,6 +33,7 @@ Other scripts:
 
 | Script | Does |
 | --- | --- |
+| `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |

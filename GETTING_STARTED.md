@@ -10,27 +10,21 @@ need someone to click in a browser; an agent should stop there and ask.
 
 ## Set up with an AI agent
 
-An AI coding agent (such as Claude Code) can take you through this guide,
-running the commands and stopping where you need to act. Open it in this
-folder and say:
+An AI coding agent can take you through this guide one step at a time,
+running the commands and stopping whenever you need to act. With [Claude
+Code](https://claude.com/claude-code) installed, from this folder run:
 
-> Set up Cade for me by following GETTING_STARTED.md, one step at a time.
-> Before each step, tell me what it does and what you'll run. Run the
-> commands yourself, check the result against the step's **Expect**, and
-> fix what you can using its **If it fails**. Stop and tell me exactly what
-> to do whenever a step needs a person: browser logins, approvals, Slack
-> and Google settings, and creating or inviting channels. Ask me for every
-> value you need (names, channel IDs, the time zone) instead of guessing.
-> Never ask me for a token or secret, and never put one in a file, a
-> commit or a command: the commands that need one (`slack:create`,
-> `slack:update`, `wrangler secret put`, `npm run dev`) ask for it
-> themselves, hidden. For those, give me the exact command to run in my own
-> terminal, wait for me, then check the result. Ask before deleting
-> anything, and before running a step a second time.
+```sh
+npm run setup
+```
 
-This keeps your tokens away from the agent: you type them into hidden
-prompts in your own terminal, and the agent only sees whether the step
-worked.
+It starts Claude Code with the setup prompt from
+[`scripts/setup-prompt.md`](scripts/setup-prompt.md). With another agent,
+open it in this folder and paste that prompt.
+
+The agent never handles your tokens: the commands that need one ask for it
+themselves, hidden, and the agent asks you to run those in your own
+terminal. It only sees whether each step worked.
 
 ## What you need
 
