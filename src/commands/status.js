@@ -22,8 +22,9 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 // tracked from, or whether someone will tell them themselves. A requirement
 // the task was tracked from always shows the current status, either way.
 //
-// Only the dev channel sets statuses, with one exception: the client decides
-// whether work in Client review is accepted. When a requirement thread is
+// Only the dev channel sets statuses, and it can set Done directly. Client
+// review is an optional step for work the client should check first, and
+// the client decides whether that work is accepted. When a requirement thread is
 // told a task is in Client review, the message has Approve and Not approve
 // buttons. Approve moves the task to Done; Not approve moves it back to In
 // progress. Either way the task's thread is told. Slack cannot tell the team

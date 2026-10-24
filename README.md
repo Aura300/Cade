@@ -102,8 +102,10 @@ changes what follows who knows it:
   task is To do, In progress, In review or In testing, then **Client
   review** and **Done**. **Inform external thread** only decides whether a
   message is also posted in the requirement thread.
-- **Acceptance is the client's.** When the dev channel informs a requirement
-  thread that a task is in Client review, the message has **Approve** and
+- **The client can accept work, if the team asks.** The team can set a task
+  to Done directly. Client review is an optional step for work the client
+  should check first: when the dev channel informs a requirement thread
+  that a task is in Client review, the message has **Approve** and
   **Not approve** buttons. **Approve** moves the task to Done; **Not
   approve** moves it back to In progress, and the client explains what
   needs to change in the thread. Either way Luma tells the task's thread in
