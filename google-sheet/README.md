@@ -3,8 +3,8 @@
 Slack's free plan only keeps recent message history, so the Worker also
 records every task in a Google Sheet. A free Google account is enough.
 
-Each channel pair in `CHANNEL_PAIRS` (`wrangler.toml`) gets its own tab,
-named after the pair (for example **aura300** and **test**), created
+Each channel pair in `CHANNEL_PAIRS` (a Worker secret) gets its own tab,
+named after the pair (for example **acme** and **test**), created
 automatically on the first update. Every task has one row, updated on every
 change:
 
@@ -19,7 +19,7 @@ the task is reopened.
 **Task ID** is the dev thread's ID (`channel:timestamp`). Each update finds
 the task's row by this ID and overwrites it, so a task never appears twice.
 You can sort and filter the tabs freely, but don't edit or delete the Task ID
-column. Times are in Sri Lanka time (`TIMEZONE` in `wrangler.toml`).
+column. Times are in `TIMEZONE` (a Worker secret; UTC if unset).
 
 ## Setup
 
@@ -29,7 +29,7 @@ column. Times are in Sri Lanka time (`TIMEZONE` in `wrangler.toml`).
    Replace the contents of `Code.gs` with the contents of
    [`Code.gs`](Code.gs) from this folder, then click **Save**. You don't need
    to create any tabs; the script adds one per channel pair (for example
-   **aura300** and **test**) the first time it writes to it.
+   **acme** and **test**) the first time it writes to it.
 
    If you created the script separately at script.google.com instead, it
    isn't attached to the sheet. Add a script property `SPREADSHEET_ID` (in
@@ -53,15 +53,17 @@ column. Times are in Sri Lanka time (`TIMEZONE` in `wrangler.toml`).
    Click **Deploy**, approve the permissions Google asks for, and copy the
    **Web app URL** (it ends in `/exec`). "Anyone" lets the Worker reach the
    URL without a Google login; the secret is what protects it.
-5. **Give the Worker the URL and secret** from the project directory:
+5. **Give the Worker the URL and secret** from the project directory. Add
+   the Web app URL to `luma.config.json` as `"sheetUrl"` and upload it, and
+   store the secret, which stays out of the file:
 
    ```sh
-   npx wrangler secret put SHEET_URL     # the Web app URL
+   npm run config                        # uploads sheetUrl as SHEET_URL
    npx wrangler secret put SHEET_SECRET  # the same value as the SECRET property
    ```
 
-6. **Let LUMA read names.** In the Slack app, add the bot scope `users:read`
-   (**OAuth & Permissions**), then **Reinstall to Workspace**. Without it the
+6. **Let LUMA read names.** The Slack app made by `npm run slack:create`
+   already has the `users:read` scope it needs. Without it the
    sheet shows user IDs such as `U0BUKTZA8VB` instead of names.
 
 Then create or update a task in a test channel; its row should appear in

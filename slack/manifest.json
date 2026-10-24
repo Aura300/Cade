@@ -1,0 +1,50 @@
+{
+  "_comment": "The Slack app Luma runs as. npm run slack:create fills in {{WORKER_URL}}, {{APP_NAME}} and {{COMMAND}}; npm run slack:update applies changes to an existing app. See GETTING_STARTED.md.",
+  "display_information": {
+    "name": "{{APP_NAME}}",
+    "description": "Tracks requirements, incidents and tasks between a client channel and the team's channels.",
+    "background_color": "#2c2d30"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "{{APP_NAME}}",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "{{COMMAND}}",
+        "url": "{{WORKER_URL}}/slack/commands",
+        "description": "Start a requirement, report an incident, track a task or list your tasks",
+        "usage_hint": "requirement | incident | track | tasks [development|review|testing]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "channels:history",
+        "chat:write",
+        "commands",
+        "groups:history",
+        "pins:read",
+        "pins:write",
+        "reactions:write",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "{{WORKER_URL}}/slack/events",
+      "bot_events": ["message.channels", "message.groups"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "{{WORKER_URL}}/slack/interactions"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

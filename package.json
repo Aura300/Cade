@@ -3,9 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "node scripts/dev.mjs",
     "deploy": "wrangler deploy",
-    "test": "node --test"
+    "test": "node --test",
+    "slack:create": "node scripts/slack-app.mjs create",
+    "slack:update": "node scripts/slack-app.mjs update",
+    "config": "node scripts/config.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.152.0"

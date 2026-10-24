@@ -4,8 +4,10 @@
 // channels and a pair of test channels.
 const ROLES = ["external", "tasks", "incidents"];
 
+// It is a Worker secret, so a JSON string; a list also works, as tests and
+// [vars] in wrangler.toml give it.
 export function channelPairs(env) {
-  const pairs = env.CHANNEL_PAIRS;
+  const pairs = typeof env.CHANNEL_PAIRS === "string" ? parsePairs(env.CHANNEL_PAIRS) : env.CHANNEL_PAIRS;
   if (
     !Array.isArray(pairs) ||
     !pairs.length ||
@@ -14,6 +16,14 @@ export function channelPairs(env) {
     throw new Error("CHANNEL_PAIRS must list { name, external, tasks } for each pair");
   }
   return pairs;
+}
+
+function parsePairs(json) {
+  try {
+    return JSON.parse(json);
+  } catch {
+    throw new Error("CHANNEL_PAIRS is not valid JSON");
+  }
 }
 
 // Returns every channel ID with the given role: "external", "tasks" or

@@ -1027,7 +1027,8 @@ test("parseMessage reads the command name and mentioned people", () => {
   assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
 });
 
-const sheetEnv = { ...env, SHEET_URL, SHEET_SECRET: "sheet-secret" };
+// The sheet's times are in TIMEZONE; these tests expect Sri Lanka time.
+const sheetEnv = { ...env, SHEET_URL, SHEET_SECRET: "sheet-secret", TIMEZONE: "Asia/Colombo" };
 const sendWithSheet = (path, body) => send(path, body, {}, sheetEnv);
 const slackUsers = {
   "users.info": (args) => ({
@@ -3561,4 +3562,132 @@ test("\"assigned this to you\" in a requirement thread offers to track or assign
     assert.ok(question, start);
     assert.ok(question.text.startsWith(start), question.text);
   }
+});
+
+test("CHANNEL_PAIRS can be a JSON string, as the Cloudflare dashboard stores it", async (t) => {
+  const calls = mockSlack(t);
+  const asJson = { ...env, CHANNEL_PAIRS: JSON.stringify(env.CHANNEL_PAIRS) };
+  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }), {}, asJson);
+  assert.equal(calls[0].args.text, "Use `@LUMA assign developer @person` in a task thread in <#CDEV>.");
+
+  const broken = mockSlack(t);
+  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"), {}, { ...env, CHANNEL_PAIRS: "[{" });
+  assert.match(broken[0].args.text, /failed/);
+});
+
+test("the Slack app manifest is filled in from the Worker's URL, name and command", async () => {
+  const { buildManifest } = await import("../scripts/slack-app.mjs");
+  const { readFile } = await import("node:fs/promises");
+  const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
+  const settings = { workerUrl: "https://luma.acme.workers.dev/", name: "Acme Luma", command: "/acme" };
+
+  const manifest = buildManifest(template, settings);
+  assert.equal(manifest._comment, undefined, "Slack doesn't accept extra keys");
+  assert.equal(manifest.display_information.name, "Acme Luma");
+  assert.equal(manifest.features.bot_user.display_name, "Acme Luma");
+  const [command] = manifest.features.slash_commands;
+  assert.equal(command.command, "/acme");
+  // The trailing slash is dropped, so the paths are clean.
+  assert.equal(command.url, "https://luma.acme.workers.dev/slack/commands");
+  assert.equal(manifest.settings.interactivity.request_url, "https://luma.acme.workers.dev/slack/interactions");
+  assert.equal(manifest.settings.event_subscriptions.request_url, "https://luma.acme.workers.dev/slack/events");
+  assert.ok(!JSON.stringify(manifest).includes("{{"), "every placeholder is filled in");
+
+  // Created first without Event Subscriptions, whose URL Slack checks before
+  // the Worker has the signing secret.
+  assert.equal(buildManifest(template, { ...settings, events: false }).settings.event_subscriptions, undefined);
+  assert.ok(template.settings.event_subscriptions, "the template is left as it was");
+});
+
+test("the manifest asks for the scopes Luma uses", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
+  assert.deepEqual(template.oauth_config.scopes.bot, [
+    "channels:history",
+    "chat:write",
+    "commands",
+    "groups:history",
+    "pins:read",
+    "pins:write",
+    "reactions:write",
+    "users:read",
+  ]);
+  assert.deepEqual(template.settings.event_subscriptions.bot_events, ["message.channels", "message.groups"]);
+});
+
+test("slack:create checks its settings before calling Slack", async () => {
+  const { checkSettings } = await import("../scripts/slack-app.mjs");
+  assert.deepEqual(checkSettings({ workerUrl: "https://luma.acme.workers.dev", name: "Luma", command: "/luma" }), []);
+  assert.equal(checkSettings({ workerUrl: "http://luma", name: "Luma", command: "/luma" }).length, 1);
+  assert.equal(checkSettings({ workerUrl: "https://luma.dev", name: "x".repeat(36), command: "/luma" }).length, 1);
+  assert.equal(checkSettings({ workerUrl: "https://luma.dev", name: "Luma", command: "luma" }).length, 1);
+});
+
+test("npm run config turns luma.config.json into the Worker's secrets", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
+  assert.deepEqual(readConfig(JSON.stringify({ timezone: "Asia/Colombo", channels })), {
+    CHANNEL_PAIRS: JSON.stringify(channels),
+    TIMEZONE: "Asia/Colombo",
+  });
+  // The timezone is optional.
+  assert.deepEqual(readConfig(JSON.stringify({ channels })), { CHANNEL_PAIRS: JSON.stringify(channels) });
+});
+
+test("npm run config stops on a mistake, before uploading anything", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const good = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
+  for (const [config, problem] of [
+    ["{", /not valid JSON/],
+    [{ timezone: "UTC" }, /must list \{ name, external, tasks \}/],
+    [{ channels: [{ external: "C0000000001", tasks: "C0000000002" }] }, /must list \{ name, external, tasks \}/],
+    [{ channels: [{ name: "acme", external: "#acme-external", tasks: "C0000000002" }] }, /doesn't look like a Slack channel ID/],
+    [{ channels: [{ name: "acme", external: "C0000000001", tasks: "C0000000001" }] }, /used twice/],
+    [{ channels: good, timezone: "Sri Lanka" }, /isn't a time zone/],
+    // A token here would be a mistake: they belong in Cloudflare only.
+    [{ channels: good, SLACK_BOT_TOKEN: "xoxb-1" }, /has "SLACK_BOT_TOKEN"; it takes channels and timezone/],
+  ]) {
+    assert.throws(() => readConfig(typeof config === "string" ? config : JSON.stringify(config)), problem);
+  }
+});
+
+test("the example config is valid", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const { readFile } = await import("node:fs/promises");
+  const secrets = readConfig(await readFile(new URL("../luma.config.example.json", import.meta.url), "utf8"));
+  assert.equal(JSON.parse(secrets.CHANNEL_PAIRS).length, 2);
+});
+
+test("npm run dev passes its settings to Wrangler as a quoted .env file", async () => {
+  const { envFile } = await import("../scripts/dev.mjs");
+  const pairs = JSON.stringify([{ name: "acme", external: "C0000000001", tasks: "C0000000002" }]);
+  assert.equal(
+    envFile({ CHANNEL_PAIRS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", SHEET_URL: undefined }),
+    `CHANNEL_PAIRS='${pairs}'\nTIMEZONE='UTC'\nSLACK_BOT_TOKEN='xoxb-1'`,
+  );
+  assert.throws(() => envFile({ SLACK_SIGNING_SECRET: "it's" }), /can't contain a quote/);
+});
+
+test("npm run dev asks for the Sheet's secret only with its URL", async () => {
+  const { SECRETS } = await import("../scripts/dev.mjs");
+  const sheetSecret = SECRETS.find(({ name }) => name === "SHEET_SECRET");
+  assert.equal(sheetSecret.when({}), false);
+  assert.equal(sheetSecret.when({ SHEET_URL: "https://script.google.com/x" }), true);
+  assert.deepEqual(SECRETS.filter((secret) => !secret.optional && !secret.when).map(({ name }) => name), [
+    "SLACK_BOT_TOKEN",
+    "SLACK_SIGNING_SECRET",
+  ]);
+});
+
+test("luma.config.json can hold the Google Sheet's address", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
+  const sheetUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
+  assert.equal(readConfig(JSON.stringify({ channels, sheetUrl })).SHEET_URL, sheetUrl);
+  assert.throws(
+    () => readConfig(JSON.stringify({ channels, sheetUrl: "https://docs.google.com/spreadsheets/d/1/edit" })),
+    /web app URL from Apps Script/,
+  );
+  // The Sheet's secret stays out of the file.
+  assert.throws(() => readConfig(JSON.stringify({ channels, sheetSecret: "s" })), /has "sheetSecret"/);
 });

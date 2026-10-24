@@ -52,11 +52,11 @@ export async function userNames(env, ids) {
   return names.join(", ");
 }
 
-// Formats a date as DD/MM/YYYY HH:MM in TIMEZONE (Sri Lanka by default).
+// Formats a date as DD/MM/YYYY HH:MM in TIMEZONE (UTC by default).
 export function formatTime(env, date) {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-GB", {
-      timeZone: env.TIMEZONE || "Asia/Colombo",
+      timeZone: env.TIMEZONE || "UTC",
       day: "2-digit",
       month: "2-digit",
       year: "numeric",

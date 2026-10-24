@@ -1,5 +1,5 @@
 // Receives task updates from the project-helper Worker and keeps one tab per
-// channel pair up to date, named after the pair (for example "aura300" and
+// channel pair up to date, named after the pair (for example "acme" and
 // "test"). Each task has one row, updated on every change; deleted tasks stay,
 // with the status "Deleted". Filter the Status column to see completed tasks.
 //

@@ -1,0 +1,7 @@
+{
+  "timezone": "UTC",
+  "channels": [
+    { "name": "acme", "external": "C0000000001", "tasks": "C0000000002", "incidents": "C0000000003" },
+    { "name": "test", "external": "C0000000004", "tasks": "C0000000005" }
+  ]
+}

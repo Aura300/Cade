@@ -1,4 +1,4 @@
-# project-helper
+# Project Helper
 
 Helper workflows for project management and requirement summarize, running as
 the `project-helper` Cloudflare Worker behind the Luma Slack app.
@@ -38,7 +38,7 @@ flowchart LR
 A handler declares its name, usage, and where it may run: which channel, and
 whether it must be sent in a thread. The dispatcher enforces these, so a
 command used in the wrong place gets a hint such as "Use `@LUMA assign
-@person` in a task thread in #aura300-dev". `@LUMA help`, a bare `@LUMA` or
+@person` in a task thread in #acme-dev". `@LUMA help`, a bare `@LUMA` or
 an unknown command replies with the command list. To add a command, create a
 module in `src/commands/` and add it to `src/commands/registry.js`. Its
 comment describes the handler shape.
@@ -57,17 +57,17 @@ can register `actions` (by action ID) and `views` (by modal callback ID).
 Each channel has one way to track a task:
 
 - **Client work:** start it with **`/luma requirement`** in
-  `#aura300-external` (see [Requirements](#requirements)), then send
+  `#acme-external` (see [Requirements](#requirements)), then send
   **`@LUMA track`** in the requirement's thread. `@LUMA track` works only
   there; anywhere else Luma explains where to use it. A requirement has one
   task, so a tracked requirement can't be tracked again.
-- **The team's own work:** send **`/luma track`** in `#aura300-dev`. It
+- **The team's own work:** send **`/luma track`** in `#acme-dev`. It
   opens a form for the **task title**, an optional **due date** (picked from
   a calendar and shown as DD/MM/YYYY) and the **priority** (Urgent, High,
   Medium, Low). The task has no external thread, so it shows only "Tracked
   by @you", and status changes and deletion are not shared anywhere else.
 
-Either way, Luma posts the task to `#aura300-dev` and pins it. The task
+Either way, Luma posts the task to `#acme-dev` and pins it. The task
 message shows the title; then the status, priority and due date; then the
 developer, reviewer and tester ("Unassigned" until someone is assigned);
 then who tracked it, with a link back to the requirement thread if there is
@@ -77,7 +77,7 @@ that message into "@you tracked this as a task: *title*", linking to it.
 
 ### Requirements
 
-**`/luma requirement`** in `#aura300-external` opens the same form as a
+**`/luma requirement`** in `#acme-external` opens the same form as a
 task: the requirement's **name**, an optional **due date** and the
 **priority**. Luma then posts it as a new message to discuss in its thread. The
 message shows:
@@ -98,7 +98,7 @@ changes what follows who knows it:
   changes with them and Luma notes the change in the task's thread for the
   team. In the task's thread Luma refuses to change them and links to the
   requirement thread.
-- **Status is the team's.** It is changed only in `#aura300-dev`, with
+- **Status is the team's.** It is changed only in `#acme-dev`, with
   `@LUMA status`. The requirement shows it as the client sees it: **In
   discussion** until a task is tracked, then 🔵 **In progress** while the
   task is To do, In progress, In review or In testing, then **Client
@@ -113,7 +113,7 @@ changes what follows who knows it:
   approve** buttons. **Approve** moves the task to Done; **Not
   approve** moves it back to In progress, and the client explains what
   needs to change in the thread. Either way Luma tells the task's thread in
-  `#aura300-dev`. The buttons do nothing once the team has moved the task
+  `#acme-dev`. The buttons do nothing once the team has moved the task
   on, and Slack can't tell the team from the client, so anyone in the
   external channel can click them.
 
@@ -134,7 +134,7 @@ only you see:
 - once it's tracked, **Assign as developer** (or **Assign and move to In
   progress**) assigns them to its task, as in the task's thread.
 
-Either way the task's thread in `#aura300-dev` gets "@rex please start
+Either way the task's thread in `#acme-dev` gets "@rex please start
 working on this.", as `@LUMA assign developer` would post, since developers
 aren't always in the client's channel. Only developer hand-offs are offered
 there; reviews and testing are asked for in the task's thread.
@@ -143,7 +143,7 @@ To remove a requirement, send **`@LUMA remove`** (or `@LUMA delete`) in its
 thread. It asks for confirmation the same way as deleting a task, then
 deletes the requirement message and Luma's replies. If it has been
 tracked, its task goes too: the question names the task, and confirming
-deletes the task in `#aura300-dev` first (like `@LUMA delete` there), then
+deletes the task in `#acme-dev` first (like `@LUMA delete` there), then
 the requirement.
 
 Assign and unassign are for tasks only, and only tracked tasks are recorded
@@ -178,7 +178,7 @@ A task someone unpins by hand won't appear until it is pinned again.
 Incidents come in through the external channel too, but are tracked in the
 pair's own incidents channel (set `incidents` in `CHANNEL_PAIRS`).
 
-**`/luma incident`** in `#aura300-external` opens a form that asks only what
+**`/luma incident`** in `#acme-external` opens a form that asks only what
 the incident is. Incidents are always 🔴 **Urgent** and due **Immediate**,
 and need no discussion first, so on submit Luma:
 
@@ -196,7 +196,7 @@ the other tasks.
 
 ### Task commands
 
-In a task's thread in `#aura300-dev` or the incidents channel:
+In a task's thread in `#acme-dev` or the incidents channel:
 
 - **Just say it.** The main way to assign is to write it in the thread as
   you normally would. A reply that mentions people with a hand-off phrase
@@ -303,23 +303,24 @@ so the Worker needs no database.
 ### Google Sheet
 
 Slack's free plan only keeps recent history, so every task is also recorded
-in a Google Sheet, with one tab per channel pair (for example **aura300** and
+in a Google Sheet, with one tab per channel pair (for example **acme** and
 **test**). Filter the Status column to see completed tasks. See
 [google-sheet/README.md](google-sheet/README.md) for the setup. Without
 `SHEET_URL` and `SHEET_SECRET`, syncing is turned off.
 
 ### Channels
 
-`CHANNEL_PAIRS` in `wrangler.toml` links each external channel to the channel
+`CHANNEL_PAIRS` (a Worker secret, see [GETTING_STARTED.md](GETTING_STARTED.md)) links each external channel to the channel
 its tasks are posted to. Several pairs can run at once, so a pair of test
-channels can sit alongside `#aura300-external` → `#aura300-dev`: tracking
+channels can sit alongside `#acme-external` → `#acme-dev`: tracking
 from the test external channel creates tasks in the test tasks channel, and
 the thread commands work in either tasks channel.
 
 ## Setup
 
-See [SLACK_SETUP.md](SLACK_SETUP.md) for the Slack app settings, Worker
-secrets and channel IDs, plus a checklist to confirm everything works.
+Follow [GETTING_STARTED.md](GETTING_STARTED.md): deploy the Worker, create
+the Slack app from `slack/manifest.json` with `npm run slack:create`, and set
+up the channels.
 
 ## Development
 
@@ -329,18 +330,11 @@ npm test
 npm run dev
 ```
 
-`npm run dev` serves the Worker locally. To try it against Slack, expose it
-with a tunnel and point the app's Interactivity, Events and Slash Command
-request URLs at the tunnel.
-
-## GitHub Actions deployment
-
-The **Deploy to Cloudflare Workers** workflow runs on every push to `main` and
-can also be started manually from the **Actions** tab. It installs
-dependencies, runs the tests, and runs `wrangler deploy`.
-
-In GitHub, open **Settings → Secrets and variables → Actions**. Add
-`CLOUDFLARE_API_TOKEN` as a repository secret and `CLOUDFLARE_ACCOUNT_ID` as a
-repository variable. The token needs **Account → Workers Scripts → Edit**
-permission. The workflow does not set the Slack secrets; set those with
-`wrangler secret put`.
+`npm run dev` runs the Worker on this machine, at `http://localhost:8787`,
+reloading as you edit. It takes the channels, time zone and Sheet address
+from `luma.config.json`, and asks for the secrets each time without saving
+them (or takes them from the environment, such as `SLACK_BOT_TOKEN=… npm run
+dev`). Slack can't reach `localhost`, so to try it against Slack, expose it
+with a tunnel (such as `cloudflared tunnel --url http://localhost:8787`) and
+create a separate app for it: `npm run slack:create -- <tunnel URL> --name
+"Luma Dev" --command /lumadev`.

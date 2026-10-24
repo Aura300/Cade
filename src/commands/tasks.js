@@ -77,7 +77,7 @@ async function taskList(env, user, group, roles, url) {
   const tasks = (await assignedTasks(env, user, group, url)).filter((entry) =>
     entry.roles.some((role) => roles.includes(role)),
   );
-  // One role's list says which: "Your aura300 tasks: Reviewing".
+  // One role's list says which: "Your acme tasks: Reviewing".
   const which = roles.length === 1 ? `: ${DOING[roles[0]]}` : "";
   const header = { type: "header", text: { type: "plain_text", text: `Your ${group.name} tasks${which}` } };
   const kind = roles.length === 1 ? `${DOING[roles[0]].toLowerCase()} ` : "";

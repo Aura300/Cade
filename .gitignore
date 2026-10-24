@@ -2,3 +2,9 @@ node_modules/
 .wrangler/
 .idea
 *.iml
+# The Slack app's ID and settings, written by npm run slack:create.
+.slack-app.json
+# Local settings for npm run dev.
+.dev.vars
+# Your settings, uploaded with npm run config.
+luma.config.json
