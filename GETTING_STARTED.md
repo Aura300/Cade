@@ -402,6 +402,7 @@ These can be added, in any order and together:
 | --- | --- |
 | `@person` | Their tasks instead of yours, the same way. |
 | `-all` | Everyone's tasks, unassigned ones too, grouped by status, each with who works on it. Not with a role or a person. |
+| `-unassigned` | Tasks with no developer, grouped by status, each with who else is on it. Not with a role or a person. |
 | `-status=in-progress` | Only that status: `todo`, `in-progress`, `in-review`, `in-testing`, `client-review` or `done`. Several with commas, as `-status=in-review,in-testing`. Done tasks show only when asked for. |
 | `-due=@today` | Due today. Instead of `=`: `<` before, `<=` by, `>` after, `>=` from. Instead of `@today`: `@tomorrow`, or a date as `31/10/2026` or `2026-10-31`. |
 | `-due=none` | No due date. |
@@ -419,6 +420,26 @@ doesn't allow slash commands in threads, so use it from the channel.
 The list isn't posted or kept anywhere: ask again for a fresh one. Done
 tasks are left out. The list comes from Cade's database, so it doesn't
 depend on what's pinned.
+
+### Standup
+
+**`/cade standup`** in a group's dev or incidents channel goes through the
+group's open tasks one developer at a time, shown only to you, so you can
+share your screen in the call. It starts with you, if you have open tasks,
+then everyone else by name, and ends with the tasks that have no developer.
+
+- Each developer's step lists their open tasks, most urgent first, each with
+  a status menu. Changing it works like `@Cade status`, and is posted in the
+  task's thread.
+- The last step lists the tasks with no developer, each with a menu to pick
+  one. Picking someone assigns them and asks them to start, in the task's
+  thread.
+- **Next** and **◀ Back** move between steps; **End** (or **Finish**, on the
+  last) removes it. Each step is read afresh, so it shows changes made
+  meanwhile.
+
+**`/cade standup -unassigned`** goes through just the tasks with no
+developer, one at a time, most urgent first: pick a developer, or **Skip**.
 
 ### Incidents
 

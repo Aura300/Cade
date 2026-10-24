@@ -116,7 +116,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `tasks`, `delete` |
+| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `tasks`, `standup`, `delete` |
 | `src/db.js` | Reading and writing tasks and requirements in D1 |
 | `src/retry.js` | The cron's job: posting tasks and requirements Slack refused |
 | `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |

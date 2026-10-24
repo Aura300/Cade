@@ -992,7 +992,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
       assert.ok(lines[1].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[2], "*Your work:* `/cade tasks`");
+    assert.equal(lines[2], "*Your work:* `/cade tasks` · `/cade standup`");
   }
 });
 
@@ -2170,7 +2170,7 @@ const historyTask = (ts, { developers = [], reviewers = [], testers = [], ...fie
 
 // What `/cade tasks` says it takes, after saying what was wrong.
 const TASKS_USAGE =
-  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
 // Slash command answers sent later go to RESPONSE_URL.
 const RESPONSE_URL = "https://hooks.slack.com/commands/T1/1/abc";
@@ -4133,4 +4133,168 @@ test("today is in the configured time zone", () => {
   const lateEvening = new Date("2026-10-24T20:00:00Z");
   assert.equal(todayIn({}, lateEvening), "2026-10-24");
   assert.equal(todayIn({ TIMEZONE: "Asia/Colombo" }, lateEvening), "2026-10-25");
+});
+
+// /cade standup: the group's open tasks, one developer at a time, privately.
+
+// A click on a standup message's button or menu, `action` as Slack sends it.
+const standupClick = (action) =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    channel: { id: "CDEV" },
+    response_url: RESPONSE_URL,
+    container: { is_ephemeral: true },
+    actions: [action],
+  });
+
+// The step's buttons, as [label, action_id].
+const buttonsOf = (message) =>
+  message.blocks.at(-1).elements.map((button) => [button.text.text, button.action_id]);
+
+// Clicks the button labelled `label` in `message`, and returns the step shown
+// in its place.
+async function clickButton(t, message, label) {
+  const button = message.blocks.at(-1).elements.find((element) => element.text.text === label);
+  const sent = recordResponses(t);
+  await send("/slack/interactions", standupClick({ action_id: button.action_id, value: button.value }));
+  return sent.at(-1);
+}
+
+const standupTasks = () => ({
+  CDEV: [
+    historyTask("100.1", { title: "Bob's low", priority: "Low", developers: ["UBOB"] }),
+    historyTask("100.2", { title: "Bob's urgent", priority: "Urgent", developers: ["UBOB"], status: "IN_PROGRESS" }),
+    historyTask("100.3", { title: "Alice's", developers: ["UALICE"] }),
+    historyTask("100.4", { title: "Mine", developers: ["UACTOR"], status: "IN_REVIEW" }),
+    historyTask("100.5", { title: "Nobody's", testers: ["UALICE"] }),
+    historyTask("100.6", { title: "Done already", developers: ["UALICE"], status: "DONE" }),
+  ],
+});
+
+test("/cade standup starts with whoever runs it, then everyone by name, then tasks with no developer", async (t) => {
+  const { now, later } = await tasksCommand(t, "standup", "CDEV", standupTasks());
+  assert.equal(now, "");
+  assert.equal(later.response_type, "ephemeral");
+  assert.equal(later.blocks[0].text.text, "*Standup: <@UACTOR>*  ·  1 of 4");
+  assert.equal(later.blocks[1].elements[0].text, "1 open task  ·  aura300");
+  const [mine] = later.blocks.filter((block) => block.accessory);
+  assert.match(mine.text.text, /\|Mine>  ·  :large_purple_circle: In review/);
+  assert.equal(mine.accessory.type, "static_select");
+  assert.equal(mine.accessory.initial_option.value, "IN_REVIEW");
+  assert.deepEqual(buttonsOf(later), [["Next: Alice ▶", "standup:go"], ["End", "standup:end"]]);
+
+  const alice = await clickButton(t, later, "Next: Alice ▶");
+  assert.equal(alice.replace_original, true);
+  assert.equal(alice.blocks[0].text.text, "*Standup: <@UALICE>*  ·  2 of 4");
+  // Done tasks are left out.
+  assert.equal(alice.blocks[1].elements[0].text, "1 open task  ·  aura300");
+  assert.deepEqual(buttonsOf(alice), [["◀ Back", "standup:go"], ["Next: Bob ▶", "standup:go"], ["End", "standup:end"]]);
+
+  const bob = await clickButton(t, alice, "Next: Bob ▶");
+  // Most urgent first.
+  const titles = bob.blocks.filter((block) => block.accessory).map((block) => block.text.text.match(/\|([^>]+)>/)[1]);
+  assert.deepEqual(titles, ["Bob's urgent", "Bob's low"]);
+  // Each menu has its own action_id, as Slack requires.
+  assert.deepEqual(
+    bob.blocks.filter((block) => block.accessory).map((block) => block.accessory.action_id),
+    ["standup:status:0", "standup:status:1"],
+  );
+
+  const nobody = await clickButton(t, bob, "Next: No developer ▶");
+  assert.equal(nobody.blocks[0].text.text, "*Standup: no developer yet*  ·  4 of 4");
+  const [unassigned] = nobody.blocks.filter((block) => block.accessory);
+  assert.match(unassigned.text.text, /\|Nobody's>/);
+  assert.equal(unassigned.accessory.type, "users_select");
+  assert.deepEqual(buttonsOf(nobody), [["◀ Back", "standup:go"], ["Finish", "standup:end"]]);
+
+  const back = await clickButton(t, nobody, "◀ Back");
+  assert.equal(back.blocks[0].text.text, "*Standup: <@UBOB>*  ·  3 of 4");
+});
+
+test("a standup's status menu sets the status and tells the task's thread", async (t) => {
+  const { calls, later } = await tasksCommand(t, "standup", "CDEV", standupTasks());
+  const [mine] = later.blocks.filter((block) => block.accessory);
+  calls.length = 0;
+  const sent = recordResponses(t);
+  await send(
+    "/slack/interactions",
+    standupClick({ action_id: mine.accessory.action_id, block_id: mine.block_id, selected_option: { value: "IN_TESTING" } }),
+  );
+  assert.equal((await savedTask("CDEV", "100.4")).status, "IN_TESTING");
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.thread_ts, "100.4");
+  assert.equal(post.text, "<@UACTOR> set the status to :large_orange_circle: In testing.");
+  // The same step again, showing the change.
+  assert.equal(sent.at(-1).replace_original, true);
+  assert.equal(sent.at(-1).blocks[0].text.text, "*Standup: <@UACTOR>*  ·  1 of 4");
+  assert.equal(sent.at(-1).blocks.find((block) => block.accessory).accessory.initial_option.value, "IN_TESTING");
+});
+
+test("/cade standup -unassigned goes through tasks with no developer, one at a time, to assign them", async (t) => {
+  const { calls, later } = await tasksCommand(t, "standup -unassigned", "CDEV", {
+    CDEV: [
+      historyTask("100.1", { title: "Low", priority: "Low" }),
+      historyTask("100.2", { title: "Urgent", priority: "Urgent" }),
+      historyTask("100.3", { title: "Taken", developers: ["UBOB"] }),
+    ],
+  });
+  assert.equal(later.blocks[0].text.text, "*Unassigned aura300 tasks*  ·  1 of 2");
+  const first = later.blocks.find((block) => block.accessory);
+  assert.match(first.text.text, /\|Urgent>/);
+  assert.deepEqual(buttonsOf(later), [["Skip ▶", "standup:go"], ["End", "standup:end"]]);
+
+  calls.length = 0;
+  const sent = recordResponses(t);
+  await send(
+    "/slack/interactions",
+    standupClick({ action_id: first.accessory.action_id, block_id: first.block_id, selected_user: "UALICE" }),
+  );
+  assert.deepEqual((await savedTask("CDEV", "100.2")).people.developer, ["UALICE"]);
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.thread_ts, "100.2");
+  assert.equal(post.text, "<@UACTOR> assigned this to <@UALICE>.\n<@UALICE> please start working on this.");
+  // Assigned, it leaves the walk: the next one takes its place.
+  const next = sent.at(-1);
+  assert.equal(next.blocks[0].text.text, "*Unassigned aura300 tasks*  ·  1 of 1");
+  assert.match(next.blocks.find((block) => block.accessory).text.text, /\|Low>/);
+  assert.deepEqual(buttonsOf(next), [["Finish", "standup:end"]]);
+
+  const last = next.blocks.find((block) => block.accessory);
+  await send(
+    "/slack/interactions",
+    standupClick({ action_id: last.accessory.action_id, block_id: last.block_id, selected_user: "UBOB" }),
+  );
+  assert.equal(sent.at(-1).text, "Every open aura300 task has a developer.");
+});
+
+test("End and Finish remove the standup", async (t) => {
+  const { later } = await tasksCommand(t, "standup", "CDEV", standupTasks());
+  const sent = recordResponses(t);
+  await send("/slack/interactions", standupClick({ action_id: "standup:end", value: "end" }));
+  assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
+  assert.ok(later);
+});
+
+test("/cade standup says so when there's nothing to go through, and takes only -unassigned", async (t) => {
+  const empty = await tasksCommand(t, "standup", "CDEV", {});
+  assert.equal(empty.later.text, "No one has open aura300 tasks.");
+
+  const wrong = await tasksCommand(t, "standup everyone", "CDEV", {});
+  assert.equal(
+    JSON.parse(wrong.now).text,
+    '"everyone" isn\'t an option. Use `/cade standup` to go through everyone\'s tasks, or `/cade standup -unassigned` for those with no developer.',
+  );
+  // It's the team's, so it runs in its channels.
+  const outside = await tasksCommand(t, "standup", "CEXTERNAL", {});
+  assert.equal(JSON.parse(outside.now).text, "Use `/cade standup` in <#CDEV>.");
+});
+
+test("/cade tasks -unassigned lists open tasks with no developer", async (t) => {
+  const { later } = await tasksCommand(t, "tasks -unassigned", "CDEV", standupTasks());
+  assert.equal(later.text, "There is 1 open aura300 unassigned task.");
+  assert.equal(later.blocks[0].text.text, "Unassigned aura300 tasks");
+  assert.match(later.blocks[1].text.text, /^\*To do \(1\)\*\n• <[^|]+\|Nobody's>.*<@UALICE>$/);
+  assert.equal(parseTaskFilters("-unassigned <@UBOB>").error.split(" Use ")[0], "`-unassigned` shows tasks with no developer, so it can't take a role or a person.");
+  assert.equal(parseTaskFilters("-all -unassigned").error.split(" Use ")[0], "Use `-all` or `-unassigned`, not both.");
 });

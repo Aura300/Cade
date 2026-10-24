@@ -75,11 +75,13 @@ export default {
   },
 };
 
+// A status menu's option.
+export function statusOption(status) {
+  return { text: { ...plainText(STATUSES[status]), emoji: true }, value: status };
+}
+
 function statusPicker(prompt, current) {
-  const option = (status) => ({
-    text: { ...plainText(STATUSES[status]), emoji: true },
-    value: status,
-  });
+  const option = statusOption;
   return {
     text: prompt,
     blocks: [
@@ -103,19 +105,23 @@ async function selectStatus(payload, env) {
   const channel = payload.channel.id;
   const ts = payload.message.thread_ts;
   const status = payload.actions[0].selected_option.value;
-
-  const task = await loadTask(env, channel, ts);
-  let reply = NOT_A_TASK;
-  if (task) {
-    const reached = await applyStatus(env, channel, ts, task, status);
-    const { text, told } = await afterChange(env, channel, ts, task, status, payload.user.id, reached);
-    reply = told ? `${text}\n${told}` : text;
-  }
+  const reply = (await setStatus(env, channel, ts, status, payload.user.id)) ?? NOT_A_TASK;
   await callSlack(env, "chat.update", {
     channel,
     ts: payload.message.ts,
     ...asMessage(reply),
   });
+}
+
+// Sets the task's status as the picker does, for `user`, and returns what the
+// picker then says: who set it, and whether the requirement thread was told.
+// Null if it isn't a task. Shared with `/cade standup`.
+export async function setStatus(env, channel, ts, status, user) {
+  const task = await loadTask(env, channel, ts);
+  if (!task) return null;
+  const reached = await applyStatus(env, channel, ts, task, status);
+  const { text, told } = await afterChange(env, channel, ts, task, status, user, reached);
+  return told ? `${text}\n${told}` : text;
 }
 
 // Saves the new status and returns whether the task just reached a status

@@ -22,10 +22,10 @@ const ROLE_WORDS = {
 };
 
 // Open tasks: every status but Done.
-const OPEN = Object.keys(STATUSES).filter((status) => status !== "DONE");
+export const OPEN = Object.keys(STATUSES).filter((status) => status !== "DONE");
 
 const USAGE =
-  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
 // `/cade tasks` in any channel lists the open tasks you are assigned to, by
 // group (channel pair): each group's dev channel's and incidents channel's.
@@ -35,6 +35,7 @@ const USAGE =
 //   development, review, testing   only that role
 //   @person                        their tasks instead of yours
 //   -all                           everyone's tasks, by status
+//   -unassigned                    tasks with no developer, by status
 //   -status=in-progress,…          only those statuses (Done too, if named)
 //   -due=…, -due<…, -due>=…        by due date: a date, @today, @tomorrow,
 //                                  or none
@@ -46,7 +47,7 @@ const USAGE =
 export default {
   name: "tasks",
   description:
-    "Show open tasks, only to you: yours by role, `@person`'s, or `-all`; filter with `-status=in-progress` or `-due<@today`",
+    "Show open tasks, only to you: yours by role, `@person`'s, `-all` or `-unassigned`; filter with `-status=in-progress` or `-due<@today`",
   slashUsage: "/cade tasks",
   section: "work",
   async slash(command, context) {
@@ -63,7 +64,8 @@ export default {
   },
 };
 
-// Reads the command's words into { roles, user, all, statuses, due }, or
+// Reads the command's words into { roles, user, all, unassigned, statuses,
+// due }, or
 // { error } saying what's wrong. `user` is the person named, if any; `due`
 // is { op, value } where op is =, <, <=, > or >=, and value a date as
 // YYYY-MM-DD, "@today", "@tomorrow" or "none".
@@ -75,7 +77,14 @@ export function parseTaskFilters(text) {
     .replace(/&amp;/g, "&")
     .split(/\s+/)
     .filter(Boolean);
-  const filters = { roles: Object.keys(ROLES), user: null, all: false, statuses: OPEN, due: null };
+  const filters = {
+    roles: Object.keys(ROLES),
+    user: null,
+    all: false,
+    unassigned: false,
+    statuses: OPEN,
+    due: null,
+  };
   const fail = (message) => ({ error: `${message} ${USAGE}` });
   let role = null;
   for (const word of words) {
@@ -89,6 +98,8 @@ export function parseTaskFilters(text) {
       const rest = option[2];
       if (name === "all" && !rest) {
         filters.all = true;
+      } else if (name === "unassigned" && !rest) {
+        filters.unassigned = true;
       } else if (name === "status") {
         const statuses = readStatuses(rest);
         if (!statuses) return fail(`"${escapeSlack(word)}" isn't a status filter.`);
@@ -107,8 +118,12 @@ export function parseTaskFilters(text) {
       role = found;
     }
   }
+  if (filters.all && filters.unassigned) return fail("Use `-all` or `-unassigned`, not both.");
   if (filters.all && (role || filters.user)) {
     return fail("`-all` shows everyone's tasks, so it can't take a role or a person.");
+  }
+  if (filters.unassigned && (role || filters.user)) {
+    return fail("`-unassigned` shows tasks with no developer, so it can't take a role or a person.");
   }
   if (role) filters.roles = [role];
   return filters;
@@ -170,6 +185,10 @@ async function taskList(env, filters, group, url) {
   const found = (await groupTasks(env, group, filters.statuses, url)).filter((entry) =>
     due(entry.task.dueDate),
   );
+  if (filters.unassigned) {
+    const unassigned = found.filter((entry) => !entry.task.people.developer.length);
+    return everyonesList(filters, group, unassigned, `Unassigned ${group.name} tasks`);
+  }
   return filters.all ? everyonesList(filters, group, found) : personsList(filters, group, found);
 }
 
@@ -202,12 +221,13 @@ function personsList(filters, group, found) {
   return { text: summary(`${subject} ${tasks.length}`, filters, group, kind, tasks.length), blocks };
 }
 
-// Everyone's tasks, by status, each saying who works on it.
-function everyonesList(filters, group, found) {
-  const blocks = [header(`All ${group.name} tasks`), ...filterContext(filters)];
+// Everyone's tasks (or those `found`), by status, each saying who works on
+// it.
+function everyonesList(filters, group, found, title = `All ${group.name} tasks`) {
+  const blocks = [header(title), ...filterContext(filters)];
   if (!found.length) {
     return {
-      text: summary("There are no", filters, group, "", 0),
+      text: summary("There are no", filters, group, filters.unassigned ? "unassigned " : "", 0),
       blocks: [...blocks, { type: "section", text: mrkdwn(`There are no ${matching(filters)}tasks.`) }],
     };
   }
@@ -215,7 +235,9 @@ function everyonesList(filters, group, found) {
     const these = found.filter((entry) => entry.task.status === status).sort(byUrgency);
     if (these.length) blocks.push(section(statusName(status), these, "", { people: true }));
   }
-  return { text: summary(`There are ${found.length}`, filters, group, "", found.length), blocks };
+  const kind = filters.unassigned ? "unassigned " : "";
+  const start = found.length === 1 ? "There is 1" : `There are ${found.length}`;
+  return { text: summary(start, filters, group, kind, found.length), blocks };
 }
 
 function header(text) {
@@ -266,7 +288,7 @@ function summary(start, filters, group, kind, count) {
     : `${start} open ${group.name} ${kind}${noun}.`;
 }
 
-function line({ task, link, incident }, { people = false } = {}) {
+export function line({ task, link, incident }, { people = false } = {}) {
   const label = incident ? "*Incident:* " : "";
   const parts = [
     `• ${label}<${link}|${escapeSlack(task.title)}>`,
@@ -283,7 +305,7 @@ function line({ task, link, incident }, { people = false } = {}) {
 
 // Incidents first, then by priority, then the soonest due date. "Immediate"
 // is the soonest; no due date is the latest.
-function byUrgency(a, b) {
+export function byUrgency(a, b) {
   const order = Object.keys(PRIORITIES);
   return (
     Number(b.incident) - Number(a.incident) ||
@@ -338,11 +360,11 @@ function formatDate(iso) {
   return `${day}/${month}/${year}`;
 }
 
-// The group's tasks with one of `statuses`, as { task, link, incident },
-// from its tasks and incidents channels. Links are built from the
-// workspace's address, `url`, rather than looked up one by one, which would
-// take a Slack call per task.
-async function groupTasks(env, group, statuses, url) {
+// The group's tasks with one of `statuses`, as { channel, ts, task, link,
+// incident }, from its tasks and incidents channels. Links are built from
+// the workspace's address, `url`, rather than looked up one by one, which
+// would take a Slack call per task.
+export async function groupTasks(env, group, statuses, url) {
   const channels = [
     { channel: group.tasks, incident: false },
     ...(group.incidents ? [{ channel: group.incidents, incident: true }] : []),
@@ -350,6 +372,8 @@ async function groupTasks(env, group, statuses, url) {
   const found = await Promise.all(
     channels.map(async ({ channel, incident }) =>
       (await tasksWithStatus(env, channel, statuses)).map(({ ts, task }) => ({
+        channel,
+        ts,
         task,
         incident,
         // Opens the task's thread, not just its message.
