@@ -1,4 +1,4 @@
-import { channelsWithRole } from "../channels.js";
+import { channelsWithRole, findPair } from "../channels.js";
 import { commands } from "./registry.js";
 
 // Runs a parsed command and returns the reply to post in the message's thread,
@@ -8,7 +8,7 @@ export async function dispatch(command, context) {
   if (!handler) return usage();
   const scope = { channel: handler.channel, inThread: handler.inThread };
   if (!handler.run) {
-    return `Use \`${handler.slashUsage}\`${channelHint(slashScope(handler), context.env)}.`;
+    return `Use \`${handler.slashUsage}\`${channelHint(slashScope(handler), context.env, command.channel)}.`;
   }
   return runHandler(handler, handler.run, handler.usage, scope, command, context);
 }
@@ -59,7 +59,7 @@ function checkScope(scope, usage, command, env) {
   if (allowed) return undefined;
 
   const where = scope.inThread ? " in a task thread" : "";
-  return `Use \`${usage}\`${where}${channelHint(scope, env)}.`;
+  return `Use \`${usage}\`${where}${channelHint(scope, env, command.channel)}.`;
 }
 
 function channelsFor(scope, env) {
@@ -67,8 +67,13 @@ function channelsFor(scope, env) {
   return roles.flatMap((role) => channelsWithRole(env, role));
 }
 
-function channelHint(scope, env) {
-  const channels = channelsFor(scope, env);
+// Names the channels to use instead. From a channel in a pair, only that
+// pair's channels are named, since the others belong to another project.
+function channelHint(scope, env, from) {
+  const pair = findPair(env, from);
+  const channels = pair
+    ? [scope.channel ?? []].flat().map((role) => pair[role])
+    : channelsFor(scope, env);
   return channels.length ? ` in ${channels.map((id) => `<#${id}>`).join(" or ")}` : "";
 }
 

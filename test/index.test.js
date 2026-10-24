@@ -902,15 +902,20 @@ test("@LUMA assign outside the dev channel points to it", async (t) => {
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }));
   assert.equal(
     calls[0].args.text,
-    "Use `@LUMA assign developer @person` in a task thread in <#CDEV> or <#CTESTDEV>.",
+    "Use `@LUMA assign developer @person` in a task thread in <#CDEV>.",
   );
 });
 
 test("@LUMA track outside the external channels points to them", async (t) => {
-  for (const channel of ["COTHER", "CDEV"]) {
+  // From a paired channel only its pair's channel is named.
+  for (const [channel, hint] of [
+    ["CDEV", "<#CEXTERNAL>"],
+    ["CTESTDEV", "<#CTESTEXT>"],
+    ["COTHER", "<#CEXTERNAL> or <#CTESTEXT>"],
+  ]) {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent("<@UBOT> track", { channel }));
-    assert.equal(calls[0].args.text, "Use `@LUMA track` in <#CEXTERNAL> or <#CTESTEXT>.", channel);
+    assert.equal(calls[0].args.text, `Use \`@LUMA track\` in ${hint}.`, channel);
   }
 });
 
@@ -919,7 +924,7 @@ test("/luma track only works in the dev channels", async (t) => {
   const reply = await (await send("/slack/commands", slash("track", "CEXTERNAL"))).json();
   assert.equal(calls.length, 0);
   assert.equal(reply.response_type, "ephemeral");
-  assert.equal(reply.text, "Use `/luma track` in <#CDEV> or <#CTESTDEV>.");
+  assert.equal(reply.text, "Use `/luma track` in <#CDEV>.");
 });
 test("tasks with no external thread never ask to inform it", async (t) => {
   const own = rootMessage();
@@ -1316,7 +1321,7 @@ test("/luma requirement opens the requirement form in an external channel only",
   assert.equal(calls.length, 0);
   const reply = await response.json();
   assert.equal(reply.response_type, "ephemeral");
-  assert.match(reply.text, /^Use `\/luma requirement` in <#CEXTERNAL> or <#CTESTEXT>\.$/);
+  assert.equal(reply.text, "Use `/luma requirement` in <#CEXTERNAL>.");
 });
 
 test("/luma help and unknown slash commands list the commands privately", async (t) => {
@@ -1333,7 +1338,7 @@ test("/luma help and unknown slash commands list the commands privately", async 
 test("@LUMA requirement points to the slash command", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> requirement", { channel: "CEXTERNAL" }));
-  assert.equal(calls[0].args.text, "Use `/luma requirement` in <#CEXTERNAL> or <#CTESTEXT>.");
+  assert.equal(calls[0].args.text, "Use `/luma requirement` in <#CEXTERNAL>.");
 });
 
 test("submitting a requirement starts its thread in the external channel", async (t) => {

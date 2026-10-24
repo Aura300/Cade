@@ -18,11 +18,15 @@ export function channelsWithRole(env, role) {
   return channelPairs(env).map((pair) => pair[role]);
 }
 
-// Returns the pair that `channel` (external or tasks) belongs to.
+// Returns the pair that `channel` (external or tasks) belongs to, or
+// undefined when it is in none.
+export function findPair(env, channel) {
+  return channelPairs(env).find((pair) => pair.external === channel || pair.tasks === channel);
+}
+
+// Like findPair, for channels that must be in a pair.
 export function pairFor(env, channel) {
-  const pair = channelPairs(env).find(
-    (pair) => pair.external === channel || pair.tasks === channel,
-  );
+  const pair = findPair(env, channel);
   if (!pair) throw new Error(`${channel} is not in CHANNEL_PAIRS`);
   return pair;
 }
