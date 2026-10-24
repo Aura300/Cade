@@ -1,3 +1,4 @@
+import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn } from "./slack.js";
 
 // Task details live in the root message's metadata, so assignments can be
@@ -82,6 +83,8 @@ export function taskMessage(task) {
         reviewers: task.people.reviewer.join(","),
         testers: task.people.tester.join(","),
         created_by: task.createdBy,
+        // When the task was last set to DONE, as an ISO timestamp.
+        completed_at: task.completedAt ?? "",
         // The external thread the task was tracked from, for the
         // announcement when it is deleted.
         source_channel: task.source?.channel ?? "",
@@ -119,6 +122,7 @@ export async function loadTask(env, channel, ts) {
       tester: list(payload.testers),
     },
     createdBy: payload.created_by,
+    completedAt: payload.completed_at ?? "",
     // Tasks tracked before the source thread was stored have none.
     source: payload.source_channel
       ? {
@@ -133,6 +137,44 @@ export async function loadTask(env, channel, ts) {
 export async function saveTask(env, channel, ts, task) {
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
   console.log("Task saved", { ts, people: task.people });
+  await syncTask(env, channel, ts, task);
+}
+
+// Records the task's current state in the Google Sheet. The sheet is a
+// record, so failures are logged rather than failing the command.
+export async function syncTask(env, channel, ts, task, { deleted = false } = {}) {
+  if (!sheetEnabled(env)) return;
+  try {
+    const { permalink } = await callSlack(env, "chat.getPermalink", {
+      channel,
+      message_ts: ts,
+    });
+    const names = (ids) => (ids.length ? userNames(env, ids) : "Unassigned");
+    await sendRow(env, {
+      "Task ID": `${channel}:${ts}`,
+      Title: task.title,
+      Status: deleted ? "Deleted" : statusName(task.status),
+      Priority: task.priority,
+      "Due date": task.dueDate,
+      Developer: await names(task.people.developer),
+      Reviewer: await names(task.people.reviewer),
+      Tester: await names(task.people.tester),
+      "Tracked by": await userNames(env, [task.createdBy]),
+      // A Slack message timestamp is the time it was posted.
+      "Tracked at": formatTime(env, new Date(Number(ts) * 1000)),
+      "Completed at": task.completedAt ? formatTime(env, new Date(task.completedAt)) : "",
+      "Task link": deleted ? "" : permalink,
+      "Request link": task.source?.link ?? "",
+    });
+    console.log("Task synced to sheet", { ts, status: task.status, deleted });
+  } catch (error) {
+    console.warn("Could not sync task to sheet", { ts, error: error.message });
+  }
+}
+
+// The status label without its emoji, for the sheet.
+export function statusName(status) {
+  return STATUSES[status].replace(/^:[a-z0-9_+-]+:\s*/, "");
 }
 
 function list(value) {

@@ -10,6 +10,8 @@ CHANNEL_PAIRS = [
   { external = "C0C178XHSQH", tasks = "C0C143QFZL3" }, # #aura300-external → #aura300-dev
   { external = "C0CBTBK0ZAN", tasks = "C0CBTBKK610" }, # #text-external → #test-dev
 ]
+# Time zone for the times written to the Google Sheet.
+TIMEZONE = "Asia/Colombo"
 
 [observability]
 enabled = true

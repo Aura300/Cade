@@ -105,6 +105,8 @@ async function selectStatus(payload, env) {
 async function applyStatus(env, channel, ts, task, status) {
   const previous = task.status;
   task.status = status;
+  if (status !== "DONE") task.completedAt = "";
+  else if (previous !== "DONE") task.completedAt = new Date().toISOString();
   await saveTask(env, channel, ts, task);
   if ((previous === "DONE") !== (status === "DONE")) {
     await setPinned(env, channel, ts, status !== "DONE");

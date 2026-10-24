@@ -29,6 +29,7 @@ flowchart LR
 | `src/commands/registry.js` | The list of command handlers |
 | `src/commands/track.js`, `assign.js`, `unassign.js`, `status.js`, `delete.js` | One handler per command |
 | `src/tasks.js` | Task message layout and storage, shared by the handlers |
+| `src/sheet.js`, `google-sheet/Code.gs` | Records tasks in a Google Sheet |
 
 A handler declares its name, usage, and where it may run: which channel, and
 whether it must be sent in a thread. The dispatcher enforces these, so a
@@ -99,6 +100,14 @@ mention works whatever the bot is named.
 
 The task's details are stored as Slack message metadata on the root message,
 so the Worker needs no database.
+
+### Google Sheet
+
+Slack's free plan only keeps recent history, so every task is also recorded
+in a Google Sheet, with an **All tasks** tab and a **Completed** tab. A task
+is added to **Completed** when its status is set to Done. See
+[google-sheet/README.md](google-sheet/README.md) for the setup. Without
+`SHEET_URL` and `SHEET_SECRET`, syncing is turned off.
 
 ### Channels
 

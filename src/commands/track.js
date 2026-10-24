@@ -1,6 +1,13 @@
 import { tasksChannelFor } from "../channels.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { PRIORITIES, formatDueDate, noPeople, setPinned, taskMessage } from "../tasks.js";
+import {
+  PRIORITIES,
+  formatDueDate,
+  noPeople,
+  setPinned,
+  syncTask,
+  taskMessage,
+} from "../tasks.js";
 
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
@@ -165,6 +172,7 @@ async function createTask(env, task, origin) {
     createdBy: task.createdBy,
   });
   await setPinned(env, message.channel, message.ts, true);
+  await syncTask(env, message.channel, message.ts, task);
 
   const { permalink } = await callSlack(env, "chat.getPermalink", {
     channel: message.channel,

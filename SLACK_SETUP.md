@@ -74,6 +74,7 @@ app already uses for other purposes.
 | `channels:history` | Reading messages in public channels (`@LUMA` commands, task details) |
 | `groups:history` | The same for private channels |
 | `pins:write` | Pinning open tasks and unpinning done ones |
+| `users:read` | Writing people's names, not user IDs, to the Google Sheet |
 
 If the app has the `commands` scope only because of an earlier `/luma` slash
 command, you can remove it.

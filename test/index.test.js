@@ -5,6 +5,7 @@ import { parseMessage } from "../src/commands/parse.js";
 import { formatDueDate } from "../src/tasks.js";
 
 const SIGNING_SECRET = "test-signing-secret";
+const SHEET_URL = "https://script.google.com/macros/s/test/exec";
 const env = {
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
@@ -37,14 +38,14 @@ async function sign(body, timestamp = Math.floor(Date.now() / 1000)) {
 }
 
 // Sends a signed request and waits for any background work it started.
-async function send(path, body, headers = {}) {
+async function send(path, body, headers = {}, environment = env) {
   const pending = [];
   const request = new Request(`https://worker.example.net${path}`, {
     method: "POST",
     headers: { ...(await sign(body)), ...headers },
     body,
   });
-  const response = await worker.fetch(request, env, {
+  const response = await worker.fetch(request, environment, {
     waitUntil: (promise) => pending.push(promise),
   });
   await Promise.all(pending);
@@ -55,11 +56,16 @@ const interaction = (payload) =>
   new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
 
 // Replaces fetch with a fake Slack API. `responses` maps a method name to its
-// result; every call is recorded with its decoded arguments.
+// result; every call is recorded with its decoded arguments. Requests to the
+// Google Sheet are recorded as the "sheet" method with their JSON body.
 function mockSlack(t, responses = {}) {
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
+    if (url === SHEET_URL) {
+      calls.push({ method: "sheet", args: JSON.parse(init.body) });
+      return Response.json(responses.sheet ?? { ok: true });
+    }
     const method = new URL(url).pathname.replace("/api/", "");
     const args = Object.fromEntries(init.body);
     for (const name of ["view", "blocks", "metadata"]) {
@@ -241,6 +247,7 @@ test("modal submission posts the task and replaces the button with the announcem
       reviewers: "",
       testers: "",
       created_by: "UCREATOR",
+      completed_at: "",
       source_channel: "CEXTERNAL",
       source_thread_ts: "200.1",
       source_link: "https://slack.example/source",
@@ -1032,6 +1039,131 @@ test("parseMessage reads the command name and mentioned people", () => {
   assert.equal(parseMessage({ text: "<@UBOT>" }, "UBOT").name, "");
   assert.equal(parseMessage({ text: "@LUMA track" }, "UBOT"), null);
   assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
+});
+
+const sheetEnv = { ...env, SHEET_URL, SHEET_SECRET: "sheet-secret" };
+const sendWithSheet = (path, body) => send(path, body, {}, sheetEnv);
+const slackUsers = {
+  "users.info": (args) => ({
+    user: { profile: { display_name: { UCREATOR: "Randil", UALICE: "Alice", UBOB: "Bob" }[args.user] } },
+  }),
+};
+const sheetRow = (calls) => {
+  const sheet = calls.filter((call) => call.method === "sheet");
+  assert.equal(sheet.length, 1);
+  assert.equal(sheet[0].args.secret, "sheet-secret");
+  return sheet[0].args.row;
+};
+
+test("a new task is added to the sheet", async (t) => {
+  const calls = mockSlack(t, { ...createdTask, ...slackUsers });
+  await sendWithSheet(
+    "/slack/interactions",
+    interaction(submission({ title: "Fix login", dueDate: "2026-10-31", priority: "High" })),
+  );
+  assert.deepEqual(sheetRow(calls), {
+    "Task ID": "CDEV:100.1",
+    Title: "Fix login",
+    Status: "To do",
+    Priority: "High",
+    "Due date": "31/10/2026",
+    Developer: "Unassigned",
+    Reviewer: "Unassigned",
+    Tester: "Unassigned",
+    "Tracked by": "Randil",
+    // Slack timestamp 100.1 is 1970-01-01 00:01:40 UTC, 05:31 in Sri Lanka.
+    "Tracked at": "01/01/1970 05:31",
+    "Completed at": "",
+    "Task link": "https://slack.example/p100",
+    "Request link": "https://slack.example/source",
+  });
+});
+
+test("assigning people updates the sheet with their names", async (t) => {
+  const calls = mockSlack(t, {
+    ...slackUsers,
+    "conversations.replies": { messages: [rootMessage({ developers: "UALICE" })] },
+  });
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  const row = sheetRow(calls);
+  assert.equal(row.Developer, "Alice, Bob");
+  assert.equal(row.Tester, "Unassigned");
+});
+
+test("setting Done records when it was completed", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-24T09:02:00Z") });
+  const calls = mockSlack(t, {
+    ...slackUsers,
+    "conversations.replies": { messages: [withStatus("IN_TESTING")] },
+  });
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> status done"));
+
+  const update = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(update.metadata.event_payload.completed_at, "2026-10-24T09:02:00.000Z");
+  const row = sheetRow(calls);
+  assert.equal(row.Status, "Done");
+  assert.equal(row["Completed at"], "24/10/2026 14:32");
+});
+
+test("setting Done again keeps the original completion time", async (t) => {
+  const done = withStatus("DONE");
+  done.metadata.event_payload.completed_at = "2026-10-20T04:30:00.000Z";
+  const calls = mockSlack(t, { ...slackUsers, "conversations.replies": { messages: [done] } });
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> status done"));
+  assert.equal(sheetRow(calls)["Completed at"], "20/10/2026 10:00");
+});
+
+test("reopening a Done task clears its completion time", async (t) => {
+  const done = withStatus("DONE");
+  done.metadata.event_payload.completed_at = "2026-10-20T04:30:00.000Z";
+  const calls = mockSlack(t, { ...slackUsers, "conversations.replies": { messages: [done] } });
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> status in progress"));
+  const update = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(update.metadata.event_payload.completed_at, "");
+  const row = sheetRow(calls);
+  assert.equal(row.Status, "In progress");
+  assert.equal(row["Completed at"], "");
+});
+
+test("deleting a task marks it Deleted in the sheet", async (t) => {
+  const calls = mockSlack(t, {
+    ...slackUsers,
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+    "conversations.replies": (args) =>
+      args.limit === "1" ? { messages: [rootMessage()] } : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
+  });
+  await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"), {}, sheetEnv);
+  const row = sheetRow(calls);
+  assert.equal(row.Status, "Deleted");
+  assert.equal(row["Task link"], "");
+  // The row is sent before the task message is deleted.
+  const order = calls.map((call) => call.method);
+  assert.ok(order.indexOf("sheet") < order.lastIndexOf("chat.delete"));
+});
+
+test("a sheet failure does not stop the command", async (t) => {
+  const calls = mockSlack(t, {
+    ...slackUsers,
+    sheet: { ok: false, error: "unauthorized" },
+    "conversations.replies": { messages: [rootMessage()] },
+  });
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"));
+  assert.equal(calls.at(-1).args.text, "<@UBOB> please test this.");
+});
+
+test("without users:read the sheet shows user IDs", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  const originalFetch = globalThis.fetch;
+  const mocked = globalThis.fetch;
+  globalThis.fetch = async (url, init) =>
+    url.endsWith("users.info") ? Response.json({ ok: false, error: "missing_scope" }) : mocked(url, init);
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"));
+  const row = sheetRow(calls);
+  assert.equal(row.Tester, "UBOB");
+  assert.equal(row["Tracked by"], "UCREATOR");
 });
 
 test("formatDueDate shows the picked date as DD/MM/YYYY", () => {

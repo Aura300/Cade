@@ -1,5 +1,5 @@
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, loadTask } from "../tasks.js";
+import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
 
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
@@ -121,6 +121,8 @@ async function deleteTask(env, channel, ts, user) {
       console.warn("Could not delete reply", { ts: message.ts, error: error.message });
     });
   }
+  // The permalink is looked up while the task message still exists.
+  await syncTask(env, channel, ts, task, { deleted: true });
   // Deleting a message also removes its pin.
   await callSlack(env, "chat.delete", { channel, ts });
   console.log("Task deleted", { ts, deletedReplies: own.length, user });
