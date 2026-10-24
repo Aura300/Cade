@@ -61,6 +61,11 @@ Low). On submit, Luma:
 2. replaces the button with "@you tracked a task: *title*", linking to the
    new task thread.
 
+For the team's own work that has no request thread, send **`@LUMA track`**
+in `#aura300-dev` itself. The same button and form create the task in that
+channel. Such a task has no external thread, so it shows only "Tracked by
+@you", and status changes and deletion are not shared anywhere else.
+
 In a task's thread in `#aura300-dev`:
 
 - `@LUMA assign developer @person [@person …]` adds people as developers;

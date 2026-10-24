@@ -18,8 +18,12 @@ export function channelsWithRole(env, role) {
   return channelPairs(env).map((pair) => pair[role]);
 }
 
-export function tasksChannelFor(env, externalChannel) {
-  const pair = channelPairs(env).find((pair) => pair.external === externalChannel);
-  if (!pair) throw new Error(`${externalChannel} is not an external channel`);
+// Tasks tracked from an external channel go to its paired tasks channel;
+// tasks tracked in a tasks channel stay there.
+export function tasksChannelFor(env, channel) {
+  const pair = channelPairs(env).find(
+    (pair) => pair.external === channel || pair.tasks === channel,
+  );
+  if (!pair) throw new Error(`${channel} is not in CHANNEL_PAIRS`);
   return pair.tasks;
 }

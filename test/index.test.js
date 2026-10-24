@@ -872,10 +872,62 @@ test("@LUMA assign outside the dev channel points to it", async (t) => {
   );
 });
 
-test("@LUMA track outside an external channel points to them", async (t) => {
+test("@LUMA track outside the configured channels points to them", async (t) => {
   const calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> track", { channel: "CDEV" }));
-  assert.equal(calls[0].args.text, "Use `@LUMA track` in <#CEXTERNAL> or <#CTESTEXT>.");
+  await send("/slack/events", threadEvent("<@UBOT> track", { channel: "COTHER" }));
+  assert.equal(
+    calls[0].args.text,
+    "Use `@LUMA track` in <#CEXTERNAL> or <#CTESTEXT> or <#CDEV> or <#CTESTDEV>.",
+  );
+});
+
+test("@LUMA track in the dev channel creates a task with no external thread", async (t) => {
+  let calls = mockSlack(t);
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> track", { channel: "CDEV", ts: "400.1", thread_ts: undefined }),
+  );
+  assert.equal(calls[0].args.channel, "CDEV");
+  assert.equal(calls[0].args.thread_ts, "400.1");
+  assert.deepEqual(JSON.parse(calls[0].args.blocks[0].elements[0].value), {
+    channel: "CDEV",
+    threadTs: "400.1",
+  });
+
+  calls = mockSlack(t, createdTask);
+  await send(
+    "/slack/interactions",
+    interaction(
+      submission(
+        { title: "Refactor auth", priority: "Medium" },
+        { channel: "CDEV", threadTs: "400.1", promptTs: "400.2" },
+      ),
+    ),
+  );
+  // No link to an external thread is looked up.
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ["chat.postMessage", "pins.add", "chat.getPermalink", "chat.update"],
+  );
+  const post = calls[0].args;
+  assert.equal(post.channel, "CDEV");
+  assert.equal(post.blocks[3].elements[0].text, "Tracked by <@UCREATOR>");
+  assert.equal(post.metadata.event_payload.source_channel, "");
+  assert.deepEqual(calls[3].args.ts, "400.2");
+  assert.equal(
+    calls[3].args.text,
+    "<@UCREATOR> tracked a task: <https://slack.example/p100|Refactor auth>",
+  );
+});
+
+test("tasks with no external thread never ask to inform it", async (t) => {
+  const own = rootMessage();
+  own.metadata.event_payload.source_channel = "";
+  own.metadata.event_payload.source_thread_ts = "";
+  own.metadata.event_payload.source_link = "";
+  const calls = mockSlack(t, { "conversations.replies": { messages: [own] } });
+  await send("/slack/events", threadEvent("<@UBOT> status done"));
+  assert.equal(calls.at(-1).args.blocks, undefined);
 });
 
 test("tasks tracked from the test channel go to the test tasks channel", async (t) => {

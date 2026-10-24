@@ -5,16 +5,20 @@ import { PRIORITIES, formatDueDate, noPeople, setPinned, taskMessage } from "../
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
 
-// `@LUMA track` in the external channel (usually in a thread) replies with a
-// Track task button, because only a click carries the trigger_id Slack needs
-// to open a modal. Submitting the modal posts the task to the tasks channel
-// paired with this external channel, and replaces the button with an
-// announcement linking to the task's thread.
+// `@LUMA track` replies with a Track task button, because only a click carries
+// the trigger_id Slack needs to open a modal. Submitting the modal posts the
+// task to the tasks channel and replaces the button with an announcement
+// linking to the task's thread.
+//
+// Sent in an external channel (usually in a request thread), the task goes to
+// the paired tasks channel and remembers that thread, so later updates can be
+// shared there. Sent in a tasks channel, for the team's own work, the task is
+// created in that channel with no external thread.
 export default {
   name: "track",
-  description: "Track a new task in the dev channel",
+  description: "Track a new task (from a request thread, or in the dev channel for your own work)",
   usage: "@LUMA track",
-  channel: "external",
+  channel: ["external", "tasks"],
   async run(command) {
     const origin = { channel: command.channel, threadTs: command.threadTs ?? command.ts };
     return {
@@ -117,29 +121,32 @@ async function submit(payload, context) {
     dueDate,
     people: noPeople(),
     createdBy: payload.user.id,
-    source: { channel: origin.channel, threadTs: origin.threadTs },
   };
   context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
 
 async function createTask(env, task, origin) {
-  // The task message links back to the thread it was tracked from. The link
-  // is a convenience, so the task is still created without it.
-  try {
-    const { permalink } = await callSlack(env, "chat.getPermalink", {
-      channel: origin.channel,
-      message_ts: origin.threadTs,
-    });
-    task.source.link = permalink;
-  } catch (error) {
-    console.warn("Could not link the source thread", { error: error.message });
+  const tasksChannel = tasksChannelFor(env, origin.channel);
+  if (origin.channel !== tasksChannel) {
+    task.source = { channel: origin.channel, threadTs: origin.threadTs };
+    // The task message links back to the thread it was tracked from. The link
+    // is a convenience, so the task is still created without it.
+    try {
+      const { permalink } = await callSlack(env, "chat.getPermalink", {
+        channel: origin.channel,
+        message_ts: origin.threadTs,
+      });
+      task.source.link = permalink;
+    } catch (error) {
+      console.warn("Could not link the source thread", { error: error.message });
+    }
   }
 
   let message;
   try {
     message = await callSlack(env, "chat.postMessage", {
-      channel: tasksChannelFor(env, origin.channel),
+      channel: tasksChannel,
       ...taskMessage(task),
     });
   } catch (error) {

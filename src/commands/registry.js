@@ -8,7 +8,8 @@ import unassign from "./unassign.js";
 //   {
 //     name, description, usage,
 //     aliases?: other names that run the same handler,
-//     channel?: "external" or "tasks", the channels in CHANNEL_PAIRS it works in,
+//     channel?: "external", "tasks" or both as a list: the channels in
+//               CHANNEL_PAIRS it works in,
 //     inThread?: true if it must be run from a thread reply,
 //     run(command, context) -> reply | undefined,
 //     views?: { [callbackId]: handler(payload, context) } for its modals,

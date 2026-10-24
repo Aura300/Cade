@@ -23,11 +23,12 @@ export async function dispatch(command, context) {
 }
 
 // Handlers declare where they may run:
-//   channel   the role of the channels they work in ("external" or "tasks";
-//             see CHANNEL_PAIRS)
+//   channel   the role, or list of roles, of the channels they work in
+//             ("external", "tasks"; see CHANNEL_PAIRS)
 //   inThread  whether they must be sent as a thread reply
 function checkScope(handler, command, env) {
-  const channels = handler.channel ? channelsWithRole(env, handler.channel) : [];
+  const roles = [handler.channel ?? []].flat();
+  const channels = roles.flatMap((role) => channelsWithRole(env, role));
   const inThread = Boolean(command.threadTs) && command.threadTs !== command.ts;
   const allowed =
     (!channels.length || channels.includes(command.channel)) &&

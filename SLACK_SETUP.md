@@ -143,6 +143,7 @@ Try these in the test channels first.
 | `@LUMA help` in either channel | A reply listing all commands |
 | `@LUMA track` in a thread in `#aura300-external` | Luma replies with a **Track task** button; clicking it opens the form |
 | Submit the form | The task appears and is pinned in `#aura300-dev`; the button reply becomes "@you tracked a task" with a link |
+| `@LUMA track` in `#test-dev` itself | Same form; the task is created in `#test-dev` with no external thread |
 | In the task's thread: `@LUMA assign developer @someone` | The task message shows them as **Developer** |
 | `@LUMA assign reviewer @someone`, `@LUMA assign tester @someone` | They appear as **Reviewer** / **Tester** |
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
