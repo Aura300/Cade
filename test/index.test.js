@@ -110,6 +110,9 @@ const rootMessage = (assignees = "") => ({
       due_date: "10/31",
       assignees,
       created_by: "UCREATOR",
+      source_channel: "CEXTERNAL",
+      source_thread_ts: "200.1",
+      source_link: "https://slack.example/source",
     },
   },
 });
@@ -118,7 +121,12 @@ const rootMessage = (assignees = "") => ({
 const createdTask = {
   "chat.postMessage": (args) =>
     args.channel === "CDEV" ? { channel: "CDEV", ts: "100.1" } : { ts: "300.1" },
-  "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  // The external thread links as /source, the new task as /p100.
+  "chat.getPermalink": (args) => ({
+    permalink: args.channel.endsWith("DEV")
+      ? "https://slack.example/p100"
+      : "https://slack.example/source",
+  }),
 };
 
 const threadEvent = (text, overrides = {}) =>
@@ -199,20 +207,21 @@ test("modal submission posts the task and replaces the button with the announcem
   assert.deepEqual(await response.json(), { response_action: "clear" });
   assert.deepEqual(
     calls.map((call) => call.method),
-    ["chat.postMessage", "pins.add", "chat.getPermalink", "chat.update"],
+    ["chat.getPermalink", "chat.postMessage", "pins.add", "chat.getPermalink", "chat.update"],
   );
+  assert.deepEqual(calls[0].args, { channel: "CEXTERNAL", message_ts: "200.1" });
 
-  const post = calls[0].args;
+  const post = calls[1].args;
   assert.equal(post.channel, "CDEV");
   assert.equal(post.blocks[0].text.text, "*Fix &lt;login&gt;*");
-  assert.deepEqual(
-    post.blocks[1].fields.map((field) => field.text),
-    [
-      "*Status*\n:white_circle: To do",
-      "*Priority*\n:red_circle: Urgent",
-      "*Due date*\n01/05",
-      "*Assigned*\n_Unassigned_",
-    ],
+  assert.equal(
+    post.blocks[1].text.text,
+    "*Status:* :white_circle: To do  ·  *Priority:* :red_circle: Urgent  ·  *Due:* 01/05  ·  *Assigned:* _Unassigned_",
+  );
+  assert.equal(post.blocks[2].type, "context");
+  assert.match(
+    post.blocks[2].elements[0].text,
+    /^Tracked by <@UCREATOR> from <https:\/\/slack\.example\/source\|the request thread> · /,
   );
   assert.deepEqual(post.metadata, {
     event_type: "luma_task",
@@ -223,12 +232,15 @@ test("modal submission posts the task and replaces the button with the announcem
       due_date: "01/05",
       assignees: "",
       created_by: "UCREATOR",
+      source_channel: "CEXTERNAL",
+      source_thread_ts: "200.1",
+      source_link: "https://slack.example/source",
     },
   });
 
-  assert.deepEqual(calls[1].args, { channel: "CDEV", timestamp: "100.1" });
+  assert.deepEqual(calls[2].args, { channel: "CDEV", timestamp: "100.1" });
   const text = "<@UCREATOR> tracked a task: <https://slack.example/p100|Fix &lt;login&gt;>";
-  assert.deepEqual(calls[3].args, {
+  assert.deepEqual(calls[4].args, {
     channel: "CEXTERNAL",
     ts: "300.1",
     text,
@@ -242,7 +254,7 @@ test("modal submission without a due date shows None", async (t) => {
     "/slack/interactions",
     interaction(submission({ title: "Fix login", priority: "Low" })),
   );
-  assert.equal(calls[0].args.blocks[1].fields[2].text, "*Due date*\n_None_");
+  assert.match(calls[1].args.blocks[1].text.text, /\*Due:\* _None_  ·/);
 });
 
 test("modal submission tells the creator when the task cannot be posted", async (t) => {
@@ -260,10 +272,15 @@ test("modal submission tells the creator when the task cannot be posted", async 
     "/slack/interactions",
     interaction(submission({ title: "Fix login", priority: "Low" })),
   );
-  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage", "chat.postEphemeral"]);
-  assert.equal(calls[1].args.user, "UCREATOR");
-  assert.equal(calls[1].args.thread_ts, "200.1");
-  assert.match(calls[1].args.text, /could not be created/);
+  // The source link fails too, but only the failed post stops the task.
+  assert.deepEqual(calls.map((call) => call.method), [
+    "chat.getPermalink",
+    "chat.postMessage",
+    "chat.postEphemeral",
+  ]);
+  assert.equal(calls[2].args.user, "UCREATOR");
+  assert.equal(calls[2].args.thread_ts, "200.1");
+  assert.match(calls[2].args.text, /could not be created/);
 });
 
 test("@LUMA track in an external thread replies with a button", async (t) => {
@@ -331,7 +348,7 @@ test("@LUMA assign adds people to the root message", async (t) => {
   assert.equal(calls[0].args.include_all_metadata, "true");
   const update = calls[1].args;
   assert.equal(update.ts, "100.1");
-  assert.equal(update.blocks[1].fields[3].text, "*Assigned*\n<@UALICE>, <@UBOB>");
+  assert.match(update.blocks[1].text.text, /\*Assigned:\* <@UALICE>, <@UBOB>$/);
   assert.equal(update.metadata.event_payload.assignees, "UALICE,UBOB");
   assert.equal(update.metadata.event_payload.due_date, "10/31");
   assert.deepEqual(calls[2].args, {
@@ -347,7 +364,7 @@ test("@LUMA unassign removes the mentioned people", async (t) => {
   });
   await send("/slack/events", threadEvent("<@UBOT> unassign <@UALICE>"));
   assert.equal(calls[1].args.metadata.event_payload.assignees, "UBOB");
-  assert.equal(calls[1].args.blocks[1].fields[3].text, "*Assigned*\n<@UBOB>");
+  assert.match(calls[1].args.blocks[1].text.text, /\*Assigned:\* <@UBOB>$/);
   assert.equal(calls[2].args.text, "<@UACTOR> unassigned <@UALICE>.");
 });
 
@@ -371,7 +388,7 @@ test("@LUMA status updates the task's status", async (t) => {
   const update = calls[1].args;
   assert.equal(update.metadata.event_payload.status, "IN_PROGRESS");
   assert.equal(update.metadata.event_payload.assignees, "UALICE");
-  assert.equal(update.blocks[1].fields[0].text, "*Status*\n:large_blue_circle: In progress");
+  assert.match(update.blocks[1].text.text, /^\*Status:\* :large_blue_circle: In progress  ·/);
   assert.equal(calls[2].args.text, "<@UACTOR> set the status to :large_blue_circle: In progress.");
 });
 
@@ -413,7 +430,13 @@ test("a failed pin does not stop the task from being announced", async (t) => {
     "/slack/interactions",
     interaction(submission({ title: "Fix login", priority: "Low" })),
   );
-  assert.deepEqual(calls, ["chat.postMessage", "pins.add", "chat.getPermalink", "chat.update"]);
+  assert.deepEqual(calls, [
+    "chat.getPermalink",
+    "chat.postMessage",
+    "pins.add",
+    "chat.getPermalink",
+    "chat.update",
+  ]);
 });
 
 test("@LUMA status accepts every status name", async (t) => {
@@ -439,12 +462,12 @@ test("@LUMA status without a status replies with a status menu", async (t) => {
   assert.deepEqual(
     menu.options.map((option) => [option.value, option.text.text]),
     [
-      ["TODO", "To do"],
-      ["IN_PROGRESS", "In progress"],
-      ["IN_REVIEW", "In review"],
-      ["IN_TESTING", "In testing"],
-      ["CLIENT_REVIEW", "Client review"],
-      ["DONE", "Done"],
+      ["TODO", ":white_circle: To do"],
+      ["IN_PROGRESS", ":large_blue_circle: In progress"],
+      ["IN_REVIEW", ":large_purple_circle: In review"],
+      ["IN_TESTING", ":large_orange_circle: In testing"],
+      ["CLIENT_REVIEW", ":large_yellow_circle: Client review"],
+      ["DONE", ":white_check_mark: Done"],
     ],
   );
   assert.equal(menu.initial_option.value, "IN_REVIEW");
@@ -567,11 +590,50 @@ test("confirming deletion removes Luma's replies and then the task", async (t) =
   assert.equal(response.status, 200);
   const deletes = calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts);
   assert.deepEqual(deletes, ["100.3", "100.4", "100.1"]);
+  const untracked = "<@UACTOR> untracked a task: Fix login";
+  assert.deepEqual(calls.at(-2).args, {
+    channel: "CEXTERNAL",
+    thread_ts: "200.1",
+    text: untracked,
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: untracked } }],
+  });
   assert.deepEqual(calls.at(-1), {
     method: "chat.postEphemeral",
     args: { channel: "CDEV", user: "UACTOR", text: 'Deleted the task "Fix login".' },
     headers: calls.at(-1).headers,
   });
+});
+
+test("deleting a task tracked before source threads were stored skips the announcement", async (t) => {
+  const legacy = rootMessage();
+  delete legacy.metadata.event_payload.source_channel;
+  delete legacy.metadata.event_payload.source_thread_ts;
+  const calls = mockSlack(t, {
+    "conversations.replies": (args) =>
+      args.limit === "1" ? { messages: [legacy] } : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
+  });
+  await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"));
+  assert.deepEqual(calls.map((call) => call.method), [
+    "conversations.replies",
+    "conversations.replies",
+    "chat.delete",
+    "chat.postEphemeral",
+  ]);
+});
+
+test("assigning keeps the task's source thread", async (t) => {
+  const calls = mockSlack(t, {
+    "conversations.replies": { messages: [rootMessage()] },
+  });
+  await send("/slack/events", threadEvent("<@UBOT> assign <@UBOB>"));
+  const payload = calls[1].args.metadata.event_payload;
+  assert.equal(payload.source_channel, "CEXTERNAL");
+  assert.equal(payload.source_thread_ts, "200.1");
+  assert.equal(payload.source_link, "https://slack.example/source");
+  assert.match(
+    calls[1].args.blocks[2].elements[0].text,
+    /from <https:\/\/slack\.example\/source\|the request thread>/,
+  );
 });
 
 test("@LUMA delete in a thread that is not a task says so", async (t) => {
@@ -634,9 +696,10 @@ test("tasks tracked from the test channel go to the test tasks channel", async (
       ),
     ),
   );
-  assert.equal(calls[0].args.channel, "CTESTDEV");
-  assert.deepEqual(calls[1].args, { channel: "CTESTDEV", timestamp: "100.1" });
-  assert.equal(calls[3].args.channel, "CTESTEXT");
+  assert.deepEqual(calls[0].args, { channel: "CTESTEXT", message_ts: "200.1" });
+  assert.equal(calls[1].args.channel, "CTESTDEV");
+  assert.deepEqual(calls[2].args, { channel: "CTESTDEV", timestamp: "100.1" });
+  assert.equal(calls[4].args.channel, "CTESTEXT");
 });
 
 test("thread commands work in the test tasks channel", async (t) => {

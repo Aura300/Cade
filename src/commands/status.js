@@ -38,7 +38,10 @@ export default {
 };
 
 function statusPicker(prompt, current) {
-  const option = (status) => ({ text: plainText(stripEmoji(STATUSES[status])), value: status });
+  const option = (status) => ({
+    text: { ...plainText(STATUSES[status]), emoji: true },
+    value: status,
+  });
   return {
     text: prompt,
     blocks: [
@@ -84,9 +87,4 @@ async function applyStatus(env, channel, ts, task, status) {
   if (wasDone !== (status === "DONE")) {
     await setPinned(env, channel, ts, status !== "DONE");
   }
-}
-
-// Menu options are plain text, so the leading emoji code is dropped.
-function stripEmoji(label) {
-  return label.replace(/^:[a-z0-9_+-]+:\s*/, "");
 }

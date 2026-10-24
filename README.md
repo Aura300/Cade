@@ -55,7 +55,8 @@ optional **due date** (`MM/DD`) and the **priority** (Urgent, High, Medium,
 Low). On submit, Luma:
 
 1. posts the task to `#aura300-dev` with its status, title, priority, due
-   date and assignees, and pins it to the channel, and
+   date and assignees, plus a link back to the request thread, and pins it to
+   the channel, and
 2. replaces the button with "@you tracked a task: *title*", linking to the
    new task thread.
 
@@ -76,8 +77,8 @@ In a task's thread in `#aura300-dev`:
   confirmed, Luma deletes the task message and all of its own replies in the
   thread, which also removes the pin. Slack only lets a bot delete its own
   messages, so people's replies stay in the thread under a "This message was
-  deleted" placeholder. The announcement in `#aura300-external` stays, but
-  its link will no longer open the task.
+  deleted" placeholder. Luma then posts "@you untracked a task: *title*"
+  in the external thread the task was tracked from.
 
 Each command updates the root message and Luma confirms in the thread. The
 mention works whatever the bot is named.

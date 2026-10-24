@@ -7,7 +7,8 @@ const CANCEL_ACTION = "delete:cancel";
 // `@LUMA delete` (or `@LUMA remove`) in a task thread replies with Delete and
 // Cancel buttons. Delete opens a second "are you sure" dialog, and only the
 // person who asked for the deletion can confirm or cancel it. Confirming
-// deletes the task message and Luma's replies in its thread.
+// deletes the task message and Luma's replies in its thread, and says so in
+// the external thread the task was tracked from.
 //
 // A bot token can only delete the bot's own messages, so people's replies
 // stay behind under Slack's "This message was deleted" placeholder.
@@ -123,6 +124,17 @@ async function deleteTask(env, channel, ts, user) {
   // Deleting a message also removes its pin.
   await callSlack(env, "chat.delete", { channel, ts });
   console.log("Task deleted", { ts, deletedReplies: own.length, user });
+
+  if (task.source) {
+    // Matches the "tracked a task" announcement, without the link.
+    const text = `<@${user}> untracked a task: ${escapeSlack(task.title)}`;
+    await callSlack(env, "chat.postMessage", {
+      channel: task.source.channel,
+      thread_ts: task.source.threadTs,
+      text,
+      blocks: [{ type: "section", text: mrkdwn(text) }],
+    });
+  }
 
   await callSlack(env, "chat.postEphemeral", {
     channel,

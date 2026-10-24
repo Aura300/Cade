@@ -89,7 +89,7 @@ function trackView(origin) {
           action_id: "value",
           placeholder: plainText("Select a priority"),
           options: Object.keys(PRIORITIES).map((priority) => ({
-            text: plainText(priority),
+            text: { ...plainText(`${PRIORITIES[priority]} ${priority}`), emoji: true },
             value: priority,
           })),
         },
@@ -119,12 +119,25 @@ async function submit(payload, context) {
     dueDate,
     assignees: [],
     createdBy: payload.user.id,
+    source: { channel: origin.channel, threadTs: origin.threadTs },
   };
   context.waitUntil(createTask(context.env, task, origin));
   return { response_action: "clear" };
 }
 
 async function createTask(env, task, origin) {
+  // The task message links back to the thread it was tracked from. The link
+  // is a convenience, so the task is still created without it.
+  try {
+    const { permalink } = await callSlack(env, "chat.getPermalink", {
+      channel: origin.channel,
+      message_ts: origin.threadTs,
+    });
+    task.source.link = permalink;
+  } catch (error) {
+    console.warn("Could not link the source thread", { error: error.message });
+  }
+
   let message;
   try {
     message = await callSlack(env, "chat.postMessage", {

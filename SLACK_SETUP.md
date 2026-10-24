@@ -146,7 +146,7 @@ Try these in the test channels first.
 | In the task's thread: `@LUMA assign @someone` | The task message shows them under **Assigned** |
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
 | `@LUMA status done` | Status changes to ✅ Done and the task is unpinned |
-| `@LUMA delete` | **Delete task** / **Cancel** buttons; confirming deletes the task |
+| `@LUMA delete` | **Delete task** / **Cancel** buttons; confirming deletes the task and posts "untracked" in the original external thread |
 
 If something doesn't respond, open **Workers & Pages → project-helper →
 Logs** in Cloudflare. Errors such as `missing_scope` or `not_in_channel`

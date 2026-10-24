@@ -4,6 +4,7 @@ import { callSlack, escapeSlack, mentions, mrkdwn } from "./slack.js";
 // updated without a separate datastore.
 const TASK_EVENT_TYPE = "luma_task";
 
+// Slack cannot colour text, so each value is shown with a coloured emoji.
 export const PRIORITIES = {
   Urgent: ":red_circle:",
   High: ":large_orange_circle:",
@@ -24,24 +25,24 @@ export const NOT_A_TASK = "This thread is not a tracked task.";
 
 export function taskMessage(task) {
   const assigned = task.assignees.length ? mentions(task.assignees) : "_Unassigned_";
+  const from = task.source?.link ? ` from <${task.source.link}|the request thread>` : "";
+  // Three lines: the title, the task's details, then who tracked it.
+  const details = [
+    `*Status:* ${STATUSES[task.status]}`,
+    `*Priority:* ${PRIORITIES[task.priority]} ${task.priority}`,
+    `*Due:* ${task.dueDate || "_None_"}`,
+    `*Assigned:* ${assigned}`,
+  ].join("  ·  ");
   return {
     text: `${task.priority} task: ${task.title}`,
     blocks: [
       { type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) },
-      {
-        type: "section",
-        fields: [
-          mrkdwn(`*Status*\n${STATUSES[task.status]}`),
-          mrkdwn(`*Priority*\n${PRIORITIES[task.priority]} ${task.priority}`),
-          mrkdwn(`*Due date*\n${task.dueDate || "_None_"}`),
-          mrkdwn(`*Assigned*\n${assigned}`),
-        ],
-      },
+      { type: "section", text: mrkdwn(details) },
       {
         type: "context",
         elements: [
           mrkdwn(
-            `Tracked by <@${task.createdBy}> · reply here with \`@LUMA assign @person\`, \`@LUMA status\` or \`@LUMA help\``,
+            `Tracked by <@${task.createdBy}>${from} · reply here with \`@LUMA assign @person\`, \`@LUMA status\` or \`@LUMA help\``,
           ),
         ],
       },
@@ -55,6 +56,11 @@ export function taskMessage(task) {
         due_date: task.dueDate,
         assignees: task.assignees.join(","),
         created_by: task.createdBy,
+        // The external thread the task was tracked from, for the
+        // announcement when it is deleted.
+        source_channel: task.source?.channel ?? "",
+        source_thread_ts: task.source?.threadTs ?? "",
+        source_link: task.source?.link ?? "",
       },
     },
   };
@@ -81,6 +87,14 @@ export async function loadTask(env, channel, ts) {
     dueDate: payload.due_date ?? "",
     assignees: payload.assignees ? payload.assignees.split(",") : [],
     createdBy: payload.created_by,
+    // Tasks tracked before the source thread was stored have none.
+    source: payload.source_channel
+      ? {
+          channel: payload.source_channel,
+          threadTs: payload.source_thread_ts,
+          link: payload.source_link || undefined,
+        }
+      : undefined,
   };
 }
 
