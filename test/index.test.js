@@ -2716,3 +2716,20 @@ test("reviewers added before a PR are not named, so not notified", async (t) => 
   assert.equal(reply, "<@UACTOR> added 2 reviewers. They'll be asked to review when a PR is linked.");
   assert.ok(!reply.includes("URIA") && !reply.includes("UREX"));
 });
+
+test("a pin with the task's metadata type but no details loads the task", async (t) => {
+  // As pins.list returns it: the type without the payload.
+  const pinned = { ts: "100.1", text: "Fix login", metadata: { event_type: "luma_task" } };
+  const calls = mockSlack(t, {
+    ...histories({ CDEV: [pinned] }),
+    // Slash commands in these tests are sent by UACTOR.
+    "conversations.replies": { messages: [historyTask("100.1", { developers: "UACTOR" })] },
+  });
+  const reply = await (await send("/slack/commands", slash("tasks aura300", "CDEV"))).json();
+  assert.equal(reply.text, "Sending your aura300 tasks to your messages with Luma.");
+  assert.deepEqual(
+    calls.filter((call) => call.method === "conversations.replies").map((call) => call.args.ts),
+    ["100.1"],
+  );
+  assert.equal(listPost(calls).args.text, "aura300: You have 1 open task.");
+});

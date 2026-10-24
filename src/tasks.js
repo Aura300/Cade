@@ -141,9 +141,11 @@ export async function loadTask(env, channel, ts) {
 // Returns the task a root message holds, or null if it is not a task. The
 // message must have been read with include_all_metadata.
 export function taskFromMessage(message) {
-  if (message.metadata?.event_type !== TASK_EVENT_TYPE) return null;
+  // Some methods, such as pins.list, return a message's metadata type without
+  // its payload; such a message has to be loaded to read the task.
+  const payload = message.metadata?.event_payload;
+  if (message.metadata?.event_type !== TASK_EVENT_TYPE || !payload) return null;
 
-  const payload = message.metadata.event_payload;
   return {
     title: payload.title,
     priority: payload.priority,
