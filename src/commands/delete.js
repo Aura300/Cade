@@ -1,33 +1,49 @@
-import { updateRequirement } from "../requirements.js";
+import { tasksChannelFor } from "../channels.js";
+import { NOT_A_REQUIREMENT, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
 
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
 
-// `@LUMA delete` (or `@LUMA remove`) in a task thread replies with Delete and
-// Cancel buttons. Delete opens a second "are you sure" dialog, and only the
-// person who asked for the deletion can confirm or cancel it. Confirming
-// deletes the task message and Luma's replies in its thread, and says so in
-// the external thread the task was tracked from. A requirement the task was
-// tracked from goes back to In discussion, keeping the client's priority and
-// due date.
+// What can be deleted: a task, in its thread in a tasks channel, or a
+// requirement, in its thread in an external channel.
+const KINDS = {
+  task: { noun: "task", load: loadTask, missing: NOT_A_TASK },
+  requirement: { noun: "requirement", load: loadRequirement, missing: NOT_A_REQUIREMENT },
+};
+
+// `@LUMA delete` (or `@LUMA remove`) in a task or requirement thread replies
+// with Delete and Cancel buttons. Delete opens a second "are you sure"
+// dialog, and only the person who asked for the deletion can confirm or
+// cancel it. Confirming deletes the root message and Luma's replies in its
+// thread.
+//
+// Deleting a task also says so in the external thread it was tracked from,
+// and a requirement it was tracked from goes back to In discussion, keeping
+// the client's priority and due date. A requirement with a tracked task
+// cannot be deleted, since the task is the team's: it must be untracked
+// first, with `@LUMA remove` in the task's thread in the dev channel.
 //
 // A bot token can only delete the bot's own messages, so people's replies
 // stay behind under Slack's "This message was deleted" placeholder.
 export default {
   name: "delete",
   aliases: ["remove"],
-  description: "Delete the task and Luma's messages in its thread",
+  description: "Delete the task or requirement and Luma's messages in its thread",
   usage: "@LUMA delete",
-  channel: "tasks",
+  channel: ["tasks", "external"],
   inThread: true,
   async run(command, { env }) {
-    const task = await loadTask(env, command.channel, command.threadTs);
-    if (!task) return NOT_A_TASK;
+    const kind = tasksChannelFor(env, command.channel) === command.channel ? "task" : "requirement";
+    const { noun, load, missing } = KINDS[kind];
+    const item = await load(env, command.channel, command.threadTs);
+    if (!item) return missing;
+    if (item.task) return stillTracked(item);
 
-    const question = `<@${command.user}>, delete the task *${escapeSlack(task.title)}*? This cannot be undone.`;
+    const question = `<@${command.user}>, delete the ${noun} *${escapeSlack(item.title)}*? This cannot be undone.`;
     const value = JSON.stringify({
+      kind,
       channel: command.channel,
       ts: command.threadTs,
       requestedBy: command.user,
@@ -42,16 +58,16 @@ export default {
             {
               type: "button",
               action_id: DELETE_ACTION,
-              text: plainText("Delete task"),
+              text: plainText(`Delete ${noun}`),
               style: "danger",
               value,
               confirm: {
-                title: plainText("Delete task?"),
+                title: plainText(`Delete ${noun}?`),
                 text: plainText(
-                  `"${task.title}" and Luma's replies in its thread will be deleted.`.slice(0, 300),
+                  `"${item.title}" and Luma's replies in its thread will be deleted.`.slice(0, 300),
                 ),
                 confirm: plainText("Delete"),
-                deny: plainText("Keep task"),
+                deny: plainText(`Keep ${noun}`),
                 style: "danger",
               },
             },
@@ -69,9 +85,10 @@ export default {
   actions: {
     [DELETE_ACTION]: async (payload, context) => {
       const request = await authorize(payload, context.env);
-      if (request) {
-        context.waitUntil(deleteTask(context.env, request.channel, request.ts, payload.user.id));
-      }
+      if (!request) return;
+      // Buttons posted before requirements could be deleted have no kind.
+      const remove = request.kind === "requirement" ? deleteRequirement : deleteTask;
+      context.waitUntil(remove(context.env, request.channel, request.ts, payload.user.id));
     },
     [CANCEL_ACTION]: async (payload, context) => {
       const request = await authorize(payload, context.env);
@@ -104,31 +121,12 @@ async function deleteTask(env, channel, ts, user) {
   const task = await loadTask(env, channel, ts);
   if (!task) return;
 
-  const own = [];
-  let cursor;
-  do {
-    const page = await callSlack(env, "conversations.replies", {
-      channel,
-      ts,
-      limit: 200,
-      cursor,
-    });
-    own.push(...page.messages.filter((message) => message.bot_id && message.ts !== ts));
-    cursor = page.response_metadata?.next_cursor || undefined;
-  } while (cursor);
-
-  // Replies first, so the root is not left behind if a delete fails midway.
-  for (const message of own) {
-    await callSlack(env, "chat.delete", { channel, ts: message.ts }).catch((error) => {
-      // Other bots' replies cannot be deleted with this token.
-      console.warn("Could not delete reply", { ts: message.ts, error: error.message });
-    });
-  }
+  await deleteReplies(env, channel, ts);
   // The permalink is looked up while the task message still exists.
   await syncTask(env, channel, ts, task, { deleted: true });
   // Deleting a message also removes its pin.
   await callSlack(env, "chat.delete", { channel, ts });
-  console.log("Task deleted", { ts, deletedReplies: own.length, user });
+  console.log("Task deleted", { ts, user });
 
   if (task.source) {
     // Matches the "tracked a task" announcement, without the link.
@@ -151,4 +149,58 @@ async function deleteTask(env, channel, ts, user) {
     user,
     text: `Deleted the task "${escapeSlack(task.title)}".`,
   });
+}
+
+async function deleteRequirement(env, channel, ts, user) {
+  const requirement = await loadRequirement(env, channel, ts);
+  if (!requirement) return;
+  if (requirement.task) {
+    // It was tracked after the buttons were posted.
+    await callSlack(env, "chat.postEphemeral", {
+      channel,
+      thread_ts: ts,
+      user,
+      text: stillTracked(requirement),
+    });
+    return;
+  }
+
+  await deleteReplies(env, channel, ts);
+  await callSlack(env, "chat.delete", { channel, ts });
+  console.log("Requirement deleted", { ts, user });
+
+  await callSlack(env, "chat.postEphemeral", {
+    channel,
+    user,
+    text: `Deleted the requirement "${escapeSlack(requirement.title)}".`,
+  });
+}
+
+function stillTracked(requirement) {
+  const { link, title } = requirement.task;
+  return `This requirement is tracked as <${link}|${escapeSlack(title)}>. Untrack it first: send \`@LUMA remove\` in <${link}|the task's thread>.`;
+}
+
+// Deletes Luma's replies in a thread. They go first, so the root is not left
+// behind if a delete fails midway.
+async function deleteReplies(env, channel, ts) {
+  const own = [];
+  let cursor;
+  do {
+    const page = await callSlack(env, "conversations.replies", {
+      channel,
+      ts,
+      limit: 200,
+      cursor,
+    });
+    own.push(...page.messages.filter((message) => message.bot_id && message.ts !== ts));
+    cursor = page.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+
+  for (const message of own) {
+    await callSlack(env, "chat.delete", { channel, ts: message.ts }).catch((error) => {
+      // Other bots' replies cannot be deleted with this token.
+      console.warn("Could not delete reply", { ts: message.ts, error: error.message });
+    });
+  }
 }

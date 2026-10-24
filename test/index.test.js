@@ -765,6 +765,7 @@ test("@LUMA delete and @LUMA remove ask for confirmation", async (t) => {
     assert.equal(button.style, "danger");
     assert.ok(button.confirm);
     assert.deepEqual(JSON.parse(button.value), {
+      kind: "task",
       channel: "CDEV",
       ts: "100.1",
       requestedBy: "UACTOR",
@@ -773,6 +774,7 @@ test("@LUMA delete and @LUMA remove ask for confirmation", async (t) => {
   }
 });
 
+// Without a kind, as on buttons posted before requirements could be deleted.
 const deleteRequest = JSON.stringify({ channel: "CDEV", ts: "100.1", requestedBy: "UACTOR" });
 
 const deleteClick = (actionId, user) =>
@@ -1920,4 +1922,103 @@ test("Done on a requirement task still asks whether to inform the client", async
   await send("/slack/events", threadEvent("<@UBOT> status done"));
   assert.ok(!calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL"));
   assert.equal(calls.at(-1).args.blocks[1].elements[0].action_id, "status:inform");
+});
+
+const requirementDelete = JSON.stringify({
+  kind: "requirement",
+  channel: "CEXTERNAL",
+  ts: "200.1",
+  requestedBy: "UCLIENT",
+});
+
+test("@LUMA remove in a requirement thread asks for confirmation", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", user: "UCLIENT", ts: "200.5", thread_ts: "200.1" }),
+  );
+
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
+  const prompt = calls[1].args;
+  assert.equal(prompt.thread_ts, "200.1");
+  assert.equal(
+    prompt.text,
+    "<@UCLIENT>, delete the requirement *Export reports*? This cannot be undone.",
+  );
+  const [confirm, cancel] = prompt.blocks[1].elements;
+  assert.equal(confirm.text.text, "Delete requirement");
+  assert.equal(confirm.confirm.title.text, "Delete requirement?");
+  assert.equal(confirm.confirm.deny.text, "Keep requirement");
+  assert.deepEqual(JSON.parse(confirm.value), JSON.parse(requirementDelete));
+  assert.equal(cancel.action_id, "delete:cancel");
+});
+
+test("a tracked requirement cannot be removed", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot({ task: true })] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+  );
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
+  assert.equal(
+    calls[1].args.text,
+    "This requirement is tracked as <https://slack.example/p100|Fix login>. Untrack it first: send `@LUMA remove` in <https://slack.example/p100|the task's thread>.",
+  );
+});
+
+test("@LUMA remove in an external thread Luma did not start says so", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [{ ts: "200.1" }] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+  );
+  assert.match(calls.at(-1).args.text, /^This thread is not a requirement\./);
+});
+
+test("confirming a requirement's deletion removes Luma's replies and then the requirement", async (t) => {
+  const calls = mockSlack(t, {
+    "conversations.replies": (args) =>
+      args.limit === "1"
+        ? { messages: [requirementRoot()] }
+        : {
+            messages: [
+              { ts: "200.1", bot_id: "BLUMA" },
+              { ts: "200.2", user: "UCLIENT" },
+              { ts: "200.3", bot_id: "BLUMA" },
+            ],
+          },
+  });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLIENT" },
+      actions: [{ action_id: "delete:confirm", value: requirementDelete }],
+    }),
+  );
+
+  const deletes = calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts);
+  assert.deepEqual(deletes, ["200.3", "200.1"]);
+  // Requirements are not in the sheet, and there is no other thread to tell.
+  assert.ok(!calls.some((call) => ["sheet", "chat.postMessage"].includes(call.method)));
+  assert.deepEqual(calls.at(-1).args, {
+    channel: "CEXTERNAL",
+    user: "UCLIENT",
+    text: 'Deleted the requirement "Export reports".',
+  });
+});
+
+test("a requirement tracked after the delete buttons were posted is kept, and the requester told why", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot({ task: true })] } });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLIENT" },
+      actions: [{ action_id: "delete:confirm", value: requirementDelete }],
+    }),
+  );
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postEphemeral"]);
+  assert.equal(calls[1].args.user, "UCLIENT");
+  assert.match(calls[1].args.text, /Untrack it first: send `@LUMA remove`/);
 });

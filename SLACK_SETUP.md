@@ -181,6 +181,8 @@ Try these in the test channels first.
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
 | `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and Luma asks whether to inform the external thread |
 | Click **Inform external thread** | The original external thread gets "marked a task as ✅ Done" |
+| `@LUMA remove` in a tracked requirement's thread | Luma refuses and links to the task's thread to untrack it first |
+| `@LUMA remove` in an untracked requirement's thread | **Delete requirement** / **Cancel** buttons; confirming deletes the requirement message and Luma's replies |
 | `@LUMA delete` | **Delete task** / **Cancel** buttons; confirming deletes the task and posts "untracked" in the original external thread |
 
 If something doesn't respond, open **Workers & Pages → project-helper →

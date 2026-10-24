@@ -122,6 +122,12 @@ shows the priority and due date the task will take from the requirement.
 The requirement then links to the task. Deleting the task puts the
 requirement back to In discussion, keeping its priority and due date.
 
+To remove a requirement, send **`@LUMA remove`** (or `@LUMA delete`) in its
+thread. It asks for confirmation the same way as deleting a task, then
+deletes the requirement message and Luma's replies. A tracked requirement
+can't be removed: untrack it first with `@LUMA remove` in the task's thread
+in `#aura300-dev`, and Luma's reply links there.
+
 Assign and unassign are for tasks only, and only tracked tasks are recorded
 in the Google Sheet.
 
