@@ -235,10 +235,12 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   unpins the task; moving it from `DONE` to any other status pins it again,
   so the channel's pins list shows the open tasks. A requirement or
   incident is pinned in the external channel the same way: from when it is
-  posted until its task is Done, and again if the task is reopened. When a task reaches Client review or Done, Luma posts "@you
-  marked a task as Done: *title*" in the requirement thread straight away,
-  linking back to the task (Client review comes with the client's Approve
-  buttons). When the client approves, nothing more is posted there.
+  posted until its task is Done, and again if the task is reopened. When a
+  task reaches Done, Luma posts "@you marked this as ✅ Done." in the
+  requirement thread straight away; Client review posts "@you marked this
+  as ready to review." with the task's PRs and the client's Approve
+  buttons. Neither links to the task, which is the team's. When the client
+  approves, nothing more is posted there.
 - `@LUMA priority high` changes the priority (Urgent, High, Medium, Low);
   `@LUMA priority` replies with a menu. `@LUMA due 30/11/2026` changes the
   due date (YYYY-MM-DD also works), `@LUMA due none` removes it, and

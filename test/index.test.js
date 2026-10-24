@@ -567,7 +567,6 @@ test("@LUMA status DONE unpins the task and reopening pins it again", async (t) 
     "conversations.replies",
     "pins.remove",
     "pins.remove",
-    "chat.getPermalink",
     "chat.postMessage",
     "reactions.add",
     "chat.postMessage",
@@ -708,15 +707,14 @@ test("picking a status from the menu updates the task and the menu", async (t) =
     "conversations.replies",
     "pins.remove",
     "pins.remove",
-    "chat.getPermalink",
     "chat.postMessage",
     "chat.update",
   ]);
   assert.equal(calls[1].args.ts, "100.1");
   assert.equal(calls[1].args.metadata.event_payload.status, "DONE");
-  assert.equal(calls[6].args.channel, "CEXTERNAL");
+  assert.equal(calls[5].args.channel, "CEXTERNAL");
   // The menu becomes the confirmation, saying the requirement thread was told.
-  const menu = calls[7].args;
+  const menu = calls[6].args;
   assert.equal(menu.ts, "100.7");
   assert.equal(menu.text, "<@UPICKER> set the status to :white_check_mark: Done.\nLuma told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.");
   assert.equal(menu.blocks.length, 1, "no buttons");
@@ -1703,7 +1701,7 @@ const reviewClick = (actionId) =>
         value: JSON.stringify({
           channel: "CDEV",
           ts: "100.1",
-          text: "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>",
+          text: "<@UACTOR> marked this as ready to review.",
         }),
       },
     ],
@@ -1740,13 +1738,13 @@ test("Approve moves the task to Done and tells the task's thread", async (t) => 
   assert.deepEqual(calls[8].args, {
     channel: "CEXTERNAL",
     ts: "200.9",
-    text: "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>\n<@UCLIENT> approved it.",
+    text: "<@UACTOR> marked this as ready to review.\n<@UCLIENT> approved it.",
     blocks: [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>\n<@UCLIENT> approved it.",
+          text: "<@UACTOR> marked this as ready to review.\n<@UCLIENT> approved it.",
         },
       },
     ],
@@ -3047,7 +3045,8 @@ test("Done is posted in the requirement thread without asking", async (t) => {
     assert.equal(post.thread_ts, "200.1");
     assert.equal(
       post.text,
-      "<@UACTOR> marked a task as :white_check_mark: Done: <https://slack.example/p100|Fix login>",
+      // The thread is the requirement, so there's no link to the task.
+      "<@UACTOR> marked this as :white_check_mark: Done.",
       from,
     );
     assert.equal(post.blocks.length, 1, "no buttons");
@@ -3269,7 +3268,7 @@ test("Client review lists the task's PRs for the client, and keeps them after a 
 
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   const announced = [
-    "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>",
+    "<@UACTOR> marked this as ready to review.",
     `*PRs:* <${PR}|project-helper/42>, <${MR}|web-app/118>`,
   ].join("\n");
   assert.equal(
@@ -3333,4 +3332,20 @@ test("a task from a requirement or incident can't be removed from its own thread
     assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"], channel);
     assert.equal(calls[1].args.text, text);
   }
+});
+
+test("the ready to review message doesn't link to the team's task", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true }), requirementTask("IN_TESTING")),
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send("/slack/events", threadEvent("<@UBOT> status client review"));
+  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
+  assert.equal(
+    review.text,
+    "<@UACTOR> marked this as ready to review.\n<@UCREATOR>, please review it and approve it, or say what needs to change.",
+  );
+  assert.ok(!review.text.includes("slack.example/p100"));
+  // No link to look up for it.
+  assert.ok(!calls.some((call) => call.method === "chat.getPermalink" && call.args.channel === "CDEV"));
 });

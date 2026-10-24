@@ -32,7 +32,7 @@ export async function verifySlackRequest(request, body, signingSecret) {
   );
 }
 
-// Luma's messages link to other messages, such as "marked a task as Done:
+// Luma's messages link to other messages, such as "tracked this as a task:
 // <link>".
 // Slack would preview each link as a copy of the linked message, repeating
 // the task card, so previews are turned off for everything Luma posts.

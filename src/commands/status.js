@@ -152,18 +152,17 @@ async function afterChange(env, channel, ts, task, status, user, reached) {
   return { text, told };
 }
 
-// Matches the "tracked a task" announcement in the external thread.
+// Tells the requirement thread the task reached Client review or Done. The
+// thread is the requirement, and the client has no use for the team's task,
+// so neither message links to it. Client review says the work is ready for
+// the client, with its PRs and their Approve and Not approve buttons.
 async function announce(env, channel, ts, task, user) {
-  const { permalink } = await callSlack(env, "chat.getPermalink", {
-    channel,
-    message_ts: ts,
-  });
-  const text = `<@${user}> marked a task as ${STATUSES[task.status]}: <${permalink}|${escapeSlack(task.title)}>`;
-  const asksForReview = task.status === "CLIENT_REVIEW";
+  const done = task.status === "DONE";
+  const text = done ? `<@${user}> marked this as ${STATUSES.DONE}.` : `<@${user}> marked this as ready to review.`;
   await callSlack(env, "chat.postMessage", {
     channel: task.source.channel,
     thread_ts: task.source.threadTs,
-    ...(asksForReview ? await reviewPrompt(env, text, channel, ts, task) : asMessage(text)),
+    ...(done ? asMessage(text) : await reviewPrompt(env, text, channel, ts, task)),
   });
 }
 
