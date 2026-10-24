@@ -30,7 +30,7 @@ flowchart LR
 | `src/commands/parse.js` | Turns an `@LUMA …` message or `/luma …` slash command into a command |
 | `src/commands/dispatch.js` | Looks up the handler, checks where it may run, runs it |
 | `src/commands/registry.js` | The list of command handlers |
-| `src/commands/track.js`, `requirement.js`, `assign.js`, `unassign.js`, `status.js`, `details.js` (priority, due), `delete.js` | Command handlers |
+| `src/commands/track.js`, `requirement.js` (requirement, incident), `assign.js`, `unassign.js`, `status.js`, `details.js` (priority, due), `pr.js`, `tasks.js`, `delete.js` | Command handlers |
 | `src/tasks.js` | Task message layout and storage, shared by the handlers |
 | `src/requirements.js` | Requirement message layout and storage, and finding a requirement's task |
 | `src/sheet.js`, `google-sheet/Code.gs` | Records tasks in a Google Sheet |
@@ -195,7 +195,9 @@ In a task's thread in `#aura300-dev` or the incidents channel:
 
 - `@LUMA assign developer @person [@person …]` adds people as developers;
   `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the
-  same way. Each role can have several people.
+  same way. Each role can have several people. Developers and testers are
+  asked to start straight away. Reviewers can be added ahead of time: until
+  a PR is linked, Luma doesn't name them, so they aren't notified.
 - `@LUMA unassign developer @person` removes people from that role;
   `@LUMA unassign @person` removes them from every role.
 - `@LUMA status` replies with a menu of statuses (To do, In progress, In
@@ -220,6 +222,14 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   requirement, and in the thread of a task with no requirement. For a task
   tracked from a requirement, they are changed in the requirement thread
   instead (see [Requirements](#requirements)).
+- `@LUMA pr add <link>` links a pull request to the task (several links
+  work too); `@LUMA pr remove <link>` unlinks it. Linked PRs show on the
+  task message on one line, as *reponame/number* linking to each PR, just
+  above who tracked it. GitHub, GitLab and Bitbucket links are recognised.
+  Linking asks the task's reviewers to review it. With no reviewer yet,
+  Luma asks who should review it, with a people picker; choosing people
+  assigns them as reviewers and asks them. A reviewer assigned after a PR
+  is linked is asked straight away.
 - `@LUMA delete` (or `@LUMA remove`) replies with a prominent **Cancel**
   button and a plain **Delete task** button. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once

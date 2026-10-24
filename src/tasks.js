@@ -48,8 +48,8 @@ export function taskMessage(task) {
   if (task.source?.incident) thread = "the incident thread";
   else if (task.source?.requirement) thread = "the requirement thread";
   const from = task.source?.link ? ` from <${task.source.link}|${thread}>` : "";
-  // Four lines: the title, the task's details, who works on it, then who
-  // tracked it.
+  // The title, the task's details, who works on it, its linked pull requests
+  // (when it has any), then who tracked it.
   const details = [
     `*Status:* ${STATUSES[task.status]}`,
     `*Priority:* ${PRIORITIES[task.priority]} ${task.priority}`,
@@ -67,6 +67,9 @@ export function taskMessage(task) {
       { type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) },
       { type: "section", text: mrkdwn(details) },
       { type: "section", text: mrkdwn(people) },
+      ...(task.prs?.length
+        ? [{ type: "section", text: mrkdwn(`*PRs:* ${task.prs.map(prLink).join(", ")}`) }]
+        : []),
       {
         type: "context",
         elements: [
@@ -86,6 +89,8 @@ export function taskMessage(task) {
         developers: task.people.developer.join(","),
         reviewers: task.people.reviewer.join(","),
         testers: task.people.tester.join(","),
+        // Linked pull requests' addresses, comma separated.
+        prs: (task.prs ?? []).join(","),
         created_by: task.createdBy,
         // When the task was last set to DONE, as an ISO timestamp.
         completed_at: task.completedAt ?? "",
@@ -102,6 +107,23 @@ export function taskMessage(task) {
       },
     },
   };
+}
+
+// Pull request addresses on GitHub, GitLab and Bitbucket: the repository's
+// name and the request's number.
+const PULL_REQUEST = /^https?:\/\/[^/\s]+\/(?:[^/\s]+\/)+?([^/\s]+)\/(?:pull|-\/merge_requests|pull-requests)\/(\d+)\b/;
+
+// Returns { url, repo, number } for a pull request address, or null. `url`
+// is the request's own address, without a tab such as /files after it.
+export function parsePullRequest(url) {
+  const match = PULL_REQUEST.exec(url);
+  return match ? { url: match[0], repo: match[1], number: match[2] } : null;
+}
+
+// A pull request as reponame/number, linking to it.
+export function prLink(url) {
+  const pr = parsePullRequest(url);
+  return pr ? `<${url}|${escapeSlack(pr.repo)}/${pr.number}>` : `<${url}>`;
 }
 
 // Returns the task whose root message is `ts`, or null if it is not a task.
@@ -134,6 +156,7 @@ export function taskFromMessage(message) {
       reviewer: list(payload.reviewers),
       tester: list(payload.testers),
     },
+    prs: list(payload.prs),
     createdBy: payload.created_by,
     completedAt: payload.completed_at ?? "",
     // Tasks tracked before the source thread was stored have none.

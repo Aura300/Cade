@@ -251,6 +251,7 @@ test("modal submission posts the task and replaces the button with the announcem
       developers: "",
       reviewers: "",
       testers: "",
+      prs: "",
       created_by: "UCREATOR",
       completed_at: "",
       source_channel: "CEXTERNAL",
@@ -420,7 +421,8 @@ test("@LUMA assign adds people to a role on the root message", async (t) => {
 
 test("@LUMA assign works for each role, in any word order", async (t) => {
   for (const [text, key, reply] of [
-    ["<@UBOT> assign reviewer <@UBOB>", "reviewers", "<@UBOB> please review this."],
+    // No PR yet, so the reviewer isn't named, and isn't notified.
+    ["<@UBOT> assign reviewer <@UBOB>", "reviewers", "<@UACTOR> added a reviewer. They'll be asked to review when a PR is linked."],
     ["<@UBOT> assign tester <@UBOB>", "testers", "<@UBOB> please test this."],
     ["<@UBOT> assign <@UBOB> as Tester", "testers", "<@UBOB> please test this."],
     ["<@UBOT> assign developers <@UBOB>", "developers", "<@UBOB> please start working on this."],
@@ -2543,4 +2545,174 @@ test("a failed clean-up still leaves the new task list", async (t) => {
   await send("/slack/events", directEvent("tasks aura300"));
   assert.ok(calls.includes("chat.postMessage"));
   assert.ok(!calls.includes("chat.delete"));
+});
+
+const PR = "https://github.com/acme/project-helper/pull/42";
+const MR = "https://gitlab.com/acme/web/web-app/-/merge_requests/118";
+
+test("@LUMA pr add links pull requests on one line above who tracked it", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}/files> <${MR}|the MR> ${PR}`));
+
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.update", "chat.postMessage"]);
+  const { blocks, metadata } = calls[1].args;
+  // Stored without the /files tab, and only once.
+  assert.equal(metadata.event_payload.prs, `${PR},${MR}`);
+  assert.equal(blocks[3].text.text, `*PRs:* <${PR}|project-helper/42>, <${MR}|web-app/118>`);
+  assert.equal(blocks[4].type, "context");
+  assert.match(blocks[4].elements[0].text, /^Tracked by/);
+  assert.match(calls[2].args.text, new RegExp(`^<@UACTOR> linked <${PR}\\|project-helper/42>, <${MR}\\|web-app/118>\\.\\n`));
+});
+
+test("tasks without pull requests show no PRs line", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadEvent("<@UBOT> status in progress"));
+  assert.equal(calls[1].args.blocks.length, 4);
+  assert.equal(calls[1].args.blocks[3].type, "context");
+});
+
+test("@LUMA pr add skips pull requests already linked", async (t) => {
+  const root = rootMessage();
+  root.metadata.event_payload.prs = PR;
+  let calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}> <${MR}>`));
+  assert.equal(calls[1].args.metadata.event_payload.prs, `${PR},${MR}`);
+  assert.match(calls[2].args.text, new RegExp(`^<@UACTOR> linked <${MR}\\|web-app/118>\\.\\n`));
+
+  calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
+  assert.equal(calls[1].args.text, "Those pull requests are already linked to this task.");
+});
+
+test("@LUMA pr remove unlinks pull requests", async (t) => {
+  const root = rootMessage();
+  root.metadata.event_payload.prs = `${PR},${MR}`;
+  let calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
+  assert.equal(calls[1].args.metadata.event_payload.prs, MR);
+  assert.equal(calls[1].args.blocks[3].text.text, `*PRs:* <${MR}|web-app/118>`);
+  assert.equal(calls[2].args.text, `<@UACTOR> unlinked <${PR}|project-helper/42>.`);
+
+  // Removing the last one removes the PRs line.
+  root.metadata.event_payload.prs = PR;
+  calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
+  assert.equal(calls[1].args.metadata.event_payload.prs, "");
+  assert.equal(calls[1].args.blocks[3].type, "context");
+
+  calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
+  assert.equal(calls.at(-1).args.text, "Those pull requests aren't linked to this task.");
+});
+
+test("@LUMA pr needs add or remove and a pull request link", async (t) => {
+  for (const [text, reply] of [
+    [`<@UBOT> pr <${PR}>`, "Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`."],
+    ["<@UBOT> pr", "Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`."],
+    ["<@UBOT> pr add", "Paste the pull request's link: Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`."],
+    [
+      "<@UBOT> pr add <https://github.com/acme/project-helper/issues/3>",
+      "That's not a pull request link: https://github.com/acme/project-helper/issues/3",
+    ],
+  ]) {
+    const calls = mockSlack(t);
+    await send("/slack/events", threadEvent(text));
+    assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], text);
+    assert.equal(calls[0].args.text, reply, text);
+  }
+});
+
+test("@LUMA pr works in incidents channels but not in external ones", async (t) => {
+  let calls = mockSlack(t, threads(incidentRoot(), incidentTask()));
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`, { channel: "CINC" }), {}, incidentEnv);
+  assert.equal(calls[1].args.channel, "CINC");
+  assert.equal(calls[1].args.metadata.event_payload.prs, PR);
+
+  calls = mockSlack(t);
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`, { channel: "CEXTERNAL" }));
+  assert.equal(calls[0].args.text, "Use `@LUMA pr add <link>` in a task thread in <#CDEV>.");
+});
+
+test("pull requests on GitHub, GitLab and Bitbucket are read as reponame/number", async () => {
+  const { parsePullRequest } = await import("../src/tasks.js");
+  assert.deepEqual(parsePullRequest(`${PR}/files`), { url: PR, repo: "project-helper", number: "42" });
+  assert.equal(parsePullRequest(MR).repo, "web-app");
+  assert.deepEqual(parsePullRequest("https://bitbucket.org/acme/api/pull-requests/7"), {
+    url: "https://bitbucket.org/acme/api/pull-requests/7",
+    repo: "api",
+    number: "7",
+  });
+  assert.equal(parsePullRequest("https://github.com/acme/project-helper/issues/3"), null);
+});
+
+test("linking a PR asks the task's reviewers to review it", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA,UREX" })] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
+  assert.equal(
+    calls[2].args.text,
+    `<@UACTOR> linked <${PR}|project-helper/42>.\n<@URIA>, <@UREX>, please review <${PR}|project-helper/42>.`,
+  );
+  assert.equal(calls[2].args.blocks, undefined, "no picker");
+});
+
+test("linking a PR with no reviewer asks who should review it", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
+  const prompt = calls[2].args;
+  assert.equal(
+    prompt.text,
+    `<@UACTOR> linked <${PR}|project-helper/42>.\nThere's no reviewer yet. Who should review it?`,
+  );
+  const block = prompt.blocks[0];
+  assert.equal(block.accessory.type, "multi_users_select");
+  assert.equal(block.accessory.action_id, "pr:reviewers");
+  assert.deepEqual(JSON.parse(block.block_id), [PR]);
+});
+
+test("choosing reviewers assigns them and asks them to review", async (t) => {
+  const root = rootMessage();
+  root.metadata.event_payload.prs = PR;
+  const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLICKER" },
+      channel: { id: "CDEV" },
+      message: { ts: "100.8", thread_ts: "100.1" },
+      actions: [{ action_id: "pr:reviewers", block_id: JSON.stringify([PR]), selected_users: ["URIA"] }],
+    }),
+  );
+  assert.deepEqual(calls.map((call) => [call.method, call.args.ts]), [
+    ["conversations.replies", "100.1"],
+    ["chat.update", "100.1"],
+    ["chat.update", "100.8"],
+  ]);
+  assert.equal(calls[1].args.metadata.event_payload.reviewers, "URIA");
+  assert.equal(
+    calls[2].args.text,
+    `<@UCLICKER> chose the reviewers.\n<@URIA>, please review <${PR}|project-helper/42>.`,
+  );
+  assert.equal(calls[2].args.blocks.length, 1, "the picker is gone");
+});
+
+test("assigning a reviewer once a PR is linked asks them to review it", async (t) => {
+  const root = rootMessage();
+  root.metadata.event_payload.prs = `${PR},${MR}`;
+  const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadEvent("<@UBOT> assign reviewer <@URIA>"));
+  assert.equal(calls[1].args.metadata.event_payload.reviewers, "URIA");
+  assert.equal(
+    calls[2].args.text,
+    `<@URIA>, please review <${PR}|project-helper/42>, <${MR}|web-app/118>.`,
+  );
+});
+
+test("reviewers added before a PR are not named, so not notified", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadEvent("<@UBOT> assign reviewer <@URIA> <@UREX>"));
+  const reply = calls[2].args.text;
+  assert.equal(reply, "<@UACTOR> added 2 reviewers. They'll be asked to review when a PR is linked.");
+  assert.ok(!reply.includes("URIA") && !reply.includes("UREX"));
 });
