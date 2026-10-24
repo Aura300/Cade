@@ -516,7 +516,7 @@ test("@LUMA unassign with a role removes people from that role only", async (t) 
   const payload = calls[1].args.metadata.event_payload;
   assert.equal(payload.developers, "UBOB");
   assert.equal(payload.reviewers, "UALICE");
-  assert.equal(calls[2].args.text, "<@UACTOR> unassigned <@UALICE> as developer.");
+  assert.equal(calls[2].args.text, "<@UALICE>, you no longer need to work on this.");
 });
 
 test("@LUMA unassign without a role removes people from every role", async (t) => {
@@ -532,14 +532,22 @@ test("@LUMA unassign without a role removes people from every role", async (t) =
     calls[1].args.blocks[2].text.text,
     "*Developer:* <@UBOB>  ·  *Reviewer:* _Unassigned_  ·  *Tester:* _Unassigned_",
   );
-  assert.equal(calls[2].args.text, "<@UACTOR> unassigned <@UALICE>.");
+  assert.equal(calls[2].args.text, "<@UALICE>, you no longer need to work on this.");
 });
 
-test("@LUMA unassign without mentions replies with usage", async (t) => {
-  const calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> unassign developer"));
-  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
-  assert.match(calls[0].args.text, /@LUMA unassign developer @person/);
+test("@LUMA unassign without anyone mentioned offers the same role buttons as assign", async (t) => {
+  for (const [text, roles] of [
+    ["<@UBOT> unassign", ["developer", "reviewer", "tester"]],
+    ["<@UBOT> unassign tester", ["tester"]],
+  ]) {
+    const calls = mockSlack(t);
+    await send("/slack/events", threadEvent(text));
+    assert.deepEqual(
+      calls.at(-1).args.blocks[1].elements.map((button) => button.action_id),
+      roles.map((role) => `assign:choose:${role}`),
+      text,
+    );
+  }
 });
 
 test("@LUMA status updates the task's status", async (t) => {
@@ -3455,7 +3463,7 @@ test("a role's button opens a form with its people filled in", async (t) => {
   assert.deepEqual(field.element.initial_users, ["UALICE", "UBOB"]);
 });
 
-test("saving the form sets the role, asks those added and removes the buttons", async (t) => {
+test("saving the form sets the role, tells those added and removed, and removes the buttons", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE,UBOB" })] } });
   // UBOB is removed, UREX added.
   const response = await send("/slack/interactions", savePeopleForm("developer", ["UALICE", "UREX"]));
@@ -3463,16 +3471,20 @@ test("saving the form sets the role, asks those added and removes the buttons", 
   assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.developers, "UALICE,UREX");
   const ask = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(ask.thread_ts, "100.1");
-  assert.equal(ask.text, "<@UREX> please start working on this.");
+  // UREX is asked to start; UBOB, removed, is told they no longer need to.
+  assert.equal(ask.text, "<@UREX> please start working on this.\n<@UBOB>, you no longer need to work on this.");
   assert.deepEqual(calls.at(-1).args, { channel: "CDEV", ts: "100.8" });
   assert.equal(calls.at(-1).method, "chat.delete");
 });
 
-test("saving with people only removed tells no one", async (t) => {
+test("saving with people only removed tells them", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ testers: "UTESS" })] } });
   await send("/slack/interactions", savePeopleForm("tester", []));
   assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.testers, "");
-  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    "<@UTESS>, you no longer need to test this.",
+  );
   assert.equal(calls.at(-1).method, "chat.delete");
 });
 
@@ -3489,4 +3501,23 @@ test("reviewers saved are asked to review only once a PR is linked", async (t) =
     calls.find((call) => call.method === "chat.postMessage").args.text,
     `<@URIA>, please review <${PR}|project-helper/42>.`,
   );
+});
+
+test("@LUMA unassign of someone not assigned changes nothing", async (t) => {
+  for (const [text, reply] of [
+    ["<@UBOT> unassign <@UREX>", "They aren't assigned to this task."],
+    ["<@UBOT> unassign tester <@UALICE>", "They aren't assigned to this task as tester."],
+    ["<@UBOT> unassign <@UREX> <@UBOB>", "None of them are assigned to this task."],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE" })] } });
+    await send("/slack/events", threadEvent(text));
+    assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"], text);
+    assert.equal(calls[1].args.text, reply);
+  }
+});
+
+test("removed reviewers are told they no longer need to review", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
+  await send("/slack/events", threadEvent("<@UBOT> unassign reviewer <@URIA>"));
+  assert.equal(calls.at(-1).args.text, "<@URIA>, you no longer need to review this.");
 });

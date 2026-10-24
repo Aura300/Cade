@@ -224,7 +224,8 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   **Reviewer** and **Tester** buttons (`@LUMA assign developer` shows just
   that one). A button opens a form with that role's people filled in, to
   add or remove people. **Save** sets the role and removes the buttons:
-  those added are asked as below, and those removed aren't told.
+  those added are asked as below, and those removed are told "you no
+  longer need to work on this" (or review, test).
 - `@LUMA assign developer @person [@person …]`, for exact control, adds
   people as developers;
   `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the
@@ -232,7 +233,10 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   asked to start straight away. Reviewers can be added ahead of time: until
   a PR is linked, Luma doesn't name them, so they aren't notified.
 - `@LUMA unassign developer @person` removes people from that role;
-  `@LUMA unassign @person` removes them from every role.
+  `@LUMA unassign @person` removes them from every role. Either way
+  they're told they no longer need to work on it. Without anyone
+  mentioned, `@LUMA unassign` shows the same role buttons and form as
+  `@LUMA assign`.
 - `@LUMA status` replies with a menu of statuses (To do, In progress, In
   review, In testing, Client review, Done), starting at the current one.
   Picking one updates the task and replaces the menu with a confirmation.

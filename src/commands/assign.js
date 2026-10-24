@@ -97,7 +97,9 @@ export default {
   },
 };
 
-function roleButtons(roles) {
+// Shared with `@LUMA unassign`, whose form is the same: it shows who's
+// assigned, to remove people as well as add them.
+export function roleButtons(roles) {
   const prompt = roles.length === 1 ? `Who should be the ${ROLES[roles[0]].toLowerCase()}?` : "Who works on this task?";
   return {
     text: prompt,
@@ -152,8 +154,8 @@ async function openPeopleForm(payload, env, role) {
 }
 
 // Sets the role to the people saved, then removes the buttons. Those newly
-// added are asked as `@LUMA assign` would ask them; those removed aren't
-// told, since the task card shows it.
+// added are asked as `@LUMA assign` would ask them, and those removed are
+// told they no longer need to do it.
 function savePeople(payload, context) {
   const { channel, ts, role, promptTs } = JSON.parse(payload.view.private_metadata);
   const chosen = payload.view.state.values.people.value.selected_users ?? [];
@@ -163,18 +165,26 @@ function savePeople(payload, context) {
       const task = await loadTask(env, channel, ts);
       if (!task) return;
       const added = chosen.filter((id) => !task.people[role].includes(id));
+      const removed = task.people[role].filter((id) => !chosen.includes(id));
       task.people[role] = chosen;
       await saveTask(env, channel, ts, task);
 
-      let text = null;
-      if (added.length && REQUESTS[role]) text = `${mentions(added)} ${REQUESTS[role]}`;
+      const lines = [];
+      if (added.length && REQUESTS[role]) lines.push(`${mentions(added)} ${REQUESTS[role]}`);
       if (added.length && role === "reviewer" && task.prs.length) {
-        text = `${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`;
+        lines.push(`${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`);
       }
-      if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+      if (removed.length) lines.push(noLonger(removed, role));
+      if (lines.length) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
       await callSlack(env, "chat.delete", { channel, ts: promptTs });
     })(),
   );
+}
+
+// Tells people removed from a role, or from every role (`role` null), that
+// they no longer need to do it.
+export function noLonger(people, role) {
+  return `${mentions(people)}, you no longer need to ${ASKED[role] ?? ASKED.developer}.`;
 }
 
 // For a message in a task's thread that mentions people with a phrase that
@@ -318,8 +328,9 @@ async function offerTracking(env, event, requirement, developers) {
   });
 }
 
-// How the question describes what the message asked for.
-const ASKED = {
+// What each role does, for questions about a hand-off and for telling people
+// they no longer need to.
+export const ASKED = {
   developer: "work on this",
   reviewer: "review this",
   tester: "test this",

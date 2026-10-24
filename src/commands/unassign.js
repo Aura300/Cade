@@ -1,8 +1,10 @@
-import { mentions } from "../slack.js";
 import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
+import { noLonger, roleButtons } from "./assign.js";
 
 // `@LUMA unassign developer @person [@person …]` in a task thread removes
 // people from that role; `@LUMA unassign @person` removes them from every role.
+// They're told they no longer need to do it. Without anyone mentioned it offers the same role buttons and form as
+// `@LUMA assign`.
 export default {
   name: "unassign",
   description: "Unassign people from a role, or from every role (in its thread)",
@@ -11,18 +13,21 @@ export default {
   channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
-    if (!command.mentions.length) {
-      return "Mention who to unassign, for example `@LUMA unassign developer @person`.";
-    }
+    const role = parseRole(command.text);
+    if (!command.mentions.length) return roleButtons(role ? [role] : Object.keys(ROLES));
 
     const task = await loadTask(env, command.channel, command.threadTs);
     if (!task) return NOT_A_TASK;
-    const role = parseRole(command.text);
+    const removed = new Set();
     for (const name of role ? [role] : Object.keys(ROLES)) {
+      for (const id of task.people[name]) if (command.mentions.includes(id)) removed.add(id);
       task.people[name] = task.people[name].filter((id) => !command.mentions.includes(id));
     }
+    if (!removed.size) {
+      const as = role ? ` as ${ROLES[role].toLowerCase()}` : "";
+      return `${command.mentions.length === 1 ? "They aren't" : "None of them are"} assigned to this task${as}.`;
+    }
     await saveTask(env, command.channel, command.threadTs, task);
-    const from = role ? ` as ${role}` : "";
-    return `<@${command.user}> unassigned ${mentions(command.mentions)}${from}.`;
+    return noLonger([...removed], role);
   },
 };
