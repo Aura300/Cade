@@ -54,23 +54,32 @@ Slack only opens forms from a click. The form asks for the **task title**, an
 optional **due date** (`MM/DD`) and the **priority** (Urgent, High, Medium,
 Low). On submit, Luma:
 
-1. posts the task to `#aura300-dev` with its status, title, priority, due
-   date and assignees, plus a link back to the request thread, and pins it to
-   the channel, and
+1. posts the task to `#aura300-dev` and pins it to the channel. The task
+   message shows the title; then the status, priority and due date; then the
+   developer, reviewer and tester ("Unassigned" until someone is assigned);
+   then who tracked it, with a link back to the request thread, and
 2. replaces the button with "@you tracked a task: *title*", linking to the
    new task thread.
 
 In a task's thread in `#aura300-dev`:
 
-- `@LUMA assign @person [@person …]` adds people to the task.
-- `@LUMA unassign @person [@person …]` removes them.
+- `@LUMA assign developer @person [@person …]` adds people as developers;
+  `@LUMA assign reviewer @person` and `@LUMA assign tester @person` work the
+  same way. Each role can have several people.
+- `@LUMA unassign developer @person` removes people from that role;
+  `@LUMA unassign @person` removes them from every role.
 - `@LUMA status` replies with a menu of statuses (To do, In progress, In
   review, In testing, Client review, Done), starting at the current one.
   Picking one updates the task and replaces the menu with a confirmation.
   You can also skip the menu with `@LUMA status done` or
   `@LUMA status in progress`. New tasks start as `TODO`. Setting `DONE`
   unpins the task; moving it from `DONE` to any other status pins it again,
-  so the channel's pins list shows the open tasks.
+  so the channel's pins list shows the open tasks. When a task moves from an
+  open status (To do, In progress, In review, In testing) to Client review
+  or Done, the confirmation asks whether to tell the external thread the
+  task was tracked from: **Inform external thread** posts "@you marked a
+  task as Done: *title*" there, linking back to the task; **I'll tell them**
+  posts nothing. Moving between Client review and Done doesn't ask again.
 - `@LUMA delete` (or `@LUMA remove`) replies with **Delete task** and
   **Cancel** buttons. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once

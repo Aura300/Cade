@@ -1,6 +1,6 @@
 import { tasksChannelFor } from "../channels.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { PRIORITIES, parseDueDate, setPinned, taskMessage } from "../tasks.js";
+import { PRIORITIES, noPeople, parseDueDate, setPinned, taskMessage } from "../tasks.js";
 
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
@@ -117,7 +117,7 @@ async function submit(payload, context) {
     priority,
     status: "TODO",
     dueDate,
-    assignees: [],
+    people: noPeople(),
     createdBy: payload.user.id,
     source: { channel: origin.channel, threadTs: origin.threadTs },
   };

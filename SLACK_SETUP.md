@@ -143,9 +143,11 @@ Try these in the test channels first.
 | `@LUMA help` in either channel | A reply listing all commands |
 | `@LUMA track` in a thread in `#aura300-external` | Luma replies with a **Track task** button; clicking it opens the form |
 | Submit the form | The task appears and is pinned in `#aura300-dev`; the button reply becomes "@you tracked a task" with a link |
-| In the task's thread: `@LUMA assign @someone` | The task message shows them under **Assigned** |
+| In the task's thread: `@LUMA assign developer @someone` | The task message shows them as **Developer** |
+| `@LUMA assign reviewer @someone`, `@LUMA assign tester @someone` | They appear as **Reviewer** / **Tester** |
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
-| `@LUMA status done` | Status changes to ✅ Done and the task is unpinned |
+| `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and Luma asks whether to inform the external thread |
+| Click **Inform external thread** | The original external thread gets "marked a task as ✅ Done" |
 | `@LUMA delete` | **Delete task** / **Cancel** buttons; confirming deletes the task and posts "untracked" in the original external thread |
 
 If something doesn't respond, open **Workers & Pages → project-helper →

@@ -21,28 +21,52 @@ export const STATUSES = {
   DONE: ":white_check_mark: Done",
 };
 
+// Each task has a list of people per role; the keys are what people type in
+// `@LUMA assign developer @person`.
+export const ROLES = {
+  developer: "Developer",
+  reviewer: "Reviewer",
+  tester: "Tester",
+};
+
 export const NOT_A_TASK = "This thread is not a tracked task.";
 
+// Returns the first role named in `text` ("developers" works too), or null.
+export function parseRole(text) {
+  const words = text.toLowerCase().split(/\s+/).filter((word) => !word.startsWith("<@"));
+  return words.map((word) => word.replace(/s$/, "")).find((word) => ROLES[word]) ?? null;
+}
+
+export function noPeople() {
+  return Object.fromEntries(Object.keys(ROLES).map((role) => [role, []]));
+}
+
 export function taskMessage(task) {
-  const assigned = task.assignees.length ? mentions(task.assignees) : "_Unassigned_";
   const from = task.source?.link ? ` from <${task.source.link}|the request thread>` : "";
-  // Three lines: the title, the task's details, then who tracked it.
+  // Four lines: the title, the task's details, who works on it, then who
+  // tracked it and how to update it.
   const details = [
     `*Status:* ${STATUSES[task.status]}`,
     `*Priority:* ${PRIORITIES[task.priority]} ${task.priority}`,
     `*Due:* ${task.dueDate || "_None_"}`,
-    `*Assigned:* ${assigned}`,
   ].join("  ·  ");
+  const people = Object.entries(ROLES)
+    .map(([role, label]) => {
+      const ids = task.people[role];
+      return `*${label}:* ${ids.length ? mentions(ids) : "_Unassigned_"}`;
+    })
+    .join("  ·  ");
   return {
     text: `${task.priority} task: ${task.title}`,
     blocks: [
       { type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) },
       { type: "section", text: mrkdwn(details) },
+      { type: "section", text: mrkdwn(people) },
       {
         type: "context",
         elements: [
           mrkdwn(
-            `Tracked by <@${task.createdBy}>${from} · reply here with \`@LUMA assign @person\`, \`@LUMA status\` or \`@LUMA help\``,
+            `Tracked by <@${task.createdBy}>${from} · reply here with \`@LUMA assign developer @person\`, \`@LUMA status\` or \`@LUMA help\``,
           ),
         ],
       },
@@ -54,7 +78,9 @@ export function taskMessage(task) {
         priority: task.priority,
         status: task.status,
         due_date: task.dueDate,
-        assignees: task.assignees.join(","),
+        developers: task.people.developer.join(","),
+        reviewers: task.people.reviewer.join(","),
+        testers: task.people.tester.join(","),
         created_by: task.createdBy,
         // The external thread the task was tracked from, for the
         // announcement when it is deleted.
@@ -85,7 +111,13 @@ export async function loadTask(env, channel, ts) {
     priority: payload.priority,
     status: payload.status,
     dueDate: payload.due_date ?? "",
-    assignees: payload.assignees ? payload.assignees.split(",") : [],
+    people: {
+      // Tasks tracked before roles existed stored everyone as `assignees`;
+      // they are treated as developers.
+      developer: list(payload.developers ?? payload.assignees),
+      reviewer: list(payload.reviewers),
+      tester: list(payload.testers),
+    },
     createdBy: payload.created_by,
     // Tasks tracked before the source thread was stored have none.
     source: payload.source_channel
@@ -100,7 +132,11 @@ export async function loadTask(env, channel, ts) {
 
 export async function saveTask(env, channel, ts, task) {
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
-  console.log("Task saved", { ts, assignees: task.assignees });
+  console.log("Task saved", { ts, people: task.people });
+}
+
+function list(value) {
+  return value ? value.split(",") : [];
 }
 
 // Open tasks are pinned in the dev channel; done tasks are unpinned. Pinning
