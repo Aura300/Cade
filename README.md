@@ -171,7 +171,10 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   You can also skip the menu with `@LUMA status done` or
   `@LUMA status in progress`. New tasks start as `TODO`. Setting `DONE`
   unpins the task; moving it from `DONE` to any other status pins it again,
-  so the channel's pins list shows the open tasks. When a task moves from an
+  so the channel's pins list shows the open tasks. A requirement or
+  incident is pinned in the external channel the same way: from when it is
+  posted until its task is Done, and again if the task is reopened or
+  deleted. When a task moves from an
   open status (To do, In progress, In review, In testing) to Client review
   or Done, the confirmation asks whether to tell the external thread the
   task was tracked from: **Inform external thread** posts "@you marked a

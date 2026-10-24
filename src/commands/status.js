@@ -15,7 +15,8 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 // updates the task and replaces the menu with a confirmation. A status can
 // also be given directly, as `@LUMA status IN_PROGRESS` or `@LUMA status in
 // progress`. Moving a task to DONE unpins it from the channel; moving it out
-// of DONE pins it again.
+// of DONE pins it again. The same goes for the requirement it was tracked
+// from, in the external channel.
 //
 // When a task moves from an open status to CLIENT_REVIEW or DONE, the
 // confirmation asks whether Luma should tell the external thread the task was
@@ -131,6 +132,10 @@ async function applyStatus(env, channel, ts, task, status) {
   await reflectOnRequirement(env, ts, task, { status: clientStatus(status) });
   if ((previous === "DONE") !== (status === "DONE")) {
     await setPinned(env, channel, ts, status !== "DONE");
+    // The requirement it was tracked from is pinned until it is Done too.
+    if (task.source?.requirement) {
+      await setPinned(env, task.source.channel, task.source.threadTs, status !== "DONE");
+    }
   }
   return !CLOSED_STATUSES.includes(previous) && CLOSED_STATUSES.includes(status);
 }

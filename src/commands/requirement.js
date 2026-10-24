@@ -1,7 +1,7 @@
 import { pairFor } from "../channels.js";
 import { INCIDENT, requirementMessage } from "../requirements.js";
 import { callSlack, escapeSlack, plainText } from "../slack.js";
-import { noPeople, readTaskForm, taskFormBlocks } from "../tasks.js";
+import { noPeople, readTaskForm, setPinned, taskFormBlocks } from "../tasks.js";
 import { createTask } from "./track.js";
 
 const REQUIREMENT_VIEW = "requirement";
@@ -145,6 +145,9 @@ async function postRequirement(env, channel, requirement) {
       incident: Boolean(requirement.incident),
       createdBy: requirement.createdBy,
     });
+    // Open requirements are pinned in the external channel, as open tasks
+    // are in the dev channel, until their task is Done.
+    await setPinned(env, channel, message.ts, true);
     return message.ts;
   } catch (error) {
     await callSlack(env, "chat.postEphemeral", {

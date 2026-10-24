@@ -78,7 +78,7 @@ app already uses for other purposes.
 | `chat:write` | Posting tasks, replies and announcements; editing and deleting Luma's messages |
 | `channels:history` | Reading messages in public channels (`@LUMA` commands, task details) |
 | `groups:history` | The same for private channels |
-| `pins:write` | Pinning open tasks and unpinning done ones |
+| `pins:write` | Pinning open tasks and requirements and unpinning done ones |
 | `users:read` | Writing people's names, not user IDs, to the Google Sheet |
 | `commands` | The `/luma` slash command (added automatically in step 5) |
 

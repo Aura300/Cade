@@ -1,7 +1,7 @@
 import { roleOf } from "../channels.js";
 import { NOT_A_REQUIREMENT, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
+import { NOT_A_TASK, loadTask, setPinned, syncTask } from "../tasks.js";
 
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
@@ -144,6 +144,10 @@ async function deleteTask(env, channel, ts, user) {
         ? { ...requirement, status: "DISCUSSION", task: undefined }
         : null,
     );
+    // Back in discussion, so pinned again even if the task was Done.
+    if (task.source.requirement) {
+      await setPinned(env, task.source.channel, task.source.threadTs, true);
+    }
   }
 
   await callSlack(env, "chat.postEphemeral", {

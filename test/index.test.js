@@ -1362,7 +1362,9 @@ test("submitting a requirement starts its thread in the external channel", async
   );
 
   assert.deepEqual(await response.json(), { response_action: "clear" });
-  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage", "pins.add"]);
+  // Pinned in the external channel until its task is Done.
+  assert.deepEqual(calls[1].args, { channel: "CEXTERNAL", timestamp: "200.1" });
   const post = calls[0].args;
   assert.equal(post.channel, "CEXTERNAL");
   assert.equal(post.thread_ts, undefined);
@@ -1843,6 +1845,7 @@ test("Approve moves the task to Done and tells the task's thread", async (t) => 
     ["conversations.replies", "200.1"],
     ["chat.update", "200.1"],
     ["pins.remove", "100.1"],
+    ["pins.remove", "200.1"],
     ["chat.getPermalink", undefined],
     ["chat.postMessage", "100.1"],
     ["chat.update", "200.9"],
@@ -1850,13 +1853,13 @@ test("Approve moves the task to Done and tells the task's thread", async (t) => 
   assert.equal(calls[1].args.metadata.event_payload.status, "DONE");
   assert.ok(calls[1].args.metadata.event_payload.completed_at);
   assert.equal(calls[3].args.metadata.event_payload.status, "DONE");
-  assert.deepEqual(calls[5].args, { channel: "CEXTERNAL", message_ts: "200.9" });
-  assert.equal(calls[6].args.channel, "CDEV");
+  assert.deepEqual(calls[6].args, { channel: "CEXTERNAL", message_ts: "200.9" });
+  assert.equal(calls[7].args.channel, "CDEV");
   assert.equal(
-    calls[6].args.text,
+    calls[7].args.text,
     "<@UCLIENT> approved this in <https://slack.example/review|the requirement thread>, so it is now :white_check_mark: Done.",
   );
-  assert.deepEqual(calls[7].args, {
+  assert.deepEqual(calls[8].args, {
     channel: "CEXTERNAL",
     ts: "200.9",
     text: "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>\n<@UCLIENT> approved it.",
@@ -2273,4 +2276,59 @@ test("incident tasks are recorded in the pair's sheet tab", async (t) => {
   const row = calls.find((call) => call.method === "sheet").args;
   assert.equal(row.project, "aura300");
   assert.equal(row.row["Due date"], "Immediate");
+});
+
+test("a requirement is unpinned when its task is Done and pinned again when reopened", async (t) => {
+  for (const [from, to, method] of [
+    ["IN_TESTING", "done", "pins.remove"],
+    ["DONE", "in progress", "pins.add"],
+  ]) {
+    const calls = mockSlack(t, threads(requirementRoot({ task: true }), requirementTask(from)));
+    await send("/slack/events", threadEvent(`<@UBOT> status ${to}`));
+    const pins = calls.filter((call) => call.method.startsWith("pins."));
+    assert.deepEqual(
+      pins.map((call) => [call.method, call.args.channel, call.args.timestamp]),
+      [
+        [method, "CDEV", "100.1"],
+        [method, "CEXTERNAL", "200.1"],
+      ],
+      to,
+    );
+  }
+});
+
+test("other status changes leave the requirement's pin alone", async (t) => {
+  const calls = mockSlack(t, threads(requirementRoot({ task: true }), requirementTask("TODO")));
+  await send("/slack/events", threadEvent("<@UBOT> status in review"));
+  assert.ok(!calls.some((call) => call.method.startsWith("pins.")));
+});
+
+test("deleting a requirement's task pins the requirement again", async (t) => {
+  const calls = mockSlack(t, {
+    "conversations.replies": (args) =>
+      args.ts === "200.1"
+        ? { messages: [requirementRoot({ task: true, status: "DONE" })] }
+        : args.limit === "1"
+          ? { messages: [requirementTask("DONE")] }
+          : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
+  });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UACTOR" },
+      actions: [{ action_id: "delete:confirm", value: deleteRequest }],
+    }),
+  );
+  const pin = calls.find((call) => call.method === "pins.add");
+  assert.deepEqual(pin.args, { channel: "CEXTERNAL", timestamp: "200.1" });
+});
+
+test("tasks with no requirement pin only themselves", async (t) => {
+  const root = rootMessage();
+  root.metadata.event_payload.source_channel = "";
+  const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadEvent("<@UBOT> status done"));
+  const pins = calls.filter((call) => call.method.startsWith("pins."));
+  assert.deepEqual(pins.map((call) => call.args.channel), ["CDEV"]);
 });
