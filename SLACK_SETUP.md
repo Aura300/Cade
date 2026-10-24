@@ -13,9 +13,10 @@ https://project-helper.aura300.workers.dev
 It's also shown in the output of `npm run deploy` and in the Cloudflare
 dashboard under **Workers & Pages → project-helper**.
 
-Everything in LUMA is a message that starts with `@LUMA`, so the app needs
-**Event Subscriptions** (to receive those messages) and **Interactivity** (for
-the task form, buttons and status menu). It does not use slash commands.
+Most of LUMA is messages that start with `@LUMA`, so the app needs **Event
+Subscriptions** (to receive those messages) and **Interactivity** (for the
+forms, buttons and menus). It also has one slash command, `/luma`, for
+`/luma track` and `/luma requirement`, which open a form straight away.
 
 ## Before you start
 
@@ -75,9 +76,7 @@ app already uses for other purposes.
 | `groups:history` | The same for private channels |
 | `pins:write` | Pinning open tasks and unpinning done ones |
 | `users:read` | Writing people's names, not user IDs, to the Google Sheet |
-
-If the app has the `commands` scope only because of an earlier `/luma` slash
-command, you can remove it.
+| `commands` | The `/luma` slash command (added automatically in step 5) |
 
 ## 3. Interactivity & Shortcuts
 
@@ -108,10 +107,31 @@ This is how Luma receives `@LUMA` commands.
 > URL. If either was already set to another service, that service will stop
 > receiving them once you change it.
 
-## 5. Remove the slash command
+## 5. Slash command
 
-LUMA doesn't use slash commands. If **Slash Commands** lists `/luma`, delete
-it so people aren't shown a command that doesn't work.
+Slack registers a slash command by its first word, so one `/luma` command
+covers both `/luma track` and `/luma requirement`; the Worker reads the rest
+of the text to pick the command.
+
+1. Open **Slash Commands** in the sidebar.
+2. If `/luma` is already listed, click its pencil icon to edit it; otherwise
+   click **Create New Command**.
+3. Fill in:
+
+   | Field | Value |
+   | --- | --- |
+   | Command | `/luma` |
+   | Request URL | `https://project-helper.aura300.workers.dev/slack/commands` |
+   | Short Description | `Track a task or start a requirement thread` |
+   | Usage Hint | `track \| requirement` |
+   | Escape channels, users, and links | Off |
+
+4. Click **Save**. Adding the command also adds the `commands` scope, so
+   Slack asks you to reinstall the app (step 6).
+
+Slack signs slash command requests with the same signing secret, so no new
+Worker secret is needed. Slash commands can't be sent in threads, which is
+why the thread commands stay as `@LUMA …` messages.
 
 ## 6. Reinstall the app
 
@@ -142,6 +162,11 @@ Try these in the test channels first.
 | Try | Expected result |
 | --- | --- |
 | `@LUMA help` in either channel | A reply listing all commands |
+| `/luma help` | The same list, shown only to you |
+| `/luma requirement` in `#aura300-external` | A form asks for the requirement name; submitting posts it as a new message showing **In discussion** |
+| `@LUMA track` in that requirement's thread | The form opens with the requirement name filled in; submitting changes the requirement message to 🔵 In progress with a link to the task |
+| `@LUMA priority urgent` or `@LUMA due 30/11/2026` in the requirement thread | Both the requirement message and the task in `#aura300-dev` show the change, and the task thread gets a note |
+| `/luma track` in `#test-dev` | The form opens straight away; the task is posted with no reply |
 | `@LUMA track` in a thread in `#aura300-external` | Luma replies with a **Track task** button; clicking it opens the form |
 | Submit the form | The task appears and is pinned in `#aura300-dev`; the button reply becomes "@you tracked a task" with a link |
 | `@LUMA track` in `#test-dev` itself | Same form; the task is created in `#test-dev` with no external thread |
@@ -154,4 +179,6 @@ Try these in the test channels first.
 
 If something doesn't respond, open **Workers & Pages → project-helper →
 Logs** in Cloudflare. Errors such as `missing_scope` or `not_in_channel`
-mean a scope from step 2 or the invite from step 7 is missing.
+mean a scope from step 2 or the invite from step 7 is missing. If `/luma`
+shows "dispatch_failed" or "/luma failed with the error…", check the Request
+URL from step 5.

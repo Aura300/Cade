@@ -5,10 +5,12 @@ the `project-helper` Cloudflare Worker behind the Luma Slack app.
 
 ## How commands are handled
 
-Every command is a message that starts by @mentioning the bot, such as
+Most commands are messages that start by @mentioning the bot, such as
 `@LUMA assign @person`. Slack doesn't allow custom slash commands in threads,
-and most commands are sent from a task's thread, so all commands work the
-same way. Messages that don't start with `@LUMA` are ignored.
+and most commands are sent from a thread. Messages that don't start with
+`@LUMA` are ignored. Commands that start something new also work as the
+slash commands `/luma track` and `/luma requirement`, which open their form
+straight away since a slash command, unlike a message, can open one.
 
 ```mermaid
 flowchart LR
@@ -24,11 +26,12 @@ flowchart LR
 | File | Role |
 | --- | --- |
 | `src/index.js` | HTTP routes, Slack signature check, posts replies |
-| `src/commands/parse.js` | Turns an `@LUMA …` message into a command |
+| `src/commands/parse.js` | Turns an `@LUMA …` message or `/luma …` slash command into a command |
 | `src/commands/dispatch.js` | Looks up the handler, checks where it may run, runs it |
 | `src/commands/registry.js` | The list of command handlers |
-| `src/commands/track.js`, `assign.js`, `unassign.js`, `status.js`, `delete.js` | One handler per command |
+| `src/commands/track.js`, `requirement.js`, `assign.js`, `unassign.js`, `status.js`, `details.js` (priority, due), `delete.js` | Command handlers |
 | `src/tasks.js` | Task message layout and storage, shared by the handlers |
+| `src/requirements.js` | Requirement message layout and storage, and finding a requirement's task |
 | `src/sheet.js`, `google-sheet/Code.gs` | Records tasks in a Google Sheet |
 
 A handler declares its name, usage, and where it may run: which channel, and
@@ -45,7 +48,8 @@ can register `actions` (by action ID) and `views` (by modal callback ID).
 | Path | Slack feature |
 | --- | --- |
 | `/slack/events` | Event Subscriptions (`@LUMA` messages) |
-| `/slack/interactions` | Interactivity (task form, buttons, status menu) |
+| `/slack/interactions` | Interactivity (forms, buttons, menus) |
+| `/slack/commands` | Slash Commands (`/luma track`, `/luma requirement`) |
 
 ## Task tracker commands
 
@@ -62,10 +66,39 @@ Low). On submit, Luma:
 2. replaces the button with "@you tracked a task: *title*", linking to the
    new task thread.
 
+**`/luma track`** opens the same form straight away, without a button, so
+you don't need to post a message first. In `#aura300-dev` the task is just
+posted there. In `#aura300-external` Luma posts "@you is tracking a task"
+to act as the external thread, then turns it into the usual announcement.
+
 For the team's own work that has no request thread, send **`@LUMA track`**
-in `#aura300-dev` itself. The same button and form create the task in that
+(or `/luma track`) in `#aura300-dev` itself. The same button and form create the task in that
 channel. Such a task has no external thread, so it shows only "Tracked by
 @you", and status changes and deletion are not shared anywhere else.
+
+### Requirements
+
+**`/luma requirement`** in `#aura300-external` asks for the requirement's
+name, then posts it as a new message to discuss it in its thread. The
+message shows:
+
+1. the requirement name,
+2. its status, priority and due date, and
+3. the tracked task ("None yet" until there is one).
+
+It starts **In discussion**. When it's agreed, send **`@LUMA track`** in its
+thread: the form starts with the requirement name as the task title. Once
+the task is created, the requirement shows 🔵 In progress, the task's
+priority and due date, and a link to the task. When the dev channel uses
+**Inform external thread**, the requirement's status changes to match
+(Client review or Done). Deleting the task puts the requirement back to In
+discussion.
+
+`@LUMA priority` and `@LUMA due` (below) also work in the requirement's
+thread once it has a task: they change the task in `#aura300-dev`, and Luma
+notes the change in the task's thread.
+
+### Task commands
 
 In a task's thread in `#aura300-dev`:
 
@@ -86,6 +119,11 @@ In a task's thread in `#aura300-dev`:
   task was tracked from: **Inform external thread** posts "@you marked a
   task as Done: *title*" there, linking back to the task; **I'll tell them**
   posts nothing. Moving between Client review and Done doesn't ask again.
+- `@LUMA priority high` changes the priority (Urgent, High, Medium, Low);
+  `@LUMA priority` replies with a menu. `@LUMA due 30/11/2026` changes the
+  due date (YYYY-MM-DD also works), `@LUMA due none` removes it, and
+  `@LUMA due` replies with a date picker. For a task tracked from a
+  requirement, the requirement message shows the change too.
 - `@LUMA delete` (or `@LUMA remove`) replies with **Delete task** and
   **Cancel** buttons. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@LUMA delete` can confirm or cancel. Once
@@ -131,7 +169,8 @@ npm run dev
 ```
 
 `npm run dev` serves the Worker locally. To try it against Slack, expose it
-with a tunnel and point the app's Interactivity and Events request URLs at the tunnel.
+with a tunnel and point the app's Interactivity, Events and Slash Command
+request URLs at the tunnel.
 
 ## GitHub Actions deployment
 
