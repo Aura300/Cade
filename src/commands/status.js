@@ -1,4 +1,4 @@
-import { clientStatus, reflectOnRequirement } from "../requirements.js";
+import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, saveTask, setPinned } from "../tasks.js";
 
@@ -216,18 +216,23 @@ async function announce(env, channel, ts, task, user) {
   await callSlack(env, "chat.postMessage", {
     channel: task.source.channel,
     thread_ts: task.source.threadTs,
-    ...(asksForReview ? reviewPrompt(text, channel, ts) : asMessage(text)),
+    ...(asksForReview ? await reviewPrompt(env, text, channel, ts, task) : asMessage(text)),
   });
 }
 
-// The announcement with the client's Approve and Not approve buttons. They
-// carry the announcement, to keep it when the buttons are replaced.
-function reviewPrompt(text, channel, ts) {
+// The announcement with the client's Approve and Not approve buttons,
+// mentioning whoever started the requirement so they are notified. The
+// buttons carry the announcement, to keep it when they are replaced.
+async function reviewPrompt(env, text, channel, ts, task) {
+  const requirement = await loadRequirement(env, task.source.channel, task.source.threadTs);
+  const who = requirement ? `<@${requirement.createdBy}>, please` : "Please";
+  const request = `${who} review it and approve it, or say what needs to change.`;
   const value = JSON.stringify({ channel, ts, text });
   return {
-    text,
+    // The mention is in the notification text too.
+    text: `${text}\n${request}`,
     blocks: [
-      { type: "section", text: mrkdwn(`${text}\nPlease review it and approve it, or say what needs to change.`) },
+      { type: "section", text: mrkdwn(`${text}\n${request}`) },
       {
         type: "actions",
         elements: [

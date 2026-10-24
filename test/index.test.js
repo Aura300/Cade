@@ -1803,11 +1803,10 @@ test("informing a requirement thread of Client review asks the client to approve
   assert.equal(post.channel, "CEXTERNAL");
   assert.equal(post.thread_ts, "200.1");
   const text = "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>";
-  assert.equal(post.text, text);
-  assert.equal(
-    post.blocks[0].text.text,
-    `${text}\nPlease review it and approve it, or say what needs to change.`,
-  );
+  // Whoever started the requirement is mentioned, in the notification too.
+  const request = `${text}\n<@UCREATOR>, please review it and approve it, or say what needs to change.`;
+  assert.equal(post.text, request);
+  assert.equal(post.blocks[0].text.text, request);
   const buttons = post.blocks[1].elements;
   assert.deepEqual(buttons.map((button) => button.action_id), ["status:approve", "status:reject"]);
   assert.deepEqual(JSON.parse(buttons[0].value), { channel: "CDEV", ts: "100.1", text });
@@ -2035,4 +2034,16 @@ test("a requirement tracked after the delete buttons were posted is kept, and th
   assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postEphemeral"]);
   assert.equal(calls[1].args.user, "UCLIENT");
   assert.match(calls[1].args.text, /Untrack it first: send `@LUMA remove`/);
+});
+
+test("the review request still asks if the requirement message cannot be read", async (t) => {
+  const calls = mockSlack(t, {
+    "conversations.replies": (args) =>
+      args.ts === "200.1" ? { messages: [] } : { messages: [requirementTask("CLIENT_REVIEW")] },
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send("/slack/interactions", statusButton("status:inform", "CLIENT_REVIEW"));
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.match(post.text, /\nPlease review it and approve it/);
+  assert.equal(post.blocks[1].elements[0].action_id, "status:approve");
 });
