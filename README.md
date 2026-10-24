@@ -51,7 +51,7 @@ can register `actions` (by action ID) and `views` (by modal callback ID).
 **`@LUMA track`** in `#aura300-external`, usually as a reply in the thread
 where the request was discussed. Luma replies with a **Track task** button;
 Slack only opens forms from a click. The form asks for the **task title**, an
-optional **due date** (`MM/DD`) and the **priority** (Urgent, High, Medium,
+optional **due date** (picked from a calendar and shown as DD/MM/YYYY) and the **priority** (Urgent, High, Medium,
 Low). On submit, Luma:
 
 1. posts the task to `#aura300-dev` and pins it to the channel. The task

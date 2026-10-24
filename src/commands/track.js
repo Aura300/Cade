@@ -1,6 +1,6 @@
 import { tasksChannelFor } from "../channels.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { PRIORITIES, noPeople, parseDueDate, setPinned, taskMessage } from "../tasks.js";
+import { PRIORITIES, formatDueDate, noPeople, setPinned, taskMessage } from "../tasks.js";
 
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
@@ -73,11 +73,10 @@ function trackView(origin) {
         block_id: "due_date",
         optional: true,
         label: plainText("Due date"),
-        hint: plainText("MM/DD, for example 10/31"),
         element: {
-          type: "plain_text_input",
+          type: "datepicker",
           action_id: "value",
-          placeholder: plainText("MM/DD"),
+          placeholder: plainText("Select a date"),
         },
       },
       {
@@ -101,13 +100,12 @@ function trackView(origin) {
 async function submit(payload, context) {
   const values = payload.view.state.values;
   const title = values.title.value.value?.trim() ?? "";
-  const dueInput = values.due_date.value.value?.trim() ?? "";
+  // The date picker gives YYYY-MM-DD, or null when no date was chosen.
+  const dueDate = formatDueDate(values.due_date.value.selected_date);
   const priority = values.priority.value.selected_option?.value;
-  const dueDate = dueInput ? parseDueDate(dueInput) : "";
 
   const errors = {};
   if (!title) errors.title = "Enter a task title.";
-  if (dueDate === null) errors.due_date = "Use MM/DD, for example 10/31.";
   if (!PRIORITIES[priority]) errors.priority = "Select a priority.";
   if (Object.keys(errors).length) return { response_action: "errors", errors };
 

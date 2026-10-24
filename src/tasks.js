@@ -151,14 +151,10 @@ export async function setPinned(env, channel, ts, pinned) {
   }
 }
 
-// Returns the date as zero-padded MM/DD, or null if it is not a real date.
-export function parseDueDate(input) {
-  const match = /^(\d{1,2})\/(\d{1,2})$/.exec(input);
-  if (!match) return null;
-  const month = Number(match[1]);
-  const day = Number(match[2]);
-  // 2024 is a leap year, so 02/29 is accepted.
-  const daysInMonth = new Date(Date.UTC(2024, month, 0)).getUTCDate();
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth) return null;
-  return `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}`;
+// Turns the date picker's YYYY-MM-DD into DD/MM/YYYY ("" when there is none).
+export function formatDueDate(selectedDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(selectedDate ?? "");
+  if (!match) return "";
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/index.js";
 import { parseMessage } from "../src/commands/parse.js";
-import { parseDueDate } from "../src/tasks.js";
+import { formatDueDate } from "../src/tasks.js";
 
 const SIGNING_SECRET = "test-signing-secret";
 const env = {
@@ -88,7 +88,7 @@ const submission = (values, origin = { channel: "CEXTERNAL", threadTs: "200.1", 
     state: {
       values: {
         title: { value: { value: values.title } },
-        due_date: { value: { value: values.dueDate ?? null } },
+        due_date: { value: { selected_date: values.dueDate ?? null } },
         priority: {
           value: {
             selected_option: values.priority ? { value: values.priority } : null,
@@ -108,7 +108,7 @@ const rootMessage = ({ developers = "", reviewers = "", testers = "" } = {}) => 
       title: "Fix login",
       priority: "High",
       status: "TODO",
-      due_date: "10/31",
+      due_date: "31/10/2026",
       developers,
       reviewers,
       testers,
@@ -186,17 +186,17 @@ test("answers the Events API URL verification challenge", async () => {
   assert.deepEqual(await response.json(), { challenge: "abc" });
 });
 
-test("modal submission rejects an invalid due date", async (t) => {
+test("modal submission rejects a blank title", async (t) => {
   const calls = mockSlack(t);
   const response = await send(
     "/slack/interactions",
-    interaction(submission({ title: "Fix login", dueDate: "13/01", priority: "High" })),
+    interaction(submission({ title: "   ", priority: "High" })),
   );
 
   assert.equal(calls.length, 0);
   assert.deepEqual(await response.json(), {
     response_action: "errors",
-    errors: { due_date: "Use MM/DD, for example 10/31." },
+    errors: { title: "Enter a task title." },
   });
 });
 
@@ -204,7 +204,7 @@ test("modal submission posts the task and replaces the button with the announcem
   const calls = mockSlack(t, createdTask);
   const response = await send(
     "/slack/interactions",
-    interaction(submission({ title: "Fix <login>", dueDate: "1/5", priority: "Urgent" })),
+    interaction(submission({ title: "Fix <login>", dueDate: "2027-05-01", priority: "Urgent" })),
   );
 
   assert.deepEqual(await response.json(), { response_action: "clear" });
@@ -219,7 +219,7 @@ test("modal submission posts the task and replaces the button with the announcem
   assert.equal(post.blocks[0].text.text, "*Fix &lt;login&gt;*");
   assert.equal(
     post.blocks[1].text.text,
-    "*Status:* :white_circle: To do  ·  *Priority:* :red_circle: Urgent  ·  *Due:* 01/05",
+    "*Status:* :white_circle: To do  ·  *Priority:* :red_circle: Urgent  ·  *Due:* 01/05/2027",
   );
   assert.equal(
     post.blocks[2].text.text,
@@ -236,7 +236,7 @@ test("modal submission posts the task and replaces the button with the announcem
       title: "Fix <login>",
       priority: "Urgent",
       status: "TODO",
-      due_date: "01/05",
+      due_date: "01/05/2027",
       developers: "",
       reviewers: "",
       testers: "",
@@ -342,6 +342,15 @@ test("the Track task button opens the modal for that thread", async (t) => {
     threadTs: "200.1",
     promptTs: "300.1",
   });
+  const blocks = calls[0].args.view.blocks;
+  assert.deepEqual(
+    blocks.map((block) => [block.block_id, block.element.type, !!block.optional]),
+    [
+      ["title", "plain_text_input", false],
+      ["due_date", "datepicker", true],
+      ["priority", "static_select", false],
+    ],
+  );
 });
 
 test("@LUMA assign adds people to a role on the root message", async (t) => {
@@ -367,7 +376,7 @@ test("@LUMA assign adds people to a role on the root message", async (t) => {
   assert.equal(payload.developers, "UALICE,UBOB");
   assert.equal(payload.reviewers, "");
   assert.equal(payload.testers, "UTESS");
-  assert.equal(payload.due_date, "10/31");
+  assert.equal(payload.due_date, "31/10/2026");
   assert.deepEqual(calls[2].args, {
     channel: "CDEV",
     thread_ts: "100.1",
@@ -972,11 +981,9 @@ test("parseMessage reads the command name and mentioned people", () => {
   assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
 });
 
-test("parseDueDate normalizes and validates MM/DD", () => {
-  assert.equal(parseDueDate("1/5"), "01/05");
-  assert.equal(parseDueDate("12/31"), "12/31");
-  assert.equal(parseDueDate("02/29"), "02/29");
-  assert.equal(parseDueDate("02/30"), null);
-  assert.equal(parseDueDate("00/10"), null);
-  assert.equal(parseDueDate("2026-10-31"), null);
+test("formatDueDate shows the picked date as DD/MM/YYYY", () => {
+  assert.equal(formatDueDate("2026-10-31"), "31/10/2026");
+  assert.equal(formatDueDate("2027-01-05"), "05/01/2027");
+  assert.equal(formatDueDate(null), "");
+  assert.equal(formatDueDate(undefined), "");
 });
