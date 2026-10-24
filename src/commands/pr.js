@@ -1,4 +1,5 @@
 import { roleOf } from "../channels.js";
+import { intent } from "../intents.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 
@@ -67,6 +68,16 @@ export default {
     await saveTask(env, command.channel, command.threadTs, task);
     return `<@${command.user}> unlinked ${removed.map(prLink).join(", ")}.`;
   },
+  // Checked before hand-offs: a message with PR links gets only this question.
+  intents: [
+    intent({
+      name: "pr-link",
+      order: 10,
+      needs: { thread: true },
+      match: (message) => pullRequestsIn(message.text).length > 0,
+      handle: (message, { env }) => suggestPullRequests(message, env),
+    }),
+  ],
   actions: {
     [REVIEWERS_ACTION]: async (payload, context) => {
       context.waitUntil(chooseReviewers(payload, context.env));
@@ -115,23 +126,20 @@ export function pullRequestsIn(text) {
   ];
 }
 
-// For a message in a task's thread that holds pull request links but is not
-// a command, asks whoever posted it, privately, whether to link the ones not
+// The pr-link intent's handler: for a message in a task's thread with pull
+// request links, asks whoever posted it, privately, whether to link the ones not
 // linked yet, and whether to add the people it mentions who aren't reviewers
 // yet as reviewers. Mentions in a message only one person sees notify no one.
 //
 // The person clicking wrote the message, so accepting adds little to the
 // thread: only a status change, and a review request for reviewers the
 // message didn't mention.
-export async function suggestPullRequests(event, env, botUserId) {
-  const inThread = event.thread_ts && event.thread_ts !== event.ts;
-  if (!inThread || event.subtype || event.bot_id) return;
-  const text = event.text ?? "";
+async function suggestPullRequests(message, env) {
+  const { text, botUserId } = message;
   const urls = pullRequestsIn(text);
-  if (!urls.length) return;
-  if (!["tasks", "incidents"].includes(roleOf(env, event.channel))) return;
+  if (!["tasks", "incidents"].includes(roleOf(env, message.channel))) return;
 
-  const task = await loadTask(env, event.channel, event.thread_ts);
+  const task = await loadTask(env, message.channel, message.threadTs);
   if (!task) return;
   const unlinked = urls.filter((url) => !task.prs.includes(url));
   const mentioned = [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))];
@@ -140,7 +148,7 @@ export async function suggestPullRequests(event, env, botUserId) {
 
   const question = suggestion(unlinked, urls, reviewers);
   // Who the message mentioned, so they aren't asked again.
-  const base = { channel: event.channel, ts: event.thread_ts, mentioned };
+  const base = { channel: message.channel, ts: message.threadTs, mentioned };
   const button = (label, fields, style, actionId = SUGGEST_LINK_ACTION) => ({
     type: "button",
     action_id: actionId,
@@ -159,9 +167,9 @@ export async function suggestPullRequests(event, env, botUserId) {
       : [button(`Link ${prs}`, { urls: unlinked }, "primary")];
 
   await callSlack(env, "chat.postEphemeral", {
-    channel: event.channel,
-    thread_ts: event.thread_ts,
-    user: event.user,
+    channel: message.channel,
+    thread_ts: message.threadTs,
+    user: message.user,
     text: question,
     blocks: [
       { type: "section", text: mrkdwn(question) },

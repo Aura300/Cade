@@ -67,10 +67,16 @@ flowchart LR
     Message --> Parse --> Dispatch --> Handler --> Reply
 ```
 
-Plain messages in a task's thread aren't commands, but Luma reads them for
-pasted PR links (`suggestPullRequests` in `pr.js`) and hand-offs such as
-"@rex please look into this" (`suggestAssignment` in `assign.js`), and asks
-the writer, privately, whether to act on them.
+Plain messages aren't commands, but some still mean something: a pasted PR
+link, or a hand-off such as "@rex please look into this". These are
+**intents**. A handler declares its intents next to its commands, each with
+the phrases (or a test) that signal it, what it needs (a thread, a
+mention), an `order`, and what to do; `src/intents.js` picks the first that
+matches. Today there are four: `pr-link` in `pr.js`, then
+`hand-off:reviewer`, `hand-off:tester` and `hand-off:developer` in
+`assign.js`, whose phrases are in `HANDOFFS`. Each only asks the writer,
+privately, before changing anything, since a phrase can match a message
+that didn't mean it.
 
 ### Where things are kept
 
@@ -95,6 +101,7 @@ pins. The Google Sheet, if set, is a record kept alongside (`sheet.js`,
 | `src/tasks.js` | The task message: layout, metadata, saving, pins |
 | `src/requirements.js` | The requirement message, and finding a thread's task or requirement |
 | `src/channels.js` | `CHANNEL_PAIRS`: which channel plays which role |
+| `src/intents.js` | Recognising intents in plain messages |
 | `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/sheet.js` | Writing rows to the Google Sheet |
 | `scripts/` | `config`, `dev` and `slack-app`, behind the npm scripts above |
@@ -109,7 +116,10 @@ handler declares its name, how it's used, its help section, and where it may
 run (which channels, and whether only in a thread); the dispatcher enforces
 these and answers with a hint when a command is used in the wrong place.
 Its buttons and forms are registered on the same handler, as `actions` (by
-action ID) and `views` (by form callback ID). If it needs a new Slack scope
+action ID) and `views` (by form callback ID), and so are any `intents`:
+to recognise a new kind of message, add an `intent({ … })` to a handler's
+`intents` (the comment at the top of `src/intents.js` has the shape), or add
+words to an existing list such as `HANDOFFS`. If it needs a new Slack scope
 or event, add it to `slack/manifest.json` and run `npm run slack:update`.
 
 ## Tests

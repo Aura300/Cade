@@ -1,4 +1,5 @@
 import { roleOf } from "../channels.js";
+import { intent } from "../intents.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
 import {
@@ -20,36 +21,39 @@ const CHOOSE_ACTIONS = Object.fromEntries(Object.keys(ROLES).map((role) => [role
 const PEOPLE_VIEW = "assign:people";
 const SUGGEST_SKIP_ACTION = "assign:suggest-skip";
 
-const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
+// The words that hand a task to the people a message mentions, by role (see
+// intents.js for how phrases match). They're checked in `order`: "please
+// review this fix" asks for a review, not for development.
+const HANDOFFS = {
+  reviewer: { order: 20, phrases: ["review*"] },
+  tester: { order: 30, phrases: ["test*", "qa", "verify*"] },
+  developer: {
+    order: 40,
+    phrases: [
+      "start(ed)? working",
+      "work(ing)? on",
+      "look(ing)? into",
+      "pick (this |it )?up",
+      "take (this|it)",
+      "take care of",
+      "handle (this|it)",
+      "fix (this|it)",
+      // "assigned this to you", "assigning it to @rex"
+      "assign(ed|ing)? (this|it)( task)? to",
+      "over to you",
+    ],
+  },
+};
 
-// Phrases that hand a task to the people a message mentions, by role, in the
-// order they are checked: "please review this fix" asks for a review, not
-// for development.
-const HANDOFFS = [
-  ["reviewer", /\breview/i],
-  ["tester", /\b(test|qa|verify)/i],
-  [
-    "developer",
-    new RegExp(
-      [
-        "start(ed)? working",
-        "work(ing)? on",
-        "look(ing)? into",
-        "pick (this |it )?up",
-        "take (this|it)",
-        "take care of",
-        "handle (this|it)",
-        "fix (this|it)",
-        // "assigned this to you", "assigning it to @rex"
-        "assign(ed|ing)? (this|it)( task)? to",
-        "over to you",
-      ]
-        .map((phrase) => `\\b${phrase}\\b`)
-        .join("|"),
-      "i",
-    ),
-  ],
-];
+const handOffIntents = Object.entries(HANDOFFS).map(([role, { order, phrases }]) =>
+  intent({
+    name: `hand-off:${role}`,
+    order,
+    phrases,
+    needs: { thread: true, mention: true },
+    handle: (message, { env }) => suggestAssignment(message, env, role),
+  }),
+);
 
 // `@LUMA assign developer @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way. The reply mentions
@@ -96,6 +100,7 @@ export default {
     }
     return `${mentions(command.mentions)} ${REQUESTS[role]}`;
   },
+  intents: handOffIntents,
   views: { [PEOPLE_VIEW]: savePeople },
   actions: {
     ...Object.fromEntries(
@@ -204,31 +209,23 @@ export function noLonger(people, role) {
   return `${mentions(people)}, you no longer need to ${ASKED[role] ?? ASKED.developer}.`;
 }
 
-// For a message in a task's thread that mentions people with a phrase that
-// hands them the task, asks whoever wrote it, privately, whether to assign
-// the ones not already in that role. Other messages are left alone.
-export async function suggestAssignment(event, env, botUserId) {
-  const inThread = event.thread_ts && event.thread_ts !== event.ts;
-  if (!inThread || event.subtype || event.bot_id) return;
-  const text = event.text ?? "";
-  const [role] = HANDOFFS.find(([, phrase]) => phrase.test(text)) ?? [];
-  if (!role) return;
-  const mentioned = [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))].filter(
-    (id) => id !== botUserId,
-  );
-  if (!mentioned.length) return;
+// A hand-off intent's handler: for a message handing the task to the people
+// it mentions as `role`, asks whoever wrote it, privately, whether to assign
+// the ones not already in that role (and move the task on).
+async function suggestAssignment(message, env, role) {
+  const mentioned = message.mentions;
 
   // In a task's thread the hand-off is about that task. In a requirement's
   // thread, asking someone to start working is about its task; before there
   // is one, Luma offers to track it with them as developers.
-  let target = { channel: event.channel, ts: event.thread_ts };
+  let target = { channel: message.channel, ts: message.threadTs };
   let of = "";
-  const place = roleOf(env, event.channel);
+  const place = roleOf(env, message.channel);
   if (place === "external") {
     if (role !== "developer") return;
-    const requirement = await loadRequirement(env, event.channel, event.thread_ts);
+    const requirement = await loadRequirement(env, message.channel, message.threadTs);
     if (!requirement) return;
-    if (!requirement.task) return offerTracking(env, event, requirement, mentioned);
+    if (!requirement.task) return offerTracking(env, message, requirement, mentioned);
     target = { channel: requirement.task.channel, ts: requirement.task.ts };
     of = ` of <${requirement.task.link}|${escapeSlack(requirement.task.title)}>`;
   } else if (!["tasks", "incidents"].includes(place)) {
@@ -261,9 +258,9 @@ export async function suggestAssignment(event, env, botUserId) {
   const fromRequirement = place === "external";
   const value = JSON.stringify({ channel: target.channel, ts: target.ts, role, people, moveTo, fromRequirement });
   await callSlack(env, "chat.postEphemeral", {
-    channel: event.channel,
-    thread_ts: event.thread_ts,
-    user: event.user,
+    channel: message.channel,
+    thread_ts: message.threadTs,
+    user: message.user,
     text: question,
     blocks: [
       { type: "section", text: mrkdwn(question) },
@@ -302,13 +299,13 @@ function nextStatus(role, status) {
 
 // Asks whoever wrote it, privately, whether to track the requirement now with
 // the people asked to start working on it as developers.
-async function offerTracking(env, event, requirement, developers) {
+async function offerTracking(env, message, requirement, developers) {
   const them = developers.length > 1 ? "them all" : "them";
   const question = `You asked ${mentions(developers)} to work on this. Track it as a task and assign ${them} as developer?`;
   const { title, priority, dueDate, incident } = requirement;
   const origin = {
-    channel: event.channel,
-    threadTs: event.thread_ts,
+    channel: message.channel,
+    threadTs: message.threadTs,
     requirement: true,
     incident,
     title,
@@ -317,9 +314,9 @@ async function offerTracking(env, event, requirement, developers) {
     developers,
   };
   await callSlack(env, "chat.postEphemeral", {
-    channel: event.channel,
-    thread_ts: event.thread_ts,
-    user: event.user,
+    channel: message.channel,
+    thread_ts: message.threadTs,
+    user: message.user,
     text: question,
     blocks: [
       { type: "section", text: mrkdwn(question) },
@@ -337,7 +334,7 @@ async function offerTracking(env, event, requirement, developers) {
             type: "button",
             action_id: SUGGEST_SKIP_ACTION,
             text: plainText("Not now"),
-            value: JSON.stringify({ channel: event.channel }),
+            value: JSON.stringify({ channel: message.channel }),
           },
         ],
       },

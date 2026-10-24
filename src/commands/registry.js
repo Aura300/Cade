@@ -24,6 +24,7 @@ import unassign from "./unassign.js";
 //               the command's triggerId, so it can open a modal straight away,
 //     views?: { [callbackId]: handler(payload, context) } for its modals,
 //     actions?: { [actionId]: handler(payload, context) } for its buttons,
+//     intents?: plain messages it acts on, made with intent() (see intents.js),
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
@@ -39,6 +40,8 @@ export const views = Object.assign(
   {},
   ...handlers.map((handler) => handler.views ?? {}),
 );
+
+export const intents = handlers.flatMap((handler) => handler.intents ?? []);
 
 export const actions = Object.assign(
   {},

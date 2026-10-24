@@ -3691,3 +3691,41 @@ test("luma.config.json can hold the Google Sheet's address", async () => {
   // The Sheet's secret stays out of the file.
   assert.throws(() => readConfig(JSON.stringify({ channels, sheetSecret: "s" })), /has "sheetSecret"/);
 });
+
+test("intent phrases match whole words, or word starts with *", async () => {
+  const { intent, plainMessage } = await import("../src/intents.js");
+  const message = (text) => plainMessage({ text, user: "U", channel: "C", ts: "1.2", thread_ts: "1.1" }, "UBOT");
+  const whole = intent({ name: "whole", order: 1, phrases: ["work on"], handle() {} });
+  assert.ok(whole.test(message("can you work on this")));
+  assert.ok(!whole.test(message("that would work only later")));
+  const start = intent({ name: "start", order: 1, phrases: ["test*"], handle() {} });
+  assert.ok(start.test(message("ready for testing")));
+  assert.ok(!start.test(message("the latest build")));
+  assert.throws(() => intent({ name: "neither", order: 1, handle() {} }), /needs either phrases or match/);
+});
+
+test("the first intent by order wins, and needs are checked first", async () => {
+  const { findIntent, intent, plainMessage } = await import("../src/intents.js");
+  const event = (text, extra = {}) => ({ text, user: "U", channel: "C", ts: "1.2", thread_ts: "1.1", ...extra });
+  const late = intent({ name: "late", order: 50, phrases: ["deploy*"], handle() {} });
+  const early = intent({ name: "early", order: 5, phrases: ["deploy*"], needs: { mention: true }, handle() {} });
+  // Order wins over the order they're listed in…
+  assert.equal(findIntent([late, early], plainMessage(event("<@UREX> deploying now"), "UBOT")).name, "early");
+  // …but an intent whose needs aren't met is passed over.
+  assert.equal(findIntent([late, early], plainMessage(event("deploying now"), "UBOT")).name, "late");
+  // Luma mentioning itself isn't someone mentioned.
+  assert.equal(findIntent([early], plainMessage(event("<@UBOT> deploying"), "UBOT")), undefined);
+  const threaded = intent({ name: "threaded", order: 1, phrases: ["deploy*"], needs: { thread: true }, handle() {} });
+  assert.equal(findIntent([threaded], plainMessage(event("deploying", { thread_ts: undefined }), "UBOT")), undefined);
+  // Edits and bot posts are never intents.
+  assert.equal(plainMessage(event("deploying", { subtype: "message_changed" }), "UBOT"), null);
+  assert.equal(plainMessage(event("deploying", { bot_id: "B1" }), "UBOT"), null);
+});
+
+test("handlers' intents are registered in order: PR links, then reviewer, tester, developer", async () => {
+  const { intents } = await import("../src/commands/registry.js");
+  assert.deepEqual(
+    [...intents].sort((a, b) => a.order - b.order).map((each) => each.name),
+    ["pr-link", "hand-off:reviewer", "hand-off:tester", "hand-off:developer"],
+  );
+});

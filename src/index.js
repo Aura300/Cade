@@ -1,8 +1,7 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
-import { suggestAssignment } from "./commands/assign.js";
-import { pullRequestsIn, suggestPullRequests } from "./commands/pr.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
-import { actions, views } from "./commands/registry.js";
+import { actions, intents, views } from "./commands/registry.js";
+import { findIntent, plainMessage } from "./intents.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
 
 const ROUTES = {
@@ -84,11 +83,10 @@ async function handleEvent(body, request, context) {
       })(),
     );
   } else {
-    // Pull requests pasted into a task's thread, or people handed the task in
-    // so many words, can be linked or assigned with a click. A message with
-    // pull requests only gets the question about those.
-    const suggest = pullRequestsIn(envelope.event.text).length ? suggestPullRequests : suggestAssignment;
-    context.waitUntil(suggest(envelope.event, context.env, botUserId));
+    // Plain messages can still mean something: see intents.js.
+    const message = plainMessage(envelope.event, botUserId);
+    const meant = message && findIntent(intents, message);
+    if (meant) context.waitUntil(meant.handle(message, context));
   }
   return respond();
 }
