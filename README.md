@@ -72,9 +72,8 @@ message shows the title; then the status, priority and due date; then the
 developer, reviewer and tester ("Unassigned" until someone is assigned);
 then who tracked it, with a link back to the requirement thread if there is
 one. From a requirement thread, Luma replies with a **Track task** button
-(Slack only opens forms from a click) and removes it once the task is
-created, since the requirement message then says who tracked it and links
-to the task.
+(Slack only opens forms from a click) and, once the task is created, turns
+that message into "@you tracked this as a task: *title*", linking to it.
 
 ### Requirements
 
@@ -129,7 +128,8 @@ Asking a developer to start in the requirement thread works too: write
 only you see:
 
 - before the requirement is tracked, **Track and assign** opens the track
-  form; the task starts with @rex as developer and 🔵 In progress;
+  form; the task starts with @rex as developer and 🔵 In progress, and
+  Luma posts "@you tracked this as a task" with its link;
 - once it's tracked, **Assign as developer** (or **Assign and move to In
   progress**) assigns them to its task, as in the task's thread.
 
@@ -228,7 +228,8 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   review, In testing, Client review, Done), starting at the current one.
   Picking one updates the task and replaces the menu with a confirmation.
   You can also skip the menu with `@LUMA status done` or
-  `@LUMA status in progress`. New tasks start as `TODO`. Setting `DONE`
+  `@LUMA status in progress`; then Luma just reacts ✅ to your message,
+  since the task card shows the change. New tasks start as `TODO`. Setting `DONE`
   unpins the task; moving it from `DONE` to any other status pins it again,
   so the channel's pins list shows the open tasks. A requirement or
   incident is pinned in the external channel the same way: from when it is
@@ -240,8 +241,10 @@ In a task's thread in `#aura300-dev` or the incidents channel:
 - `@LUMA priority high` changes the priority (Urgent, High, Medium, Low);
   `@LUMA priority` replies with a menu. `@LUMA due 30/11/2026` changes the
   due date (YYYY-MM-DD also works), `@LUMA due none` removes it, and
-  `@LUMA due` replies with a date picker. These work in the thread of a
-  requirement, and in the thread of a task with no requirement. For a task
+  `@LUMA due` replies with a date picker. Given a value, Luma just reacts
+  ✅; with the menu or picker, the menu becomes the confirmation. These work
+  in the thread of a requirement, and in the thread of a task with no
+  requirement. For a task
   tracked from a requirement, they are changed in the requirement thread
   instead (see [Requirements](#requirements)).
 - `@LUMA pr add <link>` links a pull request to the task (several links

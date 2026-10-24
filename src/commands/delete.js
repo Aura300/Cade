@@ -19,9 +19,9 @@ const KINDS = {
 // cancel it. Confirming deletes the root message and Luma's replies in its
 // thread.
 //
-// Deleting a task also says so in the external thread it was tracked from,
-// and a requirement it was tracked from goes back to In discussion, keeping
-// the client's priority and due date. A requirement with a tracked task
+// Whoever confirmed sees the messages go, so nothing more is said. A
+// requirement the deleted task was tracked from goes back to In discussion,
+// keeping the client's priority and due date. A requirement with a tracked task
 // cannot be deleted, since the task is the team's: it must be untracked
 // first, with `@LUMA remove` in the task's thread in the dev channel.
 //
@@ -141,12 +141,6 @@ async function deleteTask(env, channel, ts, user) {
     // Back in discussion, so pinned again even if the task was Done.
     await setPinned(env, task.source.channel, task.source.threadTs, true);
   }
-
-  await callSlack(env, "chat.postEphemeral", {
-    channel,
-    user,
-    text: `Deleted the task "${escapeSlack(task.title)}".`,
-  });
 }
 
 async function deleteRequirement(env, channel, ts, user) {
@@ -166,12 +160,6 @@ async function deleteRequirement(env, channel, ts, user) {
   await deleteReplies(env, channel, ts);
   await callSlack(env, "chat.delete", { channel, ts });
   console.log("Requirement deleted", { ts, user });
-
-  await callSlack(env, "chat.postEphemeral", {
-    channel,
-    user,
-    text: `Deleted the requirement "${escapeSlack(requirement.title)}".`,
-  });
 }
 
 function stillTracked(requirement) {

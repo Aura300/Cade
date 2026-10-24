@@ -259,10 +259,17 @@ export async function createTask(env, task, origin) {
     },
   }));
 
-  // The Track task button has done its job, and the requirement's message
-  // now says who tracked it and links to the task, so the button goes.
-  // `/luma track` in a tasks channel has none.
-  if (origin.promptTs) {
-    await callSlack(env, "chat.delete", { channel: origin.channel, ts: origin.promptTs });
+  // The requirement thread hears it's tracked, with a link to the task: the
+  // Track task button becomes that message, and "Track and assign", which
+  // has no button message, posts it. Incidents are tracked as they are
+  // reported, and `/luma track` in a tasks channel has no thread to tell.
+  if (task.source && !origin.reported) {
+    const text = `<@${task.createdBy}> tracked this as a task: <${permalink}|${escapeSlack(task.title)}>`;
+    const body = { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
+    if (origin.promptTs) {
+      await callSlack(env, "chat.update", { channel: origin.channel, ts: origin.promptTs, ...body });
+    } else {
+      await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.threadTs, ...body });
+    }
   }
 }

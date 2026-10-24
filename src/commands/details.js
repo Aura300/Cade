@@ -1,6 +1,6 @@
 import { roleOf } from "../channels.js";
 import { INCIDENT_IS_FIXED, NOT_A_REQUIREMENT, findDetails, saveDetails } from "../requirements.js";
-import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
+import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, PRIORITIES, formatDueDate, pickerDate } from "../tasks.js";
 
 const PRIORITY_ACTION = "priority:select";
@@ -15,7 +15,8 @@ const DUE_ACTION = "due:select";
 // client, so their priority and due date are changed in the task's thread.
 // Incidents are always urgent and due immediately, so theirs never change.
 //
-// Without a value they reply with a menu or date picker. Like the status
+// With a value Luma just reacts ✅ to the message; without one they reply
+// with a menu or date picker, which becomes the confirmation. Like the status
 // menu, the picker's thread says what it changes.
 
 // `@LUMA priority high`, or `@LUMA priority` for a menu.
@@ -39,7 +40,8 @@ export const priority = {
         : "Pick the new priority:";
       return priorityPicker(prompt, found.item.priority);
     }
-    return change(env, found, { priority: value }, command.user);
+    await change(env, found, { priority: value }, command.user);
+    return acknowledge();
   },
   actions: {
     [PRIORITY_ACTION]: async (payload, context) => {
@@ -66,7 +68,8 @@ export const due = {
 
     const input = command.text.trim();
     if (/^(none|clear|remove)$/i.test(input)) {
-      return change(env, found, { dueDate: "" }, command.user);
+      await change(env, found, { dueDate: "" }, command.user);
+      return acknowledge();
     }
     const dueDate = parseDate(input);
     if (!dueDate) {
@@ -75,7 +78,8 @@ export const due = {
         : "Pick the new due date:";
       return datePicker(prompt, found.item.dueDate);
     }
-    return change(env, found, { dueDate }, command.user);
+    await change(env, found, { dueDate }, command.user);
+    return acknowledge();
   },
   actions: {
     [DUE_ACTION]: async (payload, context) => {

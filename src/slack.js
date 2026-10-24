@@ -90,6 +90,13 @@ export async function respondLater(responseUrl, body) {
   if (!response.ok) throw new Error(`Slack response_url returned HTTP ${response.status}`);
 }
 
+// A reply that acknowledges a command with a ✅ on its message rather than a
+// message of its own, for commands whose effect is plain to see. `note`, if
+// any, is posted as well: what the command did elsewhere.
+export function acknowledge(note) {
+  return { reaction: "white_check_mark", note };
+}
+
 // Replies are either plain text or a message body such as { text, blocks }.
 export function messageBody(reply) {
   return typeof reply === "string" ? { text: reply } : reply;

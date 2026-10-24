@@ -249,7 +249,7 @@ test("modal submission rejects a blank title", async (t) => {
   });
 });
 
-test("modal submission posts the task and removes the Track task button", async (t) => {
+test("modal submission posts the task and turns the button into a link to it", async (t) => {
   // The requirement is read first, and again to link it to the task; those
   // reads are left out of the order checked here.
   const all = mockSlack(t, createdTask);
@@ -262,7 +262,7 @@ test("modal submission posts the task and removes the Track task button", async 
   const calls = all.filter((call) => call.method !== "conversations.replies");
   assert.deepEqual(
     calls.map((call) => call.method),
-    ["chat.getPermalink", "chat.postMessage", "pins.add", "chat.getPermalink", "chat.delete"],
+    ["chat.getPermalink", "chat.postMessage", "pins.add", "chat.getPermalink", "chat.update"],
   );
   assert.deepEqual(calls[0].args, { channel: "CEXTERNAL", message_ts: "200.1" });
 
@@ -303,9 +303,15 @@ test("modal submission posts the task and removes the Track task button", async 
   });
 
   assert.deepEqual(calls[2].args, { channel: "CDEV", timestamp: "100.1" });
-  // The requirement's message says who tracked it and links to the task, so
-  // the button message goes rather than becoming an announcement.
-  assert.deepEqual(calls[4].args, { channel: "CEXTERNAL", ts: "300.1" });
+  // The button message becomes the news that it's tracked, with the link, so
+  // the thread doesn't grow.
+  const text = "<@UCREATOR> tracked this as a task: <https://slack.example/p100|Fix &lt;login&gt;>";
+  assert.deepEqual(calls[4].args, {
+    channel: "CEXTERNAL",
+    ts: "300.1",
+    text,
+    blocks: [{ type: "section", text: { type: "mrkdwn", text } }],
+  });
 });
 
 test("modal submission without a due date shows None", async (t) => {
@@ -538,13 +544,14 @@ test("@LUMA status updates the task's status", async (t) => {
   // The second read is the requirement, to show the new status there.
   assert.deepEqual(
     calls.map((call) => call.method),
-    ["conversations.replies", "chat.update", "conversations.replies", "chat.postMessage"],
+    ["conversations.replies", "chat.update", "conversations.replies", "reactions.add"],
   );
   const update = calls[1].args;
   assert.equal(update.metadata.event_payload.status, "IN_PROGRESS");
   assert.equal(update.metadata.event_payload.developers, "UALICE");
   assert.match(update.blocks[1].text.text, /^\*Status:\* :large_blue_circle: In progress  ·/);
-  assert.equal(calls[3].args.text, "<@UACTOR> set the status to :large_blue_circle: In progress.");
+  // A typed status gets a ✅ on the command, not a reply.
+  assert.deepEqual(calls[3].args, { channel: "CDEV", timestamp: "100.5", name: "white_check_mark" });
 });
 
 test("@LUMA status DONE unpins the task and reopening pins it again", async (t) => {
@@ -562,6 +569,7 @@ test("@LUMA status DONE unpins the task and reopening pins it again", async (t) 
     "pins.remove",
     "chat.getPermalink",
     "chat.postMessage",
+    "reactions.add",
     "chat.postMessage",
   ]);
   assert.deepEqual(
@@ -607,7 +615,7 @@ test("a failed pin does not stop the task from being announced", async (t) => {
     "pins.add",
     "chat.getPermalink",
     "conversations.replies",
-    "chat.delete",
+    "chat.update",
   ]);
 });
 
@@ -617,7 +625,7 @@ const withStatus = (status) => {
   return root;
 };
 
-test("status confirmations never ask anything", async (t) => {
+test("a typed status gets a ✅ and never a question", async (t) => {
   for (const [root, input] of [
     [withStatus("TODO"), "in progress"],
     [withStatus("IN_PROGRESS"), "in review"],
@@ -629,9 +637,13 @@ test("status confirmations never ask anything", async (t) => {
   ]) {
     const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
     await send("/slack/events", threadEvent(`<@UBOT> status ${input}`));
-    const reply = calls.at(-1).args;
-    assert.equal(reply.blocks, undefined, `${input} should not ask`);
-    assert.match(reply.text, /^<@UACTOR> set the status to /);
+    assert.ok(calls.some((call) => call.method === "reactions.add"), input);
+    // Reaching Client review or Done adds a note that the requirement thread
+    // was told; nothing posted here ever asks anything.
+    for (const call of calls.filter((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV")) {
+      assert.match(call.args.text, /^Luma (told|asked)/, input);
+      assert.equal(call.args.blocks, undefined, input);
+    }
   }
 });
 
@@ -706,7 +718,7 @@ test("picking a status from the menu updates the task and the menu", async (t) =
   // The menu becomes the confirmation, saying the requirement thread was told.
   const menu = calls[7].args;
   assert.equal(menu.ts, "100.7");
-  assert.equal(menu.text, "<@UPICKER> set the status to :white_check_mark: Done.\nLuma told the requirement thread.");
+  assert.equal(menu.text, "<@UPICKER> set the status to :white_check_mark: Done.\nLuma told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.");
   assert.equal(menu.blocks.length, 1, "no buttons");
 });
 
@@ -793,14 +805,9 @@ test("confirming deletion removes Luma's replies and then the task", async (t) =
   assert.equal(response.status, 200);
   const deletes = calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts);
   assert.deepEqual(deletes, ["100.3", "100.4", "100.1"]);
-  // The requirement's message shows it's untracked; nothing is posted there.
-  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
-  assert.deepEqual(calls.at(-1), {
-    method: "chat.postEphemeral",
-    args: { channel: "CDEV", user: "UACTOR", text: 'Deleted the task "Fix login".' },
-    headers: calls.at(-1).headers,
-    previews: calls.at(-1).previews,
-  });
+  // The requirement's message shows it's untracked, and whoever confirmed
+  // sees the task go: nothing is posted, not even privately.
+  assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral"].includes(call.method)));
 });
 
 test("deleting the team's own task posts nothing outside its channel", async (t) => {
@@ -813,7 +820,6 @@ test("deleting the team's own task posts nothing outside its channel", async (t)
     "conversations.replies",
     "conversations.replies",
     "chat.delete",
-    "chat.postEphemeral",
   ]);
 });
 
@@ -1421,13 +1427,13 @@ test("@LUMA priority and due in a requirement thread change the requirement unti
     assert.deepEqual(calls.map((call) => [call.method, call.args.channel]), [
       ["conversations.replies", "CEXTERNAL"],
       ["chat.update", "CEXTERNAL"],
-      ["chat.postMessage", "CEXTERNAL"],
+      ["reactions.add", "CEXTERNAL"],
     ], text);
     const update = calls[1].args;
     assert.equal(update.ts, "200.1");
     assert.equal(update.metadata.event_payload[field], value, text);
     assert.equal(update.metadata.event_payload.status, "DISCUSSION");
-    assert.equal(calls[2].args.text, reply, text);
+    assert.deepEqual(calls[2].args, { channel: "CEXTERNAL", timestamp: "200.5", name: "white_check_mark" }, reply);
   }
 });
 
@@ -1623,7 +1629,7 @@ test("@LUMA priority and due in a tracked requirement's thread change the task a
       ["chat.update", "CDEV"],
       ["chat.getPermalink", "CEXTERNAL"],
       ["chat.postMessage", "CDEV"],
-      ["chat.postMessage", "CEXTERNAL"],
+      ["reactions.add", "CEXTERNAL"],
     ], text);
     assert.equal(calls[2].args.metadata.event_payload[field], value, text);
     assert.equal(calls[3].args.metadata.event_payload[field], value, text);
@@ -1632,7 +1638,8 @@ test("@LUMA priority and due in a tracked requirement's thread change the task a
       calls[5].args.text,
       `${reply.replace(/\.$/, "")} in <https://slack.example/requirement|the requirement thread>.`,
     );
-    assert.equal(calls[6].args.text, reply);
+    // The team is told in the task's thread; the client just gets a ✅.
+    assert.equal(calls[6].args.name, "white_check_mark");
   }
 });
 
@@ -1659,11 +1666,10 @@ test("tasks with no requirement change their priority and due date in the dev th
     assert.deepEqual(calls.map((call) => call.method), [
       "conversations.replies",
       "chat.update",
-      "chat.postMessage",
+      "reactions.add",
     ], text);
     assert.equal(calls[1].args.metadata.event_payload[field], value, text);
-    assert.equal(calls[2].args.text, reply, text);
-    assert.equal(calls[2].args.blocks, undefined, "no prompt to inform the external thread");
+    assert.deepEqual(calls[2].args, { channel: "CDEV", timestamp: "100.5", name: "white_check_mark" }, reply);
   }
 });
 
@@ -1843,13 +1849,12 @@ test("Client review on a requirement task asks the client straight away", async 
     review.args.blocks[1].elements.map((button) => button.action_id),
     ["status:approve", "status:reject"],
   );
-  const reply = calls.at(-1).args;
-  assert.equal(reply.channel, "CDEV");
-  assert.equal(
-    reply.text,
-    "<@UACTOR> set the status to :large_yellow_circle: Client review.\nLuma asked the client to review it in the requirement thread.",
-  );
-  assert.equal(reply.blocks, undefined, "no Inform external thread buttons");
+  // The command gets a ✅, and a note that the client was asked.
+  assert.ok(calls.some((call) => call.method === "reactions.add"));
+  const note = calls.at(-1).args;
+  assert.equal(note.channel, "CDEV");
+  assert.equal(note.thread_ts, "100.1");
+  assert.equal(note.text, "Luma asked the client to review it in <https://slack.example/source|the requirement thread>.");
 });
 
 const requirementDelete = JSON.stringify({
@@ -1927,13 +1932,9 @@ test("confirming a requirement's deletion removes Luma's replies and then the re
 
   const deletes = calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts);
   assert.deepEqual(deletes, ["200.3", "200.1"]);
-  // Requirements are not in the sheet, and there is no other thread to tell.
-  assert.ok(!calls.some((call) => ["sheet", "chat.postMessage"].includes(call.method)));
-  assert.deepEqual(calls.at(-1).args, {
-    channel: "CEXTERNAL",
-    user: "UCLIENT",
-    text: 'Deleted the requirement "Export reports".',
-  });
+  // Requirements are not in the sheet, there is no other thread to tell, and
+  // whoever confirmed sees it go.
+  assert.ok(!calls.some((call) => ["sheet", "chat.postMessage", "chat.postEphemeral"].includes(call.method)));
 });
 
 test("a requirement tracked after the delete buttons were posted is kept, and the requester told why", async (t) => {
@@ -2567,7 +2568,8 @@ test("choosing reviewers assigns them and asks them to review", async (t) => {
   assert.equal(calls[1].args.metadata.event_payload.reviewers, "URIA");
   assert.equal(
     calls[2].args.text,
-    `<@UCLICKER> chose the reviewers.\n<@URIA>, please review <${PR}|project-helper/42>.`,
+    // Just the request; whoever chose sees the picker become it.
+    `<@URIA>, please review <${PR}|project-helper/42>.`,
   );
   assert.equal(calls[2].args.blocks.length, 1, "the picker is gone");
 });
@@ -3125,10 +3127,10 @@ test("Done is posted in the requirement thread without asking", async (t) => {
       from,
     );
     assert.equal(post.blocks.length, 1, "no buttons");
-    const reply = calls.at(-1).args;
-    assert.equal(reply.channel, "CDEV");
-    assert.equal(reply.text, "<@UACTOR> set the status to :white_check_mark: Done.\nLuma told the requirement thread.");
-    assert.equal(reply.blocks, undefined, "no Inform external thread question");
+    // The command gets a ✅, and a note that the requirement thread was told.
+    assert.ok(calls.some((call) => call.method === "reactions.add"), from);
+    assert.equal(calls.at(-1).args.channel, "CDEV", from);
+    assert.equal(calls.at(-1).args.text, "Luma told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.", from);
   }
 });
 
@@ -3261,4 +3263,73 @@ test("asking a developer to start on a tracked requirement offers to assign them
   );
   // The button changes the task in the dev channel.
   assert.equal(question.blocks[1].elements[0].value, assignValue("developer", ["UREX"], "IN_PROGRESS"));
+});
+
+test("a task tracked with Track and assign is announced in the requirement thread", async (t) => {
+  const calls = mockSlack(t, { ...createdTask, "conversations.replies": { messages: [requirementRoot()] } });
+  await send(
+    "/slack/interactions",
+    interaction(
+      titleOnlySubmission("Export reports", {
+        channel: "CEXTERNAL",
+        threadTs: "200.1",
+        requirement: true,
+        priority: "High",
+        developers: ["UREX"],
+      }),
+    ),
+  );
+  // There's no button message to turn into the news, so it's posted.
+  const post = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
+  assert.equal(post.thread_ts, "200.1");
+  assert.equal(post.text, "<@UCREATOR> tracked this as a task: <https://slack.example/p100|Export reports>");
+});
+
+test("a reported incident is not announced as tracked", async (t) => {
+  const calls = mockSlack(t, {
+    "chat.postMessage": (args) => (args.channel === "CINC" ? { channel: "CINC", ts: "100.1" } : { ts: "200.1" }),
+    "conversations.replies": { messages: [incidentRoot({ task: false })] },
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "view_submission",
+      user: { id: "UCLIENT" },
+      view: {
+        callback_id: "incident",
+        private_metadata: JSON.stringify({ channel: "CEXTERNAL" }),
+        state: { values: { title: { value: { value: "Checkout is down" } } } },
+      },
+    }),
+    {},
+    incidentEnv,
+  );
+  // Only the incident message itself goes to the external channel.
+  const external = calls.filter((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
+  assert.equal(external.length, 1);
+  assert.equal(external[0].args.text, "Incident: Checkout is down");
+});
+
+test("choosing from the status menu still turns it into the confirmation", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [ownTask()] } });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UPICKER" },
+      channel: { id: "CDEV" },
+      message: { ts: "100.7", thread_ts: "100.1" },
+      actions: [{ action_id: "status:select", selected_option: { value: "IN_REVIEW" } }],
+    }),
+  );
+  assert.ok(!calls.some((call) => call.method === "reactions.add"));
+  assert.equal(calls.at(-1).args.text, "<@UPICKER> set the status to :large_purple_circle: In review.");
+});
+
+test("other typed statuses get only the ✅", async (t) => {
+  const calls = mockSlack(t, threads(requirementRoot({ task: true }), requirementTask("TODO")));
+  await send("/slack/events", threadEvent("<@UBOT> status in review"));
+  assert.equal(calls.at(-1).method, "reactions.add");
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
 });

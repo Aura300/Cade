@@ -82,6 +82,7 @@ app already uses for other purposes.
 | `pins:write` | Pinning open tasks and requirements and unpinning done ones |
 
 | `users:read` | Writing people's names, not user IDs, to the Google Sheet |
+| `reactions:write` | Reacting ✅ to `@LUMA status done`, `@LUMA priority high` and `@LUMA due …` instead of replying |
 | `commands` | The `/luma` slash command (added automatically in step 5) |
 
 ## 3. Interactivity & Shortcuts
@@ -193,7 +194,7 @@ Try these in the test channels first.
 | "@someone please test this" on a task in review | **Assign and move to In testing** adds them as tester and moves the task to 🟠 In testing |
 | `@LUMA assign reviewer @someone`, `@LUMA assign tester @someone` | They appear as **Reviewer** / **Tester** |
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
-| `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and the requirement thread gets "marked a task as ✅ Done" without asking |
+| `@LUMA status done` | ✅ on your message; status changes to ✅ Done, the task is unpinned, and the requirement thread gets "marked a task as ✅ Done" |
 | `/luma incident` in `#aura300-external` | A form asks only what the incident is; submitting posts "**Incident:** …" (🔴 Urgent, due Immediate) and the task appears, pinned, in the incidents channel |
 | `@LUMA priority low` in the incident's thread, in either channel | Luma says incidents are always Urgent and due Immediate |
 | `@LUMA status client review` in the incident's task thread | The incident thread gets **Approve** / **Not approve**, mentioning the reporter |

@@ -64,11 +64,23 @@ async function handleEvent(body, request, context) {
       (async () => {
         const reply = await dispatch(command, context);
         if (!reply) return;
-        await callSlack(context.env, "chat.postMessage", {
-          channel: command.channel,
-          thread_ts: command.threadTs ?? command.ts,
-          ...messageBody(reply),
-        });
+        const post = (body) =>
+          callSlack(context.env, "chat.postMessage", {
+            channel: command.channel,
+            thread_ts: command.threadTs ?? command.ts,
+            ...messageBody(body),
+          });
+        // An acknowledgement (see acknowledge) reacts to the command instead.
+        if (reply.reaction) {
+          await callSlack(context.env, "reactions.add", {
+            channel: command.channel,
+            timestamp: command.ts,
+            name: reply.reaction,
+          });
+          if (reply.note) await post(reply.note);
+          return;
+        }
+        await post(reply);
       })(),
     );
   } else {

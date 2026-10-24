@@ -269,7 +269,8 @@ async function chooseReviewers(payload, env) {
     } catch {
       urls = task.prs;
     }
-    reply = `<@${payload.user.id}> chose the reviewers.\n${reviewRequest(chosen, urls)}`;
+    // Whoever chose them sees the picker become the request.
+    reply = reviewRequest(chosen, urls);
   }
   await callSlack(env, "chat.update", {
     channel,

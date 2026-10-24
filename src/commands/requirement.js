@@ -126,6 +126,8 @@ async function submitIncident(payload, context) {
         threadTs: ts,
         requirement: true,
         incident: true,
+        // Tracked as it's reported, so there's nothing to announce.
+        reported: true,
         ...INCIDENT,
       });
     })(),
