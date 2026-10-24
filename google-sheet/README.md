@@ -32,7 +32,7 @@ From the project directory:
 3. **Create the Sheet:**
 
    ```sh
-   npm run sheet:create                        # titled "Luma tasks"
+   npm run sheet:create                        # titled "Cade tasks"
    npm run sheet:create -- --title "Acme tasks"
    ```
 
@@ -40,7 +40,7 @@ From the project directory:
    secret into `Secret.gs` next to it, deploys the script as a web app
    (running as you, reachable by anyone: the secret is what protects it),
    then gives the Worker the web app's address (`sheetUrl` in
-   `luma.config.json`, uploaded with `npm run config`) and the secret
+   `cade.config.json`, uploaded with `npm run config`) and the secret
    (`SHEET_SECRET`). `Secret.gs` stays out of git; it's only in your Apps
    Script project and this folder. The script's IDs are saved to
    `.sheet-app.json` in the project root.
@@ -62,7 +62,7 @@ a file `Secret.gs` containing `const SECRET = "…";` with a random value
 **Show "appsscript.json"** and replace it with this folder's
 [`appsscript.json`](appsscript.json). Run `authorize` once, then **Deploy →
 New deployment → Web app** and copy its URL (ending `/exec`). Put the URL in
-`luma.config.json` as `sheetUrl`, run `npm run config`, and store the same
+`cade.config.json` as `sheetUrl`, run `npm run config`, and store the same
 secret with `npx wrangler secret put SHEET_SECRET`.
 
 ## Updating the script

@@ -1,4 +1,4 @@
-// Intents are plain messages, not commands, that Luma acts on: "@rex please
+// Intents are plain messages, not commands, that Cade acts on: "@rex please
 // look into this", or a pasted pull request link. Handlers declare theirs as
 // `intents` (see registry.js), each made with `intent`:
 //
@@ -34,12 +34,12 @@ function phraseTest(phrases) {
   return (message) => pattern.test(message.text);
 }
 
-// A message as intents see it, or null for messages Luma never acts on:
+// A message as intents see it, or null for messages Cade never acts on:
 // edits, deletions and bot posts (its own included).
 //   text, user, channel, ts, threadTs
 //   inThread   whether it's a reply in a thread
-//   mentions   the people it mentions, Luma aside
-//   botUserId  Luma's own user ID
+//   mentions   the people it mentions, Cade aside
+//   botUserId  Cade's own user ID
 export function plainMessage(event, botUserId) {
   if (event.subtype || event.bot_id || !event.text) return null;
   const mentions = [...new Set([...event.text.matchAll(USER_MENTION)].map(([, id]) => id))].filter(

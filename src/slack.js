@@ -32,10 +32,10 @@ export async function verifySlackRequest(request, body, signingSecret) {
   );
 }
 
-// Luma's messages link to other messages, such as "tracked this as a task:
+// Cade's messages link to other messages, such as "tracked this as a task:
 // <link>".
 // Slack would preview each link as a copy of the linked message, repeating
-// the task card, so previews are turned off for everything Luma posts.
+// the task card, so previews are turned off for everything Cade posts.
 const NO_PREVIEWS = { unfurl_links: false, unfurl_media: false };
 const POSTING_METHODS = ["chat.postMessage", "chat.update"];
 

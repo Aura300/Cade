@@ -1,4 +1,4 @@
-// Receives task updates from the Luma Worker and keeps one tab per
+// Receives task updates from the Cade Worker and keeps one tab per
 // channel pair up to date, named after the pair (for example "acme" and
 // "test"). Each task has one row, updated on every change; deleted tasks stay,
 // with the status "Deleted". Filter the Status column to see completed tasks.

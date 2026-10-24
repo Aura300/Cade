@@ -145,7 +145,7 @@ const submission = (
 const rootMessage = ({ developers = "", reviewers = "", testers = "" } = {}) => ({
   ts: "100.1",
   metadata: {
-    event_type: "luma_task",
+    event_type: "cade_task",
     event_payload: {
       title: "Fix login",
       priority: "High",
@@ -162,7 +162,7 @@ const rootMessage = ({ developers = "", reviewers = "", testers = "" } = {}) => 
   },
 });
 
-// The team's own task, tracked with /luma track: no requirement thread.
+// The team's own task, tracked with /cade track: no requirement thread.
 const ownTask = (people) => {
   const root = rootMessage(people);
   Object.assign(root.metadata.event_payload, { source_channel: "", source_thread_ts: "", source_link: "" });
@@ -283,7 +283,7 @@ test("modal submission posts the task and turns the button into a link to it", a
     /^Tracked by <@UCREATOR> from <https:\/\/slack\.example\/source\|the requirement thread>$/,
   );
   assert.deepEqual(post.metadata, {
-    event_type: "luma_task",
+    event_type: "cade_task",
     event_payload: {
       title: "Fix <login>",
       priority: "Urgent",
@@ -352,9 +352,9 @@ test("modal submission tells the creator when the task cannot be posted", async 
   assert.match(calls[3].args.text, /could not be created/);
 });
 
-test("@LUMA track only works in a requirement thread", async (t) => {
+test("@Cade track only works in a requirement thread", async (t) => {
   for (const [overrides, roots] of [
-    // A thread Luma did not start.
+    // A thread Cade did not start.
     [{ ts: "200.5", thread_ts: "200.1" }, [{ ts: "200.1" }]],
     // A top-level message, which has no thread to check.
     [{ ts: "200.5", thread_ts: undefined }, []],
@@ -362,7 +362,7 @@ test("@LUMA track only works in a requirement thread", async (t) => {
     const calls = mockSlack(t, { "conversations.replies": { messages: roots } });
     await send("/slack/events", threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ...overrides }));
     const reply = calls.at(-1).args;
-    assert.equal(reply.text, "Use `@LUMA track` in the thread of a requirement started with `/luma requirement`. For the team's own work, use `/luma track` in <#CDEV>.");
+    assert.equal(reply.text, "Use `@Cade track` in the thread of a requirement started with `/cade requirement`. For the team's own work, use `/cade track` in <#CDEV>.");
     assert.ok(!reply.blocks, "no Track task button");
   }
 });
@@ -433,7 +433,7 @@ test("the Track task button opens the modal for that thread", async (t) => {
   assert.equal(blocks[2].element.initial_option, undefined);
 });
 
-test("@LUMA assign adds people to a role on the root message", async (t) => {
+test("@Cade assign adds people to a role on the root message", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": {
       messages: [rootMessage({ developers: "UALICE", testers: "UTESS" })],
@@ -464,7 +464,7 @@ test("@LUMA assign adds people to a role on the root message", async (t) => {
   });
 });
 
-test("@LUMA assign works for each role, in any word order", async (t) => {
+test("@Cade assign works for each role, in any word order", async (t) => {
   for (const [text, key, reply] of [
     // No PR yet, so the reviewer isn't named, and isn't notified.
     ["<@UBOT> assign reviewer <@UBOB>", "reviewers", "<@UACTOR> added a reviewer. They'll be asked to review when a PR is linked."],
@@ -479,17 +479,17 @@ test("@LUMA assign works for each role, in any word order", async (t) => {
   }
 });
 
-test("@LUMA assign without a role asks for one", async (t) => {
+test("@Cade assign without a role asks for one", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign <@UBOB>"));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
   assert.equal(
     calls[0].args.text,
-    "Say which role to assign: `@LUMA assign developer @person`, `@LUMA assign reviewer @person`, `@LUMA assign tester @person`.",
+    "Say which role to assign: `@Cade assign developer @person`, `@Cade assign reviewer @person`, `@Cade assign tester @person`.",
   );
 });
 
-test("@LUMA assign without anyone mentioned offers a button per role", async (t) => {
+test("@Cade assign without anyone mentioned offers a button per role", async (t) => {
   for (const [text, roles, prompt] of [
     ["<@UBOT> assign", ["developer", "reviewer", "tester"], "Who works on this task?"],
     ["<@UBOT> assign reviewer", ["reviewer"], "Who should be the reviewer?"],
@@ -506,7 +506,7 @@ test("@LUMA assign without anyone mentioned offers a button per role", async (t)
   }
 });
 
-test("@LUMA unassign with a role removes people from that role only", async (t) => {
+test("@Cade unassign with a role removes people from that role only", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": {
       messages: [rootMessage({ developers: "UALICE,UBOB", reviewers: "UALICE" })],
@@ -519,7 +519,7 @@ test("@LUMA unassign with a role removes people from that role only", async (t) 
   assert.equal(calls[2].args.text, "<@UALICE>, you no longer need to work on this.");
 });
 
-test("@LUMA unassign without a role removes people from every role", async (t) => {
+test("@Cade unassign without a role removes people from every role", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": {
       messages: [rootMessage({ developers: "UALICE,UBOB", reviewers: "UALICE", testers: "UALICE" })],
@@ -535,7 +535,7 @@ test("@LUMA unassign without a role removes people from every role", async (t) =
   assert.equal(calls[2].args.text, "<@UALICE>, you no longer need to work on this.");
 });
 
-test("@LUMA unassign without anyone mentioned offers the same role buttons as assign", async (t) => {
+test("@Cade unassign without anyone mentioned offers the same role buttons as assign", async (t) => {
   for (const [text, roles] of [
     ["<@UBOT> unassign", ["developer", "reviewer", "tester"]],
     ["<@UBOT> unassign tester", ["tester"]],
@@ -550,7 +550,7 @@ test("@LUMA unassign without anyone mentioned offers the same role buttons as as
   }
 });
 
-test("@LUMA status updates the task's status", async (t) => {
+test("@Cade status updates the task's status", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": { messages: [rootMessage({ developers: "UALICE" })] },
   });
@@ -569,7 +569,7 @@ test("@LUMA status updates the task's status", async (t) => {
   assert.deepEqual(calls[3].args, { channel: "CDEV", timestamp: "100.5", name: "white_check_mark" });
 });
 
-test("@LUMA status DONE unpins the task and reopening pins it again", async (t) => {
+test("@Cade status DONE unpins the task and reopening pins it again", async (t) => {
   let calls = mockSlack(t, {
     "conversations.replies": { messages: [rootMessage()] },
   });
@@ -655,13 +655,13 @@ test("a typed status gets a ✅ and never a question", async (t) => {
     // Reaching Client review or Done adds a note that the requirement thread
     // was told; nothing posted here ever asks anything.
     for (const call of calls.filter((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV")) {
-      assert.match(call.args.text, /^Luma (told|asked)/, input);
+      assert.match(call.args.text, /^Cade (told|asked)/, input);
       assert.equal(call.args.blocks, undefined, input);
     }
   }
 });
 
-test("@LUMA status accepts every status name", async (t) => {
+test("@Cade status accepts every status name", async (t) => {
   for (const status of ["TODO", "IN_PROGRESS", "IN_REVIEW", "IN_TESTING", "CLIENT_REVIEW", "DONE"]) {
     const calls = mockSlack(t, {
       "conversations.replies": { messages: [rootMessage()] },
@@ -671,7 +671,7 @@ test("@LUMA status accepts every status name", async (t) => {
   }
 });
 
-test("@LUMA status without a status replies with a status menu", async (t) => {
+test("@Cade status without a status replies with a status menu", async (t) => {
   const task = rootMessage();
   task.metadata.event_payload.status = "IN_REVIEW";
   const calls = mockSlack(t, { "conversations.replies": { messages: [task] } });
@@ -695,7 +695,7 @@ test("@LUMA status without a status replies with a status menu", async (t) => {
   assert.equal(menu.initial_option.value, "IN_REVIEW");
 });
 
-test("@LUMA status with an unknown status shows the menu", async (t) => {
+test("@Cade status with an unknown status shows the menu", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
   await send("/slack/events", threadEvent("<@UBOT> status blocked"));
   assert.equal(calls[1].args.blocks[0].text.text, '"blocked" is not a status. Pick one:');
@@ -731,11 +731,11 @@ test("picking a status from the menu updates the task and the menu", async (t) =
   // The menu becomes the confirmation, saying the requirement thread was told.
   const menu = calls[6].args;
   assert.equal(menu.ts, "100.7");
-  assert.equal(menu.text, "<@UPICKER> set the status to :white_check_mark: Done.\nLuma told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.");
+  assert.equal(menu.text, "<@UPICKER> set the status to :white_check_mark: Done.\nCade told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.");
   assert.equal(menu.blocks.length, 1, "no buttons");
 });
 
-test("@LUMA delete and @LUMA remove ask for confirmation", async (t) => {
+test("@Cade delete and @Cade remove ask for confirmation", async (t) => {
   for (const name of ["delete", "remove"]) {
     const calls = mockSlack(t, {
       "conversations.replies": { messages: [ownTask()] },
@@ -790,17 +790,17 @@ test("cancelling a deletion removes the prompt", async (t) => {
   ]);
 });
 
-test("confirming deletion removes Luma's replies and then the task", async (t) => {
+test("confirming deletion removes Cade's replies and then the task", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": (args) =>
       args.limit === "1"
         ? { messages: [ownTask()] }
         : {
             messages: [
-              { ts: "100.1", bot_id: "BLUMA" },
+              { ts: "100.1", bot_id: "BCADE" },
               { ts: "100.2", user: "UACTOR" },
-              { ts: "100.3", bot_id: "BLUMA" },
-              { ts: "100.4", bot_id: "BLUMA" },
+              { ts: "100.3", bot_id: "BCADE" },
+              { ts: "100.4", bot_id: "BCADE" },
             ],
           },
   });
@@ -826,7 +826,7 @@ test("confirming deletion removes Luma's replies and then the task", async (t) =
 test("deleting the team's own task posts nothing outside its channel", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": (args) =>
-      args.limit === "1" ? { messages: [ownTask()] } : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
+      args.limit === "1" ? { messages: [ownTask()] } : { messages: [{ ts: "100.1", bot_id: "BCADE" }] },
   });
   await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"));
   assert.deepEqual(calls.map((call) => call.method), [
@@ -851,7 +851,7 @@ test("assigning keeps the task's source thread", async (t) => {
   );
 });
 
-test("@LUMA delete in a thread that is not a task says so", async (t) => {
+test("@Cade delete in a thread that is not a task says so", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": { messages: [{ ts: "100.1" }] },
   });
@@ -859,7 +859,7 @@ test("@LUMA delete in a thread that is not a task says so", async (t) => {
   assert.equal(calls[1].args.text, "This thread is not a tracked task.");
 });
 
-test("@LUMA assign in a thread that is not a task says so", async (t) => {
+test("@Cade assign in a thread that is not a task says so", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": { messages: [{ ts: "100.1" }] },
   });
@@ -871,16 +871,16 @@ test("@LUMA assign in a thread that is not a task says so", async (t) => {
   assert.equal(calls[1].args.text, "This thread is not a tracked task.");
 });
 
-test("@LUMA assign outside the dev channel points to it", async (t) => {
+test("@Cade assign outside the dev channel points to it", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }));
   assert.equal(
     calls[0].args.text,
-    "Use `@LUMA assign developer @person` in a task thread in <#CDEV>.",
+    "Use `@Cade assign developer @person` in a task thread in <#CDEV>.",
   );
 });
 
-test("@LUMA track outside the external channels points to them", async (t) => {
+test("@Cade track outside the external channels points to them", async (t) => {
   // From a paired channel only its pair's channel is named.
   for (const [channel, hint] of [
     ["CDEV", "<#CEXTERNAL>"],
@@ -889,16 +889,16 @@ test("@LUMA track outside the external channels points to them", async (t) => {
   ]) {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent("<@UBOT> track", { channel }));
-    assert.equal(calls[0].args.text, `Use \`@LUMA track\` in ${hint}.`, channel);
+    assert.equal(calls[0].args.text, `Use \`@Cade track\` in ${hint}.`, channel);
   }
 });
 
-test("/luma track only works in the dev channels", async (t) => {
+test("/cade track only works in the dev channels", async (t) => {
   const calls = mockSlack(t);
   const reply = await (await send("/slack/commands", slash("track", "CEXTERNAL"))).json();
   assert.equal(calls.length, 0);
   assert.equal(reply.response_type, "ephemeral");
-  assert.equal(reply.text, "Use `/luma track` in <#CDEV>.");
+  assert.equal(reply.text, "Use `/cade track` in <#CDEV>.");
 });
 test("tasks with no external thread never ask to inform it", async (t) => {
   const own = rootMessage();
@@ -965,7 +965,7 @@ test("a missing CHANNEL_PAIRS setting is reported", async (t) => {
   assert.equal(calls[0].args.text, "Sorry, `assign` failed. Please try again.");
 });
 
-test("@LUMA help, a bare @LUMA and unknown commands reply with usage", async (t) => {
+test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t) => {
   for (const text of ["<@UBOT> help", "<@UBOT>", "<@UBOT> hello"]) {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent(text));
@@ -973,24 +973,24 @@ test("@LUMA help, a bare @LUMA and unknown commands reply with usage", async (t)
     const lines = calls[0].args.text.split("\n");
     assert.deepEqual(
       lines.map((line) => line.split(":*")[0]),
-      ["*Start", "*In a task thread", "*Your work", "`@LUMA help` or `/luma help` shows this."],
+      ["*Start", "*In a task thread", "*Your work", "`@Cade help` or `/cade help` shows this."],
     );
-    assert.match(lines[0], /`\/luma requirement` · `\/luma incident` · `\/luma track` · `@LUMA track`$/);
+    assert.match(lines[0], /`\/cade requirement` · `\/cade incident` · `\/cade track` · `@Cade track`$/);
     // Saying it comes first in a task thread; the commands follow.
-    assert.match(lines[1], /^\*In a task thread:\* Just say it: .* Or: `@LUMA assign developer @person`/);
+    assert.match(lines[1], /^\*In a task thread:\* Just say it: .* Or: `@Cade assign developer @person`/);
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
-      assert.ok(lines[1].includes(`\`@LUMA ${usage}\``), usage);
+      assert.ok(lines[1].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[2], "*Your work:* `/luma tasks`");
+    assert.equal(lines[2], "*Your work:* `/cade tasks`");
   }
 });
 
-test("ignores messages that do not start with @LUMA, bots, edits and retries", async (t) => {
+test("ignores messages that do not start with @Cade, bots, edits and retries", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("looks good, assign it later"));
-  await send("/slack/events", threadEvent("luma is great"));
-  await send("/slack/events", threadEvent("luma assign <@UBOB>"));
-  await send("/slack/events", threadEvent("/luma assign <@UBOB>"));
+  await send("/slack/events", threadEvent("cade is great"));
+  await send("/slack/events", threadEvent("cade assign <@UBOB>"));
+  await send("/slack/events", threadEvent("/cade assign <@UBOB>"));
   await send("/slack/events", threadEvent("hi <@UBOT> assign <@UBOB>"));
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { bot_id: "B1" }));
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { subtype: "message_changed" }));
@@ -1023,7 +1023,7 @@ test("parseMessage reads the command name and mentioned people", () => {
   });
   assert.equal(parseMessage({ text: "<@UBOT> TRACK" }, "UBOT").name, "track");
   assert.equal(parseMessage({ text: "<@UBOT>" }, "UBOT").name, "");
-  assert.equal(parseMessage({ text: "@LUMA track" }, "UBOT"), null);
+  assert.equal(parseMessage({ text: "@Cade track" }, "UBOT"), null);
   assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
 });
 
@@ -1141,7 +1141,7 @@ test("deleting a task marks it Deleted in the sheet", async (t) => {
     ...slackUsers,
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
     "conversations.replies": (args) =>
-      args.limit === "1" ? { messages: [rootMessage()] } : { messages: [{ ts: "100.1", bot_id: "BLUMA" }] },
+      args.limit === "1" ? { messages: [rootMessage()] } : { messages: [{ ts: "100.1", bot_id: "BCADE" }] },
   });
   await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"), {}, sheetEnv);
   const row = sheetRow(calls);
@@ -1219,10 +1219,10 @@ test("formatDueDate shows the picked date as DD/MM/YYYY", () => {
   assert.equal(formatDueDate(undefined), "");
 });
 
-// `/luma …` slash commands arrive form-encoded.
+// `/cade …` slash commands arrive form-encoded.
 const slash = (text, channel = "CEXTERNAL") =>
   new URLSearchParams({
-    command: "/luma",
+    command: "/cade",
     text,
     user_id: "UACTOR",
     channel_id: channel,
@@ -1234,7 +1234,7 @@ const slash = (text, channel = "CEXTERNAL") =>
 const requirementRoot = ({ task = false, status = task ? "IN_PROGRESS" : "DISCUSSION" } = {}) => ({
   ts: "200.1",
   metadata: {
-    event_type: "luma_requirement",
+    event_type: "cade_requirement",
     event_payload: {
       title: "Export reports",
       status,
@@ -1263,7 +1263,7 @@ const threads = (requirement, task = requirementTask()) => ({
   }),
 });
 
-test("/luma track opens the task form straight away", async (t) => {
+test("/cade track opens the task form straight away", async (t) => {
   const calls = mockSlack(t);
   const response = await send("/slack/commands", slash("track", "CDEV"));
 
@@ -1275,7 +1275,7 @@ test("/luma track opens the task form straight away", async (t) => {
   assert.deepEqual(JSON.parse(calls[0].args.view.private_metadata), { channel: "CDEV" });
 });
 
-test("/luma track in the dev channel posts the task without an announcement", async (t) => {
+test("/cade track in the dev channel posts the task without an announcement", async (t) => {
   const calls = mockSlack(t, createdTask);
   await send(
     "/slack/interactions",
@@ -1289,7 +1289,7 @@ test("/luma track in the dev channel posts the task without an announcement", as
   assert.equal(calls[0].args.metadata.event_payload.source_channel, "");
 });
 
-test("/luma requirement opens the requirement form in an external channel only", async (t) => {
+test("/cade requirement opens the requirement form in an external channel only", async (t) => {
   let calls = mockSlack(t);
   await send("/slack/commands", slash("requirement"));
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
@@ -1305,24 +1305,24 @@ test("/luma requirement opens the requirement form in an external channel only",
   assert.equal(calls.length, 0);
   const reply = await response.json();
   assert.equal(reply.response_type, "ephemeral");
-  assert.equal(reply.text, "Use `/luma requirement` in <#CEXTERNAL>.");
+  assert.equal(reply.text, "Use `/cade requirement` in <#CEXTERNAL>.");
 });
 
-test("/luma help and unknown slash commands list the commands privately", async (t) => {
+test("/cade help and unknown slash commands list the commands privately", async (t) => {
   for (const text of ["", "help", "hello"]) {
     mockSlack(t);
     const reply = await (await send("/slack/commands", slash(text))).json();
     assert.equal(reply.response_type, "ephemeral");
-    for (const usage of ["/luma track", "/luma requirement", "@LUMA track", "@LUMA priority high", "@LUMA due 31/12/2026"]) {
+    for (const usage of ["/cade track", "/cade requirement", "@Cade track", "@Cade priority high", "@Cade due 31/12/2026"]) {
       assert.ok(reply.text.includes(`\`${usage}\``), usage);
     }
   }
 });
 
-test("@LUMA requirement points to the slash command", async (t) => {
+test("@Cade requirement points to the slash command", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> requirement", { channel: "CEXTERNAL" }));
-  assert.equal(calls[0].args.text, "Use `/luma requirement` in <#CEXTERNAL>.");
+  assert.equal(calls[0].args.text, "Use `/cade requirement` in <#CEXTERNAL>.");
 });
 
 test("submitting a requirement starts its thread in the external channel", async (t) => {
@@ -1352,10 +1352,10 @@ test("submitting a requirement starts its thread in the external channel", async
     [
       "*Requirement:* Export &lt;reports&gt;",
       "*Status:* :speech_balloon: In discussion  ·  *Priority:* :large_orange_circle: High  ·  *Due:* 30/11/2026",
-      "Started by <@UCREATOR>\nNot tracked yet. Discuss it in this thread, then send `@LUMA track` here.",
+      "Started by <@UCREATOR>\nNot tracked yet. Discuss it in this thread, then send `@Cade track` here.",
     ],
   );
-  assert.equal(post.metadata.event_type, "luma_requirement");
+  assert.equal(post.metadata.event_type, "cade_requirement");
   assert.equal(post.metadata.event_payload.title, "Export <reports>");
   assert.equal(post.metadata.event_payload.status, "DISCUSSION");
   assert.equal(post.metadata.event_payload.priority, "High");
@@ -1427,7 +1427,7 @@ test("tracking from a requirement thread moves the requirement to In progress", 
   assert.equal(calls.at(-1).args.ts, "300.1");
 });
 
-test("@LUMA priority and due in a requirement thread change the requirement until it is tracked", async (t) => {
+test("@Cade priority and due in a requirement thread change the requirement until it is tracked", async (t) => {
   for (const [text, field, value, reply] of [
     ["<@UBOT> priority urgent", "priority", "Urgent", "<@UACTOR> set the priority to :red_circle: Urgent."],
     ["<@UBOT> due 15/12/2026", "due_date", "15/12/2026", "<@UACTOR> set the due date to 15/12/2026."],
@@ -1464,14 +1464,14 @@ test("a requirement's new priority and due date fill in the track form", async (
   assert.equal(origin.dueDate, "15/12/2026");
 });
 
-test("@LUMA priority in an external thread Luma did not start says so", async (t) => {
+test("@Cade priority in an external thread Cade did not start says so", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [{ ts: "200.1" }] } });
   await send(
     "/slack/events",
     threadEvent("<@UBOT> priority low", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
   );
   assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
-  assert.match(calls[1].args.text, /^This thread is not a requirement\. Use `\/luma requirement`/);
+  assert.match(calls[1].args.text, /^This thread is not a requirement\. Use `\/cade requirement`/);
 });
 
 test("parseDate accepts DD/MM/YYYY and YYYY-MM-DD real dates only", () => {
@@ -1483,7 +1483,7 @@ test("parseDate accepts DD/MM/YYYY and YYYY-MM-DD real dates only", () => {
   assert.equal(parseDate("tomorrow"), "");
 });
 
-test("Luma's messages never preview the messages they link to", async (t) => {
+test("Cade's messages never preview the messages they link to", async (t) => {
   const calls = mockSlack(t, {
     ...threads(requirementRoot({ task: true }), requirementTask("DONE")),
     ...createdTask,
@@ -1531,7 +1531,7 @@ const requirementOrigin = {
   dueDate: "31/10/2026",
 };
 
-test("@LUMA track in a requirement thread asks only for the title", async (t) => {
+test("@Cade track in a requirement thread asks only for the title", async (t) => {
   let calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
   await send(
     "/slack/events",
@@ -1598,7 +1598,7 @@ test("a requirement always shows its task's current status, as the client sees i
   }
 });
 
-test("@LUMA priority and due in a tracked requirement's thread change the task and tell the team", async (t) => {
+test("@Cade priority and due in a tracked requirement's thread change the task and tell the team", async (t) => {
   for (const [text, field, value, reply] of [
     ["<@UBOT> priority urgent", "priority", "Urgent", "<@UACTOR> set the priority to :red_circle: Urgent."],
     ["<@UBOT> due 15/12/2026", "due_date", "15/12/2026", "<@UACTOR> set the due date to 15/12/2026."],
@@ -1664,7 +1664,7 @@ test("tasks with no requirement change their priority and due date in the dev th
   }
 });
 
-test("@LUMA priority and due without a valid value show a picker", async (t) => {
+test("@Cade priority and due without a valid value show a picker", async (t) => {
   for (const [text, type, initial] of [
     ["<@UBOT> priority", "static_select", "High"],
     ["<@UBOT> priority soon", "static_select", "High"],
@@ -1823,7 +1823,7 @@ test("Client review on a requirement task asks the client straight away", async 
   const note = calls.at(-1).args;
   assert.equal(note.channel, "CDEV");
   assert.equal(note.thread_ts, "100.1");
-  assert.equal(note.text, "Luma asked the client to review it in <https://slack.example/source|the requirement thread>.");
+  assert.equal(note.text, "Cade asked the client to review it in <https://slack.example/source|the requirement thread>.");
 });
 
 const requirementDelete = JSON.stringify({
@@ -1833,7 +1833,7 @@ const requirementDelete = JSON.stringify({
   requestedBy: "UCLIENT",
 });
 
-test("@LUMA remove in a requirement thread asks for confirmation", async (t) => {
+test("@Cade remove in a requirement thread asks for confirmation", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
   await send(
     "/slack/events",
@@ -1869,11 +1869,11 @@ test("removing a tracked requirement asks to delete its task too", async (t) => 
   const [, confirm] = prompt.blocks[1].elements;
   assert.equal(
     confirm.confirm.text.text,
-    '"Export reports", its task "Fix login", and Luma\'s replies in both threads will be deleted.',
+    '"Export reports", its task "Fix login", and Cade\'s replies in both threads will be deleted.',
   );
 });
 
-test("@LUMA remove in an external thread Luma did not start says so", async (t) => {
+test("@Cade remove in an external thread Cade did not start says so", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [{ ts: "200.1" }] } });
   await send(
     "/slack/events",
@@ -1882,16 +1882,16 @@ test("@LUMA remove in an external thread Luma did not start says so", async (t) 
   assert.match(calls.at(-1).args.text, /^This thread is not a requirement\./);
 });
 
-test("confirming a requirement's deletion removes Luma's replies and then the requirement", async (t) => {
+test("confirming a requirement's deletion removes Cade's replies and then the requirement", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": (args) =>
       args.limit === "1"
         ? { messages: [requirementRoot()] }
         : {
             messages: [
-              { ts: "200.1", bot_id: "BLUMA" },
+              { ts: "200.1", bot_id: "BCADE" },
               { ts: "200.2", user: "UCLIENT" },
-              { ts: "200.3", bot_id: "BLUMA" },
+              { ts: "200.3", bot_id: "BCADE" },
             ],
           },
   });
@@ -1944,7 +1944,7 @@ const incidentTask = (status = "TODO") => {
   return root;
 };
 
-test("/luma incident opens a form that asks only what the incident is", async (t) => {
+test("/cade incident opens a form that asks only what the incident is", async (t) => {
   const calls = mockSlack(t);
   const response = await send("/slack/commands", slash("incident"), {}, incidentEnv);
   assert.equal(await response.text(), "");
@@ -1956,10 +1956,10 @@ test("/luma incident opens a form that asks only what the incident is", async (t
   assert.equal(view.blocks[0].label.text, "What's the incident?");
 });
 
-test("/luma incident needs an incidents channel and works only in external channels", async (t) => {
+test("/cade incident needs an incidents channel and works only in external channels", async (t) => {
   for (const [channel, text] of [
     ["CTESTEXT", /^Incidents aren't set up for this channel yet/],
-    ["CDEV", /^Use `\/luma incident` in <#CEXTERNAL>\.$/],
+    ["CDEV", /^Use `\/cade incident` in <#CEXTERNAL>\.$/],
   ]) {
     const calls = mockSlack(t);
     const reply = await (await send("/slack/commands", slash("incident", channel), {}, incidentEnv)).json();
@@ -2188,7 +2188,7 @@ const pinsIn = (byChannel) => ({
   }),
 });
 
-// Runs `/luma <text>` from `channel` as UACTOR and returns its immediate
+// Runs `/cade <text>` from `channel` as UACTOR and returns its immediate
 // answer, the calls made, and the answer sent later through the response_url.
 async function tasksCommand(t, text, channel, responses, environment = env) {
   const calls = mockSlack(t, responses);
@@ -2208,7 +2208,7 @@ async function tasksCommand(t, text, channel, responses, environment = env) {
   return { now: await response.text(), calls, later };
 }
 
-test("/luma tasks in a group's channel shows its open tasks by role, only to you", async (t) => {
+test("/cade tasks in a group's channel shows its open tasks by role, only to you", async (t) => {
   const { now, calls, later } = await tasksCommand(t, "tasks", "CDEV", pinsIn({
     CDEV: [
       historyTask("100.1", { title: "Low task", priority: "Low", developers: "UACTOR" }),
@@ -2262,7 +2262,7 @@ test("/luma tasks in a group's channel shows its open tasks by role, only to you
   assert.equal(testing.text.text, "*Testing*\n_Nothing assigned._");
 });
 
-test("/luma tasks in an external or incidents channel shows that channel's group", async (t) => {
+test("/cade tasks in an external or incidents channel shows that channel's group", async (t) => {
   for (const channel of ["CEXTERNAL", "CINC"]) {
     const { later } = await tasksCommand(t, "tasks", channel, pinsIn({
       CDEV: [historyTask("100.1", { developers: "UACTOR" })],
@@ -2272,7 +2272,7 @@ test("/luma tasks in an external or incidents channel shows that channel's group
   }
 });
 
-test("/luma tasks outside every group shows each group in turn", async (t) => {
+test("/cade tasks outside every group shows each group in turn", async (t) => {
   const { later } = await tasksCommand(t, "tasks", "CRANDOM", pinsIn({
     CDEV: [historyTask("100.1", { developers: "UACTOR" })],
     CTESTDEV: [historyTask("100.2", { testers: "UACTOR" }), historyTask("100.3", { testers: "UACTOR" })],
@@ -2284,7 +2284,7 @@ test("/luma tasks outside every group shows each group in turn", async (t) => {
   );
 });
 
-test("/luma tasks with a role shows only that role", async (t) => {
+test("/cade tasks with a role shows only that role", async (t) => {
   const pins = pinsIn({
     CDEV: [
       historyTask("100.1", { title: "Build it", developers: "UACTOR" }),
@@ -2309,7 +2309,7 @@ test("/luma tasks with a role shows only that role", async (t) => {
   }
 });
 
-test("/luma tasks with a role and no such tasks says so", async (t) => {
+test("/cade tasks with a role and no such tasks says so", async (t) => {
   const { later } = await tasksCommand(t, "tasks review", "CDEV", pinsIn({
     CDEV: [historyTask("100.1", { developers: "UACTOR" })],
   }));
@@ -2317,13 +2317,13 @@ test("/luma tasks with a role and no such tasks says so", async (t) => {
   assert.equal(later.blocks[0].text.text, "Your aura300 tasks: Reviewing");
 });
 
-test("/luma tasks with anything else says what it takes", async (t) => {
+test("/cade tasks with anything else says what it takes", async (t) => {
   // Group names are not taken any more: the channel picks the group.
   for (const word of ["mars", "aura300"]) {
     const { now, calls, later } = await tasksCommand(t, `tasks ${word}`, "CDEV", pinsIn({}));
     assert.deepEqual(JSON.parse(now), {
       response_type: "ephemeral",
-      text: `"${word}" is not a role. Use \`/luma tasks\` for all your tasks, or \`/luma tasks development\`, \`review\` or \`testing\` for one role.`,
+      text: `"${word}" is not a role. Use \`/cade tasks\` for all your tasks, or \`/cade tasks development\`, \`review\` or \`testing\` for one role.`,
     });
     assert.equal(calls.length, 0);
     assert.equal(later, undefined);
@@ -2341,7 +2341,7 @@ test("a pin without the task's details loads the task", async (t) => {
   // As pins.list may return it: the metadata's type without its payload, or
   // no metadata at all.
   for (const pinned of [
-    { ts: "100.1", text: "Fix login", metadata: { event_type: "luma_task" } },
+    { ts: "100.1", text: "Fix login", metadata: { event_type: "cade_task" } },
     { ts: "100.1", text: "Fix login" },
   ]) {
     const { calls, later } = await tasksCommand(t, "tasks", "CDEV", {
@@ -2355,16 +2355,16 @@ test("a pin without the task's details loads the task", async (t) => {
   }
 });
 
-test("@LUMA tasks points to /luma tasks", async (t) => {
+test("@Cade tasks points to /cade tasks", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> tasks"));
-  assert.equal(calls[0].args.text, "Use `/luma tasks`.");
+  assert.equal(calls[0].args.text, "Use `/cade tasks`.");
 });
 
-const PR = "https://github.com/acme/project-helper/pull/42";
+const PR = "https://github.com/acme/cade/pull/42";
 const MR = "https://gitlab.com/acme/web/web-app/-/merge_requests/118";
 
-test("@LUMA pr add links pull requests on one line above who tracked it", async (t) => {
+test("@Cade pr add links pull requests on one line above who tracked it", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}/files> <${MR}|the MR> ${PR}`));
 
@@ -2372,10 +2372,10 @@ test("@LUMA pr add links pull requests on one line above who tracked it", async 
   const { blocks, metadata } = calls[1].args;
   // Stored without the /files tab, and only once.
   assert.equal(metadata.event_payload.prs, `${PR},${MR}`);
-  assert.equal(blocks[3].text.text, `*PRs:* <${PR}|project-helper/42>, <${MR}|web-app/118>`);
+  assert.equal(blocks[3].text.text, `*PRs:* <${PR}|cade/42>, <${MR}|web-app/118>`);
   assert.equal(blocks[4].type, "context");
   assert.match(blocks[4].elements[0].text, /^Tracked by/);
-  assert.match(calls[2].args.text, new RegExp(`^<@UACTOR> linked <${PR}\\|project-helper/42>, <${MR}\\|web-app/118> and moved the task to :large_purple_circle: In review\\.\\n`));
+  assert.match(calls[2].args.text, new RegExp(`^<@UACTOR> linked <${PR}\\|cade/42>, <${MR}\\|web-app/118> and moved the task to :large_purple_circle: In review\\.\\n`));
 });
 
 test("tasks without pull requests show no PRs line", async (t) => {
@@ -2385,7 +2385,7 @@ test("tasks without pull requests show no PRs line", async (t) => {
   assert.equal(calls[1].args.blocks[3].type, "context");
 });
 
-test("@LUMA pr add skips pull requests already linked", async (t) => {
+test("@Cade pr add skips pull requests already linked", async (t) => {
   const root = rootMessage();
   root.metadata.event_payload.prs = PR;
   let calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
@@ -2399,14 +2399,14 @@ test("@LUMA pr add skips pull requests already linked", async (t) => {
   assert.equal(calls[1].args.text, "Those pull requests are already linked to this task.");
 });
 
-test("@LUMA pr remove unlinks pull requests", async (t) => {
+test("@Cade pr remove unlinks pull requests", async (t) => {
   const root = rootMessage();
   root.metadata.event_payload.prs = `${PR},${MR}`;
   let calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
   assert.equal(calls[1].args.metadata.event_payload.prs, MR);
   assert.equal(calls[1].args.blocks[3].text.text, `*PRs:* <${MR}|web-app/118>`);
-  assert.equal(calls[2].args.text, `<@UACTOR> unlinked <${PR}|project-helper/42>.`);
+  assert.equal(calls[2].args.text, `<@UACTOR> unlinked <${PR}|cade/42>.`);
 
   // Removing the last one removes the PRs line.
   root.metadata.event_payload.prs = PR;
@@ -2420,14 +2420,14 @@ test("@LUMA pr remove unlinks pull requests", async (t) => {
   assert.equal(calls.at(-1).args.text, "Those pull requests aren't linked to this task.");
 });
 
-test("@LUMA pr needs add or remove and a pull request link", async (t) => {
+test("@Cade pr needs add or remove and a pull request link", async (t) => {
   for (const [text, reply] of [
-    [`<@UBOT> pr <${PR}>`, "Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`."],
-    ["<@UBOT> pr", "Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`."],
-    ["<@UBOT> pr add", "Paste the pull request's link: Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`."],
+    [`<@UBOT> pr <${PR}>`, "Use `@Cade pr add <link>` or `@Cade pr remove <link>`."],
+    ["<@UBOT> pr", "Use `@Cade pr add <link>` or `@Cade pr remove <link>`."],
+    ["<@UBOT> pr add", "Paste the pull request's link: Use `@Cade pr add <link>` or `@Cade pr remove <link>`."],
     [
-      "<@UBOT> pr add <https://github.com/acme/project-helper/issues/3>",
-      "That's not a pull request link: https://github.com/acme/project-helper/issues/3",
+      "<@UBOT> pr add <https://github.com/acme/cade/issues/3>",
+      "That's not a pull request link: https://github.com/acme/cade/issues/3",
     ],
   ]) {
     const calls = mockSlack(t);
@@ -2437,7 +2437,7 @@ test("@LUMA pr needs add or remove and a pull request link", async (t) => {
   }
 });
 
-test("@LUMA pr works in incidents channels but not in external ones", async (t) => {
+test("@Cade pr works in incidents channels but not in external ones", async (t) => {
   let calls = mockSlack(t, threads(incidentRoot(), incidentTask()));
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`, { channel: "CINC" }), {}, incidentEnv);
   assert.equal(calls[1].args.channel, "CINC");
@@ -2445,19 +2445,19 @@ test("@LUMA pr works in incidents channels but not in external ones", async (t) 
 
   calls = mockSlack(t);
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`, { channel: "CEXTERNAL" }));
-  assert.equal(calls[0].args.text, "Use `@LUMA pr add <link>` in a task thread in <#CDEV>.");
+  assert.equal(calls[0].args.text, "Use `@Cade pr add <link>` in a task thread in <#CDEV>.");
 });
 
 test("pull requests on GitHub, GitLab and Bitbucket are read as reponame/number", async () => {
   const { parsePullRequest } = await import("../src/tasks.js");
-  assert.deepEqual(parsePullRequest(`${PR}/files`), { url: PR, repo: "project-helper", number: "42" });
+  assert.deepEqual(parsePullRequest(`${PR}/files`), { url: PR, repo: "cade", number: "42" });
   assert.equal(parsePullRequest(MR).repo, "web-app");
   assert.deepEqual(parsePullRequest("https://bitbucket.org/acme/api/pull-requests/7"), {
     url: "https://bitbucket.org/acme/api/pull-requests/7",
     repo: "api",
     number: "7",
   });
-  assert.equal(parsePullRequest("https://github.com/acme/project-helper/issues/3"), null);
+  assert.equal(parsePullRequest("https://github.com/acme/cade/issues/3"), null);
 });
 
 test("linking a PR asks the task's reviewers to review it", async (t) => {
@@ -2465,7 +2465,7 @@ test("linking a PR asks the task's reviewers to review it", async (t) => {
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.equal(
     calls[2].args.text,
-    `<@UACTOR> linked <${PR}|project-helper/42> and moved the task to :large_purple_circle: In review.\n<@URIA>, <@UREX>, please review <${PR}|project-helper/42>.`,
+    `<@UACTOR> linked <${PR}|cade/42> and moved the task to :large_purple_circle: In review.\n<@URIA>, <@UREX>, please review <${PR}|cade/42>.`,
   );
   assert.equal(calls[2].args.blocks, undefined, "no picker");
 });
@@ -2476,7 +2476,7 @@ test("linking a PR with no reviewer asks who should review it", async (t) => {
   const prompt = calls[2].args;
   assert.equal(
     prompt.text,
-    `<@UACTOR> linked <${PR}|project-helper/42> and moved the task to :large_purple_circle: In review.\nThere's no reviewer yet. Who should review it?`,
+    `<@UACTOR> linked <${PR}|cade/42> and moved the task to :large_purple_circle: In review.\nThere's no reviewer yet. Who should review it?`,
   );
   const block = prompt.blocks[0];
   assert.equal(block.accessory.type, "multi_users_select");
@@ -2507,7 +2507,7 @@ test("choosing reviewers assigns them and asks them to review", async (t) => {
   assert.equal(
     calls[2].args.text,
     // Just the request; whoever chose sees the picker become it.
-    `<@URIA>, please review <${PR}|project-helper/42>.`,
+    `<@URIA>, please review <${PR}|cade/42>.`,
   );
   assert.equal(calls[2].args.blocks.length, 1, "the picker is gone");
 });
@@ -2520,7 +2520,7 @@ test("assigning a reviewer once a PR is linked asks them to review it", async (t
   assert.equal(calls[1].args.metadata.event_payload.reviewers, "URIA");
   assert.equal(
     calls[2].args.text,
-    `<@URIA>, please review <${PR}|project-helper/42>, <${MR}|web-app/118>.`,
+    `<@URIA>, please review <${PR}|cade/42>, <${MR}|web-app/118>.`,
   );
 });
 
@@ -2535,7 +2535,7 @@ test("reviewers added before a PR are not named, so not notified", async (t) => 
 // A plain (non-command) reply in the task's thread, as UACTOR.
 const threadReply = (text, overrides = {}) => threadEvent(text, overrides);
 
-// Clicks a button on Luma's private "link these PRs?" question.
+// Clicks a button on Cade's private "link these PRs?" question.
 const suggestionClick = (actionId, urls) =>
   interaction({
     type: "block_actions",
@@ -2575,7 +2575,7 @@ test("pull requests pasted into a task's thread are offered for linking, private
   assert.equal(question.user, "UACTOR");
   assert.equal(question.thread_ts, "100.1");
   // Only the PR that isn't linked yet is offered.
-  assert.equal(question.text, `You posted <${PR}|project-helper/42>. Link it to this task?`);
+  assert.equal(question.text, `You posted <${PR}|cade/42>. Link it to this task?`);
   const [link, skip] = question.blocks[1].elements;
   assert.equal(link.text.text, "Link PR");
   assert.equal(link.action_id, "pr:suggest-link");
@@ -2593,8 +2593,8 @@ test("messages without unlinked pull requests are left alone", async (t) => {
     [`See <${PR}>`, { thread_ts: undefined }, rootMessage()],
     [`See <${PR}>`, { channel: "CEXTERNAL" }, rootMessage()],
     [`See <${PR}>`, {}, { ts: "100.1" }],
-    // Luma's own messages and edits.
-    [`See <${PR}>`, { bot_id: "BLUMA" }, rootMessage()],
+    // Cade's own messages and edits.
+    [`See <${PR}>`, { bot_id: "BCADE" }, rootMessage()],
     [`See <${PR}>`, { subtype: "message_changed" }, rootMessage()],
   ]) {
     const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
@@ -2603,7 +2603,7 @@ test("messages without unlinked pull requests are left alone", async (t) => {
   }
 });
 
-test("@LUMA pr add is a command, not a suggestion", async (t) => {
+test("@Cade pr add is a command, not a suggestion", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
@@ -2622,7 +2622,7 @@ test("Link PRs links them, posts only what is new and removes the question", asy
   // status change, and the reviewer the message didn't mention is asked.
   assert.equal(
     calls[2].args.text,
-    `<@UACTOR> moved the task to :large_purple_circle: In review.\n<@URIA>, please review <${PR}|project-helper/42>.`,
+    `<@UACTOR> moved the task to :large_purple_circle: In review.\n<@URIA>, please review <${PR}|cade/42>.`,
   );
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
@@ -2669,13 +2669,13 @@ const clickSuggestion = (value) =>
 
 test("a pasted PR that mentions people offers them as reviewers too", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
-  // URIA is already a reviewer and Luma is not a person to add.
+  // URIA is already a reviewer and Cade is not a person to add.
   await send("/slack/events", threadReply(`<@UREX> <@URIA> <@UBOT> can you look at <${PR}>?`));
 
   const question = calls.find((call) => call.method === "chat.postEphemeral").args;
   assert.equal(
     question.text,
-    `You posted <${PR}|project-helper/42> and mentioned <@UREX>. Link it to this task and add <@UREX> as reviewer?`,
+    `You posted <${PR}|cade/42> and mentioned <@UREX>. Link it to this task and add <@UREX> as reviewer?`,
   );
   const [both, link, skip] = question.blocks[1].elements;
   // Each button has its own action_id, as Slack requires.
@@ -2698,7 +2698,7 @@ test("an already linked PR with new people offers just the reviewers", async (t)
   await send("/slack/events", threadReply(`<@UREX> <@URIA> please look at <${PR}>`));
 
   const question = calls.find((call) => call.method === "chat.postEphemeral").args;
-  assert.equal(question.text, `Add <@UREX>, <@URIA> as reviewers of <${PR}|project-helper/42>?`);
+  assert.equal(question.text, `Add <@UREX>, <@URIA> as reviewers of <${PR}|cade/42>?`);
   const [add, skip] = question.blocks[1].elements;
   assert.equal(add.text.text, "Add reviewers");
   assert.equal(add.value, suggestionValue({ mentioned: ["UREX", "URIA"], reviewers: ["UREX", "URIA"] }));
@@ -2723,7 +2723,7 @@ test("Link and add reviewer asks only the reviewers the message did not mention"
   // UREX was mentioned in the message, so only URIA is asked.
   assert.equal(
     post.text,
-    `<@UACTOR> moved the task to :large_purple_circle: In review.\n<@URIA>, please review <${PR}|project-helper/42>.`,
+    `<@UACTOR> moved the task to :large_purple_circle: In review.\n<@URIA>, please review <${PR}|cade/42>.`,
   );
   assert.equal(sent.length, 1);
 });
@@ -2813,7 +2813,7 @@ test("handing a task over in a message offers to assign them, privately", async 
   }
 });
 
-test("hand-offs leave alone people already in the role, Luma and plain chat", async (t) => {
+test("hand-offs leave alone people already in the role, Cade and plain chat", async (t) => {
   for (const [text, root] of [
     ["<@UREX> please start working on this", (() => {
       const root = withStatus("IN_PROGRESS");
@@ -2986,7 +2986,7 @@ test("a task that moved on before the click is not moved back to testing", async
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
 });
 
-test("@LUMA assign tester never changes the status", async (t) => {
+test("@Cade assign tester never changes the status", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus("IN_PROGRESS")] } });
   await send("/slack/events", threadEvent("<@UBOT> assign tester <@UTESS>"));
   assert.equal(calls[1].args.metadata.event_payload.status, "IN_PROGRESS");
@@ -3044,7 +3044,7 @@ test("a task started before the click is not moved again", async (t) => {
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
 });
 
-test("@LUMA assign developer never changes the status", async (t) => {
+test("@Cade assign developer never changes the status", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UREX>"));
   assert.equal(calls[1].args.metadata.event_payload.status, "TODO");
@@ -3069,7 +3069,7 @@ test("Done is posted in the requirement thread without asking", async (t) => {
     // The command gets a ✅, and a note that the requirement thread was told.
     assert.ok(calls.some((call) => call.method === "reactions.add"), from);
     assert.equal(calls.at(-1).args.channel, "CDEV", from);
-    assert.equal(calls.at(-1).args.text, "Luma told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.", from);
+    assert.equal(calls.at(-1).args.text, "Cade told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.", from);
   }
 });
 
@@ -3103,7 +3103,7 @@ test("Link PR on a task already in review with no reviewer just asks who should 
   recordResponses(t);
   await send("/slack/interactions", suggestionClick("pr:suggest-link", [PR]));
   const post = calls.find((call) => call.method === "chat.postMessage").args;
-  assert.equal(post.text, `There's no reviewer yet. Who should review <${PR}|project-helper/42>?`);
+  assert.equal(post.text, `There's no reviewer yet. Who should review <${PR}|cade/42>?`);
   assert.equal(post.blocks[0].accessory.action_id, "pr:reviewers");
 });
 
@@ -3286,7 +3286,7 @@ test("Client review lists the task's PRs for the client, and keeps them after a 
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   const announced = [
     "<@UACTOR> marked this as ready to review.",
-    `*PRs:* <${PR}|project-helper/42>, <${MR}|web-app/118>`,
+    `*PRs:* <${PR}|cade/42>, <${MR}|web-app/118>`,
   ].join("\n");
   assert.equal(
     review.blocks[0].text.text,
@@ -3314,7 +3314,7 @@ test("confirming removes the task first, then the requirement", async (t) => {
   const calls = mockSlack(t, {
     "conversations.replies": (args) => {
       if (args.limit === "1") return { messages: [args.ts === "200.1" ? requirementRoot({ task: true }) : requirementTask()] };
-      return { messages: [{ ts: args.ts, bot_id: "BLUMA" }, { ts: `${args.ts.split(".")[0]}.3`, bot_id: "BLUMA" }] };
+      return { messages: [{ ts: args.ts, bot_id: "BCADE" }, { ts: `${args.ts.split(".")[0]}.3`, bot_id: "BCADE" }] };
     },
   });
   await send(
@@ -3340,8 +3340,8 @@ test("confirming removes the task first, then the requirement", async (t) => {
 
 test("a task from a requirement or incident can't be removed from its own thread", async (t) => {
   for (const [root, environment, channel, text] of [
-    [requirementTask(), env, "CDEV", "This task belongs to a requirement. Remove it from <https://slack.example/source|its thread> with `@LUMA remove`, which removes both."],
-    [incidentTask(), incidentEnv, "CINC", "This task belongs to an incident. Remove it from <https://slack.example/source|its thread> with `@LUMA remove`, which removes both."],
+    [requirementTask(), env, "CDEV", "This task belongs to a requirement. Remove it from <https://slack.example/source|its thread> with `@Cade remove`, which removes both."],
+    [incidentTask(), incidentEnv, "CINC", "This task belongs to an incident. Remove it from <https://slack.example/source|its thread> with `@Cade remove`, which removes both."],
   ]) {
     if (channel === "CINC") root.metadata.event_payload.source_incident = "true";
     const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
@@ -3426,7 +3426,7 @@ test("Track and assign asks the developers in the new task's thread", async (t) 
 });
 
 
-// Clicking a role's button under `@LUMA assign`, in the task's thread.
+// Clicking a role's button under `@Cade assign`, in the task's thread.
 const chooseRole = (role) =>
   interaction({
     type: "block_actions",
@@ -3500,11 +3500,11 @@ test("reviewers saved are asked to review only once a PR is linked", async (t) =
   await send("/slack/interactions", savePeopleForm("reviewer", ["URIA"]));
   assert.equal(
     calls.find((call) => call.method === "chat.postMessage").args.text,
-    `<@URIA>, please review <${PR}|project-helper/42>.`,
+    `<@URIA>, please review <${PR}|cade/42>.`,
   );
 });
 
-test("@LUMA unassign of someone not assigned changes nothing", async (t) => {
+test("@Cade unassign of someone not assigned changes nothing", async (t) => {
   for (const [text, reply] of [
     ["<@UBOT> unassign <@UREX>", "They aren't assigned to this task."],
     ["<@UBOT> unassign tester <@UALICE>", "They aren't assigned to this task as tester."],
@@ -3568,7 +3568,7 @@ test("CHANNEL_PAIRS can be a JSON string, as the Cloudflare dashboard stores it"
   const calls = mockSlack(t);
   const asJson = { ...env, CHANNEL_PAIRS: JSON.stringify(env.CHANNEL_PAIRS) };
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }), {}, asJson);
-  assert.equal(calls[0].args.text, "Use `@LUMA assign developer @person` in a task thread in <#CDEV>.");
+  assert.equal(calls[0].args.text, "Use `@Cade assign developer @person` in a task thread in <#CDEV>.");
 
   const broken = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"), {}, { ...env, CHANNEL_PAIRS: "[{" });
@@ -3579,18 +3579,18 @@ test("the Slack app manifest is filled in from the Worker's URL, name and comman
   const { buildManifest } = await import("../scripts/slack-app.mjs");
   const { readFile } = await import("node:fs/promises");
   const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
-  const settings = { workerUrl: "https://luma.acme.workers.dev/", name: "Acme Luma", command: "/acme" };
+  const settings = { workerUrl: "https://cade.acme.workers.dev/", name: "Acme Cade", command: "/acme" };
 
   const manifest = buildManifest(template, settings);
   assert.equal(manifest._comment, undefined, "Slack doesn't accept extra keys");
-  assert.equal(manifest.display_information.name, "Acme Luma");
-  assert.equal(manifest.features.bot_user.display_name, "Acme Luma");
+  assert.equal(manifest.display_information.name, "Acme Cade");
+  assert.equal(manifest.features.bot_user.display_name, "Acme Cade");
   const [command] = manifest.features.slash_commands;
   assert.equal(command.command, "/acme");
   // The trailing slash is dropped, so the paths are clean.
-  assert.equal(command.url, "https://luma.acme.workers.dev/slack/commands");
-  assert.equal(manifest.settings.interactivity.request_url, "https://luma.acme.workers.dev/slack/interactions");
-  assert.equal(manifest.settings.event_subscriptions.request_url, "https://luma.acme.workers.dev/slack/events");
+  assert.equal(command.url, "https://cade.acme.workers.dev/slack/commands");
+  assert.equal(manifest.settings.interactivity.request_url, "https://cade.acme.workers.dev/slack/interactions");
+  assert.equal(manifest.settings.event_subscriptions.request_url, "https://cade.acme.workers.dev/slack/events");
   assert.ok(!JSON.stringify(manifest).includes("{{"), "every placeholder is filled in");
 
   // Created first without Event Subscriptions, whose URL Slack checks before
@@ -3599,7 +3599,7 @@ test("the Slack app manifest is filled in from the Worker's URL, name and comman
   assert.ok(template.settings.event_subscriptions, "the template is left as it was");
 });
 
-test("the manifest asks for the scopes Luma uses", async () => {
+test("the manifest asks for the scopes Cade uses", async () => {
   const { readFile } = await import("node:fs/promises");
   const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
   assert.deepEqual(template.oauth_config.scopes.bot, [
@@ -3617,13 +3617,13 @@ test("the manifest asks for the scopes Luma uses", async () => {
 
 test("slack:create checks its settings before calling Slack", async () => {
   const { checkSettings } = await import("../scripts/slack-app.mjs");
-  assert.deepEqual(checkSettings({ workerUrl: "https://luma.acme.workers.dev", name: "Luma", command: "/luma" }), []);
-  assert.equal(checkSettings({ workerUrl: "http://luma", name: "Luma", command: "/luma" }).length, 1);
-  assert.equal(checkSettings({ workerUrl: "https://luma.dev", name: "x".repeat(36), command: "/luma" }).length, 1);
-  assert.equal(checkSettings({ workerUrl: "https://luma.dev", name: "Luma", command: "luma" }).length, 1);
+  assert.deepEqual(checkSettings({ workerUrl: "https://cade.acme.workers.dev", name: "Cade", command: "/cade" }), []);
+  assert.equal(checkSettings({ workerUrl: "http://cade", name: "Cade", command: "/cade" }).length, 1);
+  assert.equal(checkSettings({ workerUrl: "https://cade.dev", name: "x".repeat(36), command: "/cade" }).length, 1);
+  assert.equal(checkSettings({ workerUrl: "https://cade.dev", name: "Cade", command: "cade" }).length, 1);
 });
 
-test("npm run config turns luma.config.json into the Worker's secrets", async () => {
+test("npm run config turns cade.config.json into the Worker's secrets", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
   assert.deepEqual(readConfig(JSON.stringify({ timezone: "Asia/Colombo", channels })), {
@@ -3654,7 +3654,7 @@ test("npm run config stops on a mistake, before uploading anything", async () =>
 test("the example config is valid", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const { readFile } = await import("node:fs/promises");
-  const secrets = readConfig(await readFile(new URL("../luma.config.example.json", import.meta.url), "utf8"));
+  const secrets = readConfig(await readFile(new URL("../cade.config.example.json", import.meta.url), "utf8"));
   assert.equal(JSON.parse(secrets.CHANNEL_PAIRS).length, 2);
 });
 
@@ -3679,7 +3679,7 @@ test("npm run dev asks for the Sheet's secret only with its URL", async () => {
   ]);
 });
 
-test("luma.config.json can hold the Google Sheet's address", async () => {
+test("cade.config.json can hold the Google Sheet's address", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
   const sheetUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
@@ -3713,7 +3713,7 @@ test("the first intent by order wins, and needs are checked first", async () => 
   assert.equal(findIntent([late, early], plainMessage(event("<@UREX> deploying now"), "UBOT")).name, "early");
   // …but an intent whose needs aren't met is passed over.
   assert.equal(findIntent([late, early], plainMessage(event("deploying now"), "UBOT")).name, "late");
-  // Luma mentioning itself isn't someone mentioned.
+  // Cade mentioning itself isn't someone mentioned.
   assert.equal(findIntent([early], plainMessage(event("<@UBOT> deploying"), "UBOT")), undefined);
   const threaded = intent({ name: "threaded", order: 1, phrases: ["deploy*"], needs: { thread: true }, handle() {} });
   assert.equal(findIntent([threaded], plainMessage(event("deploying", { thread_ts: undefined }), "UBOT")), undefined);
@@ -3742,7 +3742,7 @@ test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetU
   assert.equal(deploymentIdIn("nothing here"), undefined);
   assert.equal(webAppUrl("AKfycbNEW1"), "https://script.google.com/macros/s/AKfycbNEW1/exec");
 
-  // Other settings in luma.config.json are kept.
+  // Other settings in cade.config.json are kept.
   const config = JSON.parse(withSheetUrl('{"timezone":"UTC","channels":[]}', "https://script.google.com/macros/s/X/exec"));
   assert.deepEqual(config, { timezone: "UTC", channels: [], sheetUrl: "https://script.google.com/macros/s/X/exec" });
 });
@@ -3755,4 +3755,10 @@ test("Code.gs checks requests against SECRET from Secret.gs, not a script proper
   assert.match(code, /function authorize\(\)/);
   const ignore = await readFile(new URL("../google-sheet/.claspignore", import.meta.url), "utf8");
   assert.deepEqual(ignore.split("\n").filter((line) => line.startsWith("!")), ["!Code.gs", "!Secret.gs", "!appsscript.json"]);
+});
+
+test("the Slack app's description fits Slack's 140 characters", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
+  assert.ok(template.display_information.description.length <= 140);
 });

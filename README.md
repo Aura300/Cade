@@ -1,11 +1,12 @@
-# Luma
+# Cade
 
-Luma is a Slack app for tracking work between a client and a team: the
-client starts requirements and reports incidents in a shared channel, and
+**C.A.D.E.**, the Central Assistant for Delivery & Execution, is a Slack
+app for tracking work between a client and a team: the client starts
+requirements and reports incidents in a shared channel, and
 the team tracks them as tasks in its own channels. It runs as a single
 Cloudflare Worker, with no database.
 
-- To set Luma up, configure it and learn its commands, see
+- To set Cade up, configure it and learn its commands, see
   [GETTING_STARTED.md](GETTING_STARTED.md).
 - This page is for working on the code.
 
@@ -20,19 +21,19 @@ npm run deploy  # the Worker on Cloudflare
 
 `npm run dev` serves the Worker at `http://localhost:8787`, reloading as you
 edit. It takes the channels, time zone and Sheet address from
-`luma.config.json`, and asks for the secrets each time without saving them
+`cade.config.json`, and asks for the secrets each time without saving them
 (or takes them from the environment, such as `SLACK_BOT_TOKEN=… npm run
 dev`). Slack can't reach `localhost`, so to try it against Slack, expose it
 with a tunnel (such as `cloudflared tunnel --url http://localhost:8787`) and
 create a separate app for it: `npm run slack:create -- <tunnel URL> --name
-"Luma Dev" --command /lumadev`. Deploying to a pair of test channels is
+"Cade Dev" --command /cadedev`. Deploying to a pair of test channels is
 often simpler.
 
 Other scripts:
 
 | Script | Does |
 | --- | --- |
-| `npm run config` | Checks `luma.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
+| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
 | `npm run sheet:create` | Creates the Google Sheet and its web app with clasp, and gives the Worker its address and secret |
@@ -44,23 +45,23 @@ Slack sends three kinds of request to the Worker:
 
 | Path | Slack feature | Handles |
 | --- | --- | --- |
-| `/slack/events` | Event Subscriptions | Messages: `@LUMA …` commands, and plain messages Luma reacts to |
+| `/slack/events` | Event Subscriptions | Messages: `@Cade …` commands, and plain messages Cade reacts to |
 | `/slack/interactions` | Interactivity | Forms, buttons and menus |
-| `/slack/commands` | Slash Commands | `/luma …` |
+| `/slack/commands` | Slash Commands | `/cade …` |
 
 Every request is checked against the signing secret first. Slack wants an
 answer within three seconds, so slow work runs after the response, through
 `waitUntil`.
 
 Most commands are messages that start by mentioning the bot, such as
-`@LUMA assign @person`, because Slack doesn't allow custom slash commands in
+`@Cade assign @person`, because Slack doesn't allow custom slash commands in
 threads and most commands are sent from a thread. Commands that start
 something new outside a thread are slash commands, which can open a form
 straight away.
 
 ```mermaid
 flowchart LR
-    Message["@LUMA name … or /luma name …"]
+    Message["@Cade name … or /cade name …"]
     Parse[parse.js: build a command]
     Dispatch[dispatch.js: find handler, check scope]
     Handler[Command handler]
@@ -83,11 +84,11 @@ that didn't mean it.
 ### Where things are kept
 
 There is no database. A task lives in its root message in the dev channel:
-its details are the message's metadata (`luma_task`), read back with
+its details are the message's metadata (`cade_task`), read back with
 `loadTask` and written with `saveTask` in `tasks.js`. A requirement or
 incident lives the same way in its root message in the external channel
-(`luma_requirement`, in `requirements.js`). Open tasks and requirements are
-pinned, and Luma unpins them when they're Done, so `/luma tasks` reads only
+(`cade_requirement`, in `requirements.js`). Open tasks and requirements are
+pinned, and Cade unpins them when they're Done, so `/cade tasks` reads only
 pins. The Google Sheet, if set, is a record kept alongside (`sheet.js`,
 `google-sheet/Code.gs`), never read back.
 
@@ -129,7 +130,7 @@ or event, add it to `slack/manifest.json` and run `npm run slack:update`.
 
 `npm test` runs `test/index.test.js` against the real Worker, with `fetch`
 replaced by a fake Slack API: `mockSlack` returns canned results and records
-every call, so tests check exactly what Luma would send. Like Slack, the
+every call, so tests check exactly what Cade would send. Like Slack, the
 fake rejects a message whose buttons share an action ID. Shared fixtures,
 such as `rootMessage` (a task from a requirement), `ownTask` (the team's own
 task), `requirementRoot` and `incidentRoot`, build the messages Slack would

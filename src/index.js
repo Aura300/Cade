@@ -42,7 +42,7 @@ export default {
   },
 };
 
-// Messages in channels Luma is in: commands such as `@LUMA assign @person` are
+// Messages in channels Cade is in: commands such as `@Cade assign @person` are
 // run in the background and answered in the message's thread.
 async function handleEvent(body, request, context) {
   const envelope = JSON.parse(body);
@@ -91,7 +91,7 @@ async function handleEvent(body, request, context) {
   return respond();
 }
 
-// `/luma name …` slash commands. They run before Slack is answered, so that a
+// `/cade name …` slash commands. They run before Slack is answered, so that a
 // modal can be opened with the command's trigger_id, which expires after
 // three seconds. Replies are shown only to the person who sent the command.
 async function handleSlashCommand(body, request, context) {

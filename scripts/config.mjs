@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Uploads luma.config.json, the settings you edit, as Worker secrets, after
-// checking it the way Luma reads it. Edit the file, then run `npm run config`;
+// Uploads cade.config.json, the settings you edit, as Worker secrets, after
+// checking it the way Cade reads it. Edit the file, then run `npm run config`;
 // changes take effect without a deploy. See GETTING_STARTED.md.
 //
 //   channels  each group's Slack channels                    → CHANNEL_PAIRS
@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { channelPairs } from "../src/channels.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const FILE = `${ROOT}luma.config.json`;
+const FILE = `${ROOT}cade.config.json`;
 
 // Returns the Worker secrets `json` sets, or throws saying what's wrong.
 export function readConfig(json) {
@@ -26,11 +26,11 @@ export function readConfig(json) {
   try {
     config = JSON.parse(json);
   } catch {
-    throw new Error("luma.config.json is not valid JSON.");
+    throw new Error("cade.config.json is not valid JSON.");
   }
   const known = ["channels", "timezone", "sheetUrl"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
-  if (unknown) throw new Error(`luma.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
+  if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
   const pairs = channelPairs({ CHANNEL_PAIRS: config.channels });
   const ids = pairs.flatMap((pair) => [pair.external, pair.tasks, pair.incidents].filter(Boolean));
@@ -60,14 +60,14 @@ export function checkZone(zone) {
   }
 }
 
-// Checks luma.config.json and uploads it as Worker secrets. Throws, having
+// Checks cade.config.json and uploads it as Worker secrets. Throws, having
 // uploaded nothing, if the file is missing or wrong.
 export async function uploadConfig() {
   let json;
   try {
     json = await readFile(FILE, "utf8");
   } catch {
-    throw new Error("No luma.config.json: copy luma.config.example.json to luma.config.json and fill it in.");
+    throw new Error("No cade.config.json: copy cade.config.example.json to cade.config.json and fill it in.");
   }
   const secrets = readConfig(json);
   for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
@@ -78,7 +78,7 @@ export async function uploadConfig() {
   if (secrets.SHEET_URL) console.log(`sheetUrl: ${secrets.SHEET_URL}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.
-  const dir = await mkdtemp(join(tmpdir(), "luma-config-"));
+  const dir = await mkdtemp(join(tmpdir(), "cade-config-"));
   try {
     const file = join(dir, "secrets.json");
     await writeFile(file, JSON.stringify(secrets));

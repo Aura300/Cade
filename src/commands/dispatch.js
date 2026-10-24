@@ -2,7 +2,7 @@ import { channelsWithRole, findPair } from "../channels.js";
 import { commands } from "./registry.js";
 
 // Runs a parsed command and returns the reply to post in the message's thread,
-// if any. `@LUMA help`, a bare `@LUMA` or an unknown command lists them all.
+// if any. `@Cade help`, a bare `@Cade` or an unknown command lists them all.
 export async function dispatch(command, context) {
   const handler = commands[command.name];
   if (!handler) return usage();
@@ -13,8 +13,8 @@ export async function dispatch(command, context) {
   return runHandler(handler, handler.run, handler.usage, scope, command, context);
 }
 
-// Runs a `/luma name` slash command and returns the reply to show privately
-// to the person who sent it, if any. `/luma`, `/luma help` or an unknown
+// Runs a `/cade name` slash command and returns the reply to show privately
+// to the person who sent it, if any. `/cade`, `/cade help` or an unknown
 // command lists them all.
 export async function dispatchSlash(command, context) {
   const handler = commands[command.name];
@@ -24,7 +24,7 @@ export async function dispatchSlash(command, context) {
 }
 
 // Slash commands are never in a thread, and can work in other channels than
-// the handler's `@LUMA` form.
+// the handler's `@Cade` form.
 function slashScope(handler) {
   return { channel: handler.slashChannel ?? handler.channel };
 }
@@ -48,7 +48,7 @@ async function runHandler(handler, run, usage, scope, command, context) {
 // Handlers declare where they may run:
 //   channel       the role, or list of roles, of the channels they work in
 //                 ("external", "tasks"; see CHANNEL_PAIRS)
-//   slashChannel  the same for their `/luma` form, when it differs
+//   slashChannel  the same for their `/cade` form, when it differs
 //   inThread      whether they must be sent as a thread reply
 function checkScope(scope, usage, command, env) {
   const channels = channelsFor(scope, env);
@@ -78,7 +78,7 @@ function channelHint(scope, env, from) {
 }
 
 // Help is three lines, one per section, listing each command's forms. In a
-// task thread, saying it in your own words comes first: Luma offers to
+// task thread, saying it in your own words comes first: Cade offers to
 // assign people or link PRs from what you write, and the commands are there
 // for anything else.
 const SECTIONS = [
@@ -97,9 +97,9 @@ function usage() {
       .join(" · ");
     const words =
       section === "thread"
-        ? "Just say it: write \"@person please look into this\" or paste a PR link, and Luma offers to assign or link. Or: "
+        ? "Just say it: write \"@person please look into this\" or paste a PR link, and Cade offers to assign or link. Or: "
         : "";
     return `*${title}:* ${words}${forms}`;
   });
-  return `${lines.join("\n")}\n\`@LUMA help\` or \`/luma help\` shows this.`;
+  return `${lines.join("\n")}\n\`@Cade help\` or \`/cade help\` shows this.`;
 }

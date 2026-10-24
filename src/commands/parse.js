@@ -1,7 +1,7 @@
 // Most commands are messages that start by mentioning the bot, such as
-// `@LUMA assign @person`, because Slack does not allow custom slash commands
+// `@Cade assign @person`, because Slack does not allow custom slash commands
 // in threads and most commands are sent from a task's thread. Commands that
-// start something new, such as `/luma track`, also work as slash commands.
+// start something new, such as `/cade track`, also work as slash commands.
 const MESSAGE_PREFIX = /^\s*<@([A-Z0-9]+)>(?:\s+(.*))?$/s;
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
@@ -11,7 +11,7 @@ const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 //   mentions   users mentioned in `text`, excluding the bot
 //   user, channel, ts, threadTs
 export function parseMessage(event, botUserId) {
-  // Edits, deletions and bot posts (including Luma's own) are not commands.
+  // Edits, deletions and bot posts (including Cade's own) are not commands.
   if (event.subtype || event.bot_id) return null;
 
   const match = MESSAGE_PREFIX.exec(event.text ?? "");
@@ -35,7 +35,7 @@ export function parseMessage(event, botUserId) {
   };
 }
 
-// Returns the command in a `/luma name …` request, in the same shape as
+// Returns the command in a `/cade name …` request, in the same shape as
 // parseMessage, plus the triggerId for opening a modal and the responseUrl
 // for answering later, privately, after Slack's three seconds. Slash
 // commands are never in a thread.

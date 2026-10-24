@@ -12,18 +12,18 @@ const DOING = {
 // A section's text can hold 3,000 characters, so long lists are cut short.
 const MAX_LISTED = 15;
 
-// The words `/luma tasks <role>` takes for each role.
+// The words `/cade tasks <role>` takes for each role.
 const ROLE_WORDS = {
   developer: ["development", "developing", "developer", "dev"],
   reviewer: ["review", "reviewing", "reviewer"],
   tester: ["testing", "test", "tester"],
 };
 
-// `/luma tasks` in any channel lists the open tasks you are assigned to, by
+// `/cade tasks` in any channel lists the open tasks you are assigned to, by
 // group (channel pair): each group's dev channel's and incidents channel's.
 // They are grouped by your role (developing, reviewing, testing), incidents
 // first, then by priority and due date, each linking to its thread. Done
-// tasks are left out. `/luma tasks development` (or `review`, `testing`)
+// tasks are left out. `/cade tasks development` (or `review`, `testing`)
 // shows only that role.
 //
 // In a group's channel the list shows that group; elsewhere it shows every
@@ -33,7 +33,7 @@ const ROLE_WORDS = {
 export default {
   name: "tasks",
   description: "Show your open tasks by role, only to you (`development`, `review` or `testing` for one)",
-  slashUsage: "/luma tasks",
+  slashUsage: "/cade tasks",
   section: "work",
   async slash(command, context) {
     const roles = findRoles(command.text);
@@ -59,7 +59,7 @@ function findRoles(text) {
 }
 
 function askForRole(text) {
-  return `"${escapeSlack(text.trim())}" is not a role. Use \`/luma tasks\` for all your tasks, or \`/luma tasks development\`, \`review\` or \`testing\` for one role.`;
+  return `"${escapeSlack(text.trim())}" is not a role. Use \`/cade tasks\` for all your tasks, or \`/cade tasks development\`, \`review\` or \`testing\` for one role.`;
 }
 
 // One list per group, one after the other.
@@ -131,7 +131,7 @@ function dueOrder(dueDate) {
 
 // Returns the open tasks `user` is assigned to, as { task, roles, link,
 // incident }, from the group's tasks and incidents channels. Open
-// tasks are the pinned ones, since Luma unpins a task when it is Done, so
+// tasks are the pinned ones, since Cade unpins a task when it is Done, so
 // only pins are read. A task someone unpinned by hand is left out.
 // Links are built from the workspace's address, `url`, rather than looked up
 // one by one, which would take a Slack call per task.

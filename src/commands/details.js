@@ -6,24 +6,24 @@ import { NOT_A_TASK, PRIORITIES, formatDueDate, pickerDate } from "../tasks.js";
 const PRIORITY_ACTION = "priority:select";
 const DUE_ACTION = "due:select";
 
-// `@LUMA priority` and `@LUMA due` change a priority and due date. The client
+// `@Cade priority` and `@Cade due` change a priority and due date. The client
 // decides these for a requirement, so they are changed in the thread of a
-// requirement started with `/luma requirement`, before and after a task is
-// tracked from it. A tracked task follows the requirement, and Luma notes the
+// requirement started with `/cade requirement`, before and after a task is
+// tracked from it. A tracked task follows the requirement, and Cade notes the
 // change in the task's thread for the team. In that task's thread they cannot
 // be changed. Tasks with no requirement, such as the team's own work, have no
 // client, so their priority and due date are changed in the task's thread.
 // Incidents are always urgent and due immediately, so theirs never change.
 //
-// With a value Luma just reacts ✅ to the message; without one they reply
+// With a value Cade just reacts ✅ to the message; without one they reply
 // with a menu or date picker, which becomes the confirmation. Like the status
 // menu, the picker's thread says what it changes.
 
-// `@LUMA priority high`, or `@LUMA priority` for a menu.
+// `@Cade priority high`, or `@Cade priority` for a menu.
 export const priority = {
   name: "priority",
   description: "Change the priority (in a requirement thread, or a task thread with no requirement)",
-  usage: "@LUMA priority high",
+  usage: "@Cade priority high",
   section: "thread",
   channel: ["external", "tasks", "incidents"],
   inThread: true,
@@ -52,12 +52,12 @@ export const priority = {
   },
 };
 
-// `@LUMA due 31/12/2026`, `@LUMA due none` to clear it, or `@LUMA due` for a
+// `@Cade due 31/12/2026`, `@Cade due none` to clear it, or `@Cade due` for a
 // date picker.
 export const due = {
   name: "due",
   description: "Change the due date (in a requirement thread, or a task thread with no requirement)",
-  usage: "@LUMA due 31/12/2026",
+  usage: "@Cade due 31/12/2026",
   section: "thread",
   channel: ["external", "tasks", "incidents"],
   inThread: true,

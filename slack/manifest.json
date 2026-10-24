@@ -1,8 +1,8 @@
 {
-  "_comment": "The Slack app Luma runs as. npm run slack:create fills in {{WORKER_URL}}, {{APP_NAME}} and {{COMMAND}}; npm run slack:update applies changes to an existing app. See GETTING_STARTED.md.",
+  "_comment": "The Slack app Cade runs as. npm run slack:create fills in {{WORKER_URL}}, {{APP_NAME}} and {{COMMAND}}; npm run slack:update applies changes to an existing app. See GETTING_STARTED.md.",
   "display_information": {
     "name": "{{APP_NAME}}",
-    "description": "Tracks requirements, incidents and tasks between a client channel and the team's channels.",
+    "description": "C.A.D.E., the Central Assistant for Delivery & Execution: tracks client requirements, incidents and the team's tasks.",
     "background_color": "#2c2d30"
   },
   "features": {

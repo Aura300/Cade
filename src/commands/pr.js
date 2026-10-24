@@ -14,10 +14,10 @@ const SUGGEST_SKIP_ACTION = "pr:suggest-skip";
 // hold bare addresses.
 const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 
-const HOW = "Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`.";
+const HOW = "Use `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 
-// `@LUMA pr add <link> [<link> …]` in a task thread links pull requests to the
-// task, shown on the task's message as reponame/number; `@LUMA pr remove
+// `@Cade pr add <link> [<link> …]` in a task thread links pull requests to the
+// task, shown on the task's message as reponame/number; `@Cade pr remove
 // <link> [<link> …]` unlinks them. GitHub, GitLab and Bitbucket links are
 // recognised.
 //
@@ -26,13 +26,13 @@ const HOW = "Use `@LUMA pr add <link>` or `@LUMA pr remove <link>`.";
 // reply asks who should review it, with a people picker; choosing assigns
 // them as reviewers and asks them.
 //
-// People also paste pull requests into a task's thread without `@LUMA pr
-// add`. Then Luma asks them, privately, whether to link them, with Link PRs
+// People also paste pull requests into a task's thread without `@Cade pr
+// add`. Then Cade asks them, privately, whether to link them, with Link PRs
 // and Not now buttons (see suggestPullRequests).
 export default {
   name: "pr",
   description: "Link or unlink pull requests (in a task thread)",
-  usage: "@LUMA pr add <link>",
+  usage: "@Cade pr add <link>",
   section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,

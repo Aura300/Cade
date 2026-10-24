@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Creates the Slack app Luma runs as, or updates it, from slack/manifest.json,
+// Creates the Slack app Cade runs as, or updates it, from slack/manifest.json,
 // using Slack's app manifest API. See GETTING_STARTED.md.
 //
-//   npm run slack:create -- https://luma.example.workers.dev [--name Luma] [--command /luma]
+//   npm run slack:create -- https://cade.example.workers.dev [--name Cade] [--command /cade]
 //   npm run slack:update
 //
 // Both need an app configuration token for the workspace, from
@@ -22,7 +22,7 @@ import { askHidden } from "./prompt.mjs";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MANIFEST = `${ROOT}slack/manifest.json`;
 const APP_FILE = `${ROOT}.slack-app.json`;
-const DEFAULTS = { name: "Luma", command: "/luma" };
+const DEFAULTS = { name: "Cade", command: "/cade" };
 
 // The manifest for an app called `name`, answering `command`, served by the
 // Worker at `workerUrl`. Without `events`, it leaves out Event Subscriptions,
@@ -47,7 +47,7 @@ export function checkSettings({ workerUrl, name, command }) {
   if (!/^https:\/\/[^/\s]+/.test(workerUrl ?? "")) problems.push("The Worker URL must start with https://.");
   if (!name || name.length > 35) problems.push("The app name must be 1 to 35 characters.");
   if (!/^\/[a-z0-9_-]{1,31}$/.test(command ?? "")) {
-    problems.push("The command must be / and up to 31 lowercase letters, digits, - or _, such as /luma.");
+    problems.push("The command must be / and up to 31 lowercase letters, digits, - or _, such as /cade.");
   }
   return problems;
 }
@@ -163,7 +163,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [action, ...args] = process.argv.slice(2);
   const run = { create, update }[action];
   if (!run) {
-    console.error("Use: node scripts/slack-app.mjs create <worker-url> [--name Luma] [--command /luma] | update");
+    console.error("Use: node scripts/slack-app.mjs create <worker-url> [--name Cade] [--command /cade] | update");
     process.exit(1);
   }
   run(args).catch((error) => {

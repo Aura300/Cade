@@ -55,23 +55,23 @@ const handOffIntents = Object.entries(HANDOFFS).map(([role, { order, phrases }])
   }),
 );
 
-// `@LUMA assign developer @person [@person …]` in a task thread adds people
+// `@Cade assign developer @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way. The reply mentions
-// them with what to do next. Without anyone mentioned, `@LUMA assign`
+// them with what to do next. Without anyone mentioned, `@Cade assign`
 // replies with a button per role (or just the one named), which opens a form
 // with that role's people filled in, to add or remove people.
 //
 // There is nothing to review until a pull request is linked, so reviewers
 // can be added ahead of time: until then the reply names no one, so they are
-// not notified, and `@LUMA pr add` asks them to review once there is a PR.
+// not notified, and `@Cade pr add` asks them to review once there is a PR.
 //
 // People also hand tasks over in their own words, such as "@rex please look
-// into this". Then Luma asks whoever wrote it, privately, whether to assign
+// into this". Then Cade asks whoever wrote it, privately, whether to assign
 // them (see suggestAssignment).
 export default {
   name: "assign",
   description: "Assign a developer, reviewer or tester (in its thread)",
-  usage: "@LUMA assign developer @person",
+  usage: "@Cade assign developer @person",
   section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,
@@ -82,7 +82,7 @@ export default {
     if (!command.mentions.length) return roleButtons(role ? [role] : Object.keys(ROLES));
     if (!role) {
       const examples = Object.keys(ROLES)
-        .map((name) => `\`@LUMA assign ${name} @person\``)
+        .map((name) => `\`@Cade assign ${name} @person\``)
         .join(", ");
       return `Say which role to assign: ${examples}.`;
     }
@@ -119,7 +119,7 @@ export default {
   },
 };
 
-// Shared with `@LUMA unassign`, whose form is the same: it shows who's
+// Shared with `@Cade unassign`, whose form is the same: it shows who's
 // assigned, to remove people as well as add them.
 export function roleButtons(roles) {
   const prompt = roles.length === 1 ? `Who should be the ${ROLES[roles[0]].toLowerCase()}?` : "Who works on this task?";
@@ -176,7 +176,7 @@ async function openPeopleForm(payload, env, role) {
 }
 
 // Sets the role to the people saved, then removes the buttons. Those newly
-// added are asked as `@LUMA assign` would ask them, and those removed are
+// added are asked as `@Cade assign` would ask them, and those removed are
 // told they no longer need to do it.
 function savePeople(payload, context) {
   const { channel, ts, role, promptTs } = JSON.parse(payload.view.private_metadata);
@@ -217,7 +217,7 @@ async function suggestAssignment(message, env, role) {
 
   // In a task's thread the hand-off is about that task. In a requirement's
   // thread, asking someone to start working is about its task; before there
-  // is one, Luma offers to track it with them as developers.
+  // is one, Cade offers to track it with them as developers.
   let target = { channel: message.channel, ts: message.threadTs };
   let of = "";
   const place = roleOf(env, message.channel);
@@ -284,7 +284,7 @@ async function suggestAssignment(message, env, role) {
 // Where a hand-off moves a task, and the statuses it moves it from: starting
 // work moves a task that's To do to In progress, and testing moves one that
 // isn't being tested yet to In testing. Reviews move with linked PRs instead
-// (see pr.js). Assigning with `@LUMA assign` moves nothing, so people can be
+// (see pr.js). Assigning with `@Cade assign` moves nothing, so people can be
 // added ahead of time.
 const MOVES = {
   developer: { to: "IN_PROGRESS", from: ["TODO"] },
@@ -354,7 +354,7 @@ export const ASKED = {
 // and removes the private question. In the task's thread, the person
 // clicking wrote the message that asked them, so the thread only hears about
 // a status change; the task card shows who was assigned. Asked from the
-// requirement thread, the task's thread asks them as `@LUMA assign` would.
+// requirement thread, the task's thread asks them as `@Cade assign` would.
 async function acceptAssignment(payload, env) {
   const { channel, ts, role, people, moveTo, fromRequirement } = JSON.parse(payload.actions[0].value);
   const task = await loadTask(env, channel, ts);

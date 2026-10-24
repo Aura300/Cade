@@ -4,7 +4,7 @@ import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js"
 
 // Task details live in the root message's metadata, so assignments can be
 // updated without a separate datastore.
-const TASK_EVENT_TYPE = "luma_task";
+const TASK_EVENT_TYPE = "cade_task";
 
 // Slack cannot colour text, so each value is shown with a coloured emoji.
 export const PRIORITIES = {
@@ -24,7 +24,7 @@ export const STATUSES = {
 };
 
 // Each task has a list of people per role; the keys are what people type in
-// `@LUMA assign developer @person`.
+// `@Cade assign developer @person`.
 export const ROLES = {
   developer: "Developer",
   reviewer: "Reviewer",
@@ -33,7 +33,7 @@ export const ROLES = {
 
 export const NOT_A_TASK = "This thread is not a tracked task.";
 
-// What Luma asks of people when they are assigned to a role. Reviewers are
+// What Cade asks of people when they are assigned to a role. Reviewers are
 // asked once there's a pull request to review instead (see pr.js).
 export const REQUESTS = {
   developer: "please start working on this.",
@@ -161,7 +161,7 @@ export function taskFromMessage(message) {
     prs: list(payload.prs),
     createdBy: payload.created_by,
     completedAt: payload.completed_at ?? "",
-    // The team's own tasks, tracked with `/luma track`, have none.
+    // The team's own tasks, tracked with `/cade track`, have none.
     source: payload.source_channel
       ? {
           channel: payload.source_channel,

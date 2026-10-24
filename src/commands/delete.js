@@ -13,10 +13,10 @@ const KINDS = {
   requirement: { noun: "requirement", load: loadRequirement, missing: NOT_A_REQUIREMENT },
 };
 
-// `@LUMA delete` (or `@LUMA remove`) in a task or requirement thread replies
+// `@Cade delete` (or `@Cade remove`) in a task or requirement thread replies
 // with Delete and Cancel buttons. Delete opens a second "are you sure"
 // dialog, and only the person who asked for the deletion can confirm or
-// cancel it. Confirming deletes the root message and Luma's replies in its
+// cancel it. Confirming deletes the root message and Cade's replies in its
 // thread.
 //
 // Whoever confirmed sees the messages go, so nothing more is said. A task
@@ -30,8 +30,8 @@ const KINDS = {
 export default {
   name: "delete",
   aliases: ["remove"],
-  description: "Delete the task or requirement and Luma's messages in its thread",
-  usage: "@LUMA delete",
+  description: "Delete the task or requirement and Cade's messages in its thread",
+  usage: "@Cade delete",
   section: "thread",
   channel: ["tasks", "incidents", "external"],
   inThread: true,
@@ -47,8 +47,8 @@ export default {
     const also = task ? ` and its task <${task.link}|${escapeSlack(task.title)}> in <#${task.channel}>` : "";
     const question = `<@${command.user}>, delete the ${noun} *${escapeSlack(item.title)}*${also}? This cannot be undone.`;
     const deleted = task
-      ? `"${item.title}", its task "${task.title}", and Luma's replies in both threads will be deleted.`
-      : `"${item.title}" and Luma's replies in its thread will be deleted.`;
+      ? `"${item.title}", its task "${task.title}", and Cade's replies in both threads will be deleted.`
+      : `"${item.title}" and Cade's replies in its thread will be deleted.`;
     const value = JSON.stringify({
       kind,
       channel: command.channel,
@@ -118,7 +118,7 @@ async function authorize(payload, env) {
     channel: request.channel,
     thread_ts: request.ts,
     user: payload.user.id,
-    text: `Only <@${request.requestedBy}> can confirm this deletion. Send \`@LUMA delete\` to ask for your own.`,
+    text: `Only <@${request.requestedBy}> can confirm this deletion. Send \`@Cade delete\` to ask for your own.`,
   });
   return null;
 }
@@ -151,10 +151,10 @@ async function deleteRequirement(env, channel, ts, user) {
 function belongsToRequirement(task) {
   const noun = task.source.incident ? "an incident" : "a requirement";
   const thread = task.source.link ? `<${task.source.link}|its thread>` : "its thread";
-  return `This task belongs to ${noun}. Remove it from ${thread} with \`@LUMA remove\`, which removes both.`;
+  return `This task belongs to ${noun}. Remove it from ${thread} with \`@Cade remove\`, which removes both.`;
 }
 
-// Deletes Luma's replies in a thread. They go first, so the root is not left
+// Deletes Cade's replies in a thread. They go first, so the root is not left
 // behind if a delete fails midway.
 async function deleteReplies(env, channel, ts) {
   const own = [];

@@ -7,15 +7,15 @@ import { createTask } from "./track.js";
 const REQUIREMENT_VIEW = "requirement";
 const INCIDENT_VIEW = "incident";
 
-// `/luma requirement` in an external channel asks for the requirement's name,
+// `/cade requirement` in an external channel asks for the requirement's name,
 // priority and optional due date, in the same form as a task, then posts it
 // as a new message whose thread is where it is discussed. Once it is agreed,
-// `@LUMA track` in that thread opens the task form with those filled in, and
+// `@Cade track` in that thread opens the task form with those filled in, and
 // the requirement's message follows the task.
 export default {
   name: "requirement",
   description: "Start a thread to discuss a new requirement",
-  slashUsage: "/luma requirement",
+  slashUsage: "/cade requirement",
   section: "start",
   channel: "external",
   async slash(command, { env }) {
@@ -58,16 +58,16 @@ async function submit(payload, context) {
   return { response_action: "clear" };
 }
 
-// `/luma incident` in an external channel asks only for what the incident
+// `/cade incident` in an external channel asks only for what the incident
 // is: incidents are always urgent and due immediately. It posts the incident
 // like a requirement, then tracks it straight away as a task in the pair's
-// incidents channel, without waiting for `@LUMA track`. From then on it works
+// incidents channel, without waiting for `@Cade track`. From then on it works
 // like a tracked requirement, except that its priority and due date never
 // change.
 export const incident = {
   name: "incident",
   description: "Report an incident, tracked straight away in the incidents channel",
-  slashUsage: "/luma incident",
+  slashUsage: "/cade incident",
   section: "start",
   channel: "external",
   async slash(command, { env }) {

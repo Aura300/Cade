@@ -8,21 +8,21 @@ const REJECT_ACTION = "status:reject";
 // The external thread only needs to hear when a task reaches one of these.
 const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 
-// `@LUMA status` in a task thread replies with a menu of statuses; picking one
+// `@Cade status` in a task thread replies with a menu of statuses; picking one
 // updates the task and replaces the menu with a confirmation. A status can
-// also be given directly, as `@LUMA status IN_PROGRESS` or `@LUMA status in
-// progress`; then Luma just reacts ✅ to the message. Moving a task to DONE unpins it from the channel; moving it out
+// also be given directly, as `@Cade status IN_PROGRESS` or `@Cade status in
+// progress`; then Cade just reacts ✅ to the message. Moving a task to DONE unpins it from the channel; moving it out
 // of DONE pins it again. The same goes for the requirement it was tracked
 // from, in the external channel.
 //
-// When a task reaches CLIENT_REVIEW or DONE, Luma tells the external thread
+// When a task reaches CLIENT_REVIEW or DONE, Cade tells the external thread
 // it was tracked from, and the requirement it was tracked from always shows
 // the current status.
 //
 // Only the dev channel sets statuses, and it can set Done directly. Client
 // review is an optional step for work the client should check first, and
 // the client decides whether that work is accepted. When a requirement's
-// task moves to Client review, Luma's post in the requirement thread has
+// task moves to Client review, Cade's post in the requirement thread has
 // Approve and Not approve buttons. Approve moves the task to Done; Not
 // approve moves it back to In progress. Either way the task's thread is told,
 // and nothing more is posted in the requirement thread, where the client just
@@ -31,7 +31,7 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 export default {
   name: "status",
   description: "Update the task's status (in its thread)",
-  usage: "@LUMA status",
+  usage: "@Cade status",
   section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,
@@ -147,8 +147,8 @@ async function afterChange(env, channel, ts, task, status, user, reached) {
   // The client isn't mentioned here, so they aren't notified twice.
   const thread = task.source.link ? `<${task.source.link}|the requirement thread>` : "the requirement thread";
   const told = status === "CLIENT_REVIEW"
-    ? `Luma asked the client to review it in ${thread}.`
-    : `Luma told ${thread} it's ${STATUSES.DONE}.`;
+    ? `Cade asked the client to review it in ${thread}.`
+    : `Cade told ${thread} it's ${STATUSES.DONE}.`;
   return { text, told };
 }
 

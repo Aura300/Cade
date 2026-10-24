@@ -2,10 +2,10 @@ import { roleOf } from "./channels.js";
 import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
 import { PRIORITIES, STATUSES, loadTask, saveTask } from "./tasks.js";
 
-// A requirement is a root message Luma posts in an external channel for
-// `/luma requirement`; its thread is where the requirement is discussed. Like
+// A requirement is a root message Cade posts in an external channel for
+// `/cade requirement`; its thread is where the requirement is discussed. Like
 // tasks, its details live in the root message's metadata.
-const REQUIREMENT_EVENT_TYPE = "luma_requirement";
+const REQUIREMENT_EVENT_TYPE = "cade_requirement";
 
 // A requirement is in discussion until a task is tracked from its thread.
 // After that it shows the task's status as the client sees it: the team's
@@ -22,7 +22,7 @@ export function clientStatus(taskStatus) {
   return REQUIREMENT_STATUSES[taskStatus] && taskStatus !== "DISCUSSION" ? taskStatus : "IN_PROGRESS";
 }
 
-// An incident is a requirement started with `/luma incident`. It is always
+// An incident is a requirement started with `/cade incident`. It is always
 // urgent and fixed as soon as possible, and is tracked straight away in the
 // pair's incidents channel.
 export const INCIDENT = { priority: "Urgent", dueDate: "Immediate" };
@@ -31,7 +31,7 @@ export const INCIDENT_IS_FIXED =
   "Incidents are always :red_circle: Urgent and due Immediate, so their priority and due date can't be changed.";
 
 export const NOT_A_REQUIREMENT =
-  "This thread is not a requirement. Use `/luma requirement` to start one, then change its priority and due date in its thread.";
+  "This thread is not a requirement. Use `/cade requirement` to start one, then change its priority and due date in its thread.";
 
 export function requirementMessage(requirement) {
   // The requirement, then its status, priority and due date (from the
@@ -51,7 +51,7 @@ export function requirementMessage(requirement) {
     `${requirement.incident ? "Reported" : "Started"} by <@${requirement.createdBy}>`,
     task
       ? `Tracked by <@${task.trackedBy}> in <${task.link}|the task thread>`
-      : "Not tracked yet. Discuss it in this thread, then send `@LUMA track` here.",
+      : "Not tracked yet. Discuss it in this thread, then send `@Cade track` here.",
   ];
   return {
     text: `${label}: ${requirement.title}`,

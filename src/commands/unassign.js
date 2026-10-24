@@ -1,14 +1,14 @@
 import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
 import { noLonger, roleButtons } from "./assign.js";
 
-// `@LUMA unassign developer @person [@person …]` in a task thread removes
-// people from that role; `@LUMA unassign @person` removes them from every role.
+// `@Cade unassign developer @person [@person …]` in a task thread removes
+// people from that role; `@Cade unassign @person` removes them from every role.
 // They're told they no longer need to do it. Without anyone mentioned it offers the same role buttons and form as
-// `@LUMA assign`.
+// `@Cade assign`.
 export default {
   name: "unassign",
   description: "Unassign people from a role, or from every role (in its thread)",
-  usage: "@LUMA unassign developer @person",
+  usage: "@Cade unassign developer @person",
   section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,

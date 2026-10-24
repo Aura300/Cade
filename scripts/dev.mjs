@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Runs Luma on this machine with `wrangler dev`. The channels and time zone
-// come from luma.config.json; the secrets are asked for each time, unless
+// Runs Cade on this machine with `wrangler dev`. The channels and time zone
+// come from cade.config.json; the secrets are asked for each time, unless
 // they are already set in the environment, and are never saved: they reach
 // Wrangler through a temporary file, removed when it stops. Extra arguments
 // go to `wrangler dev`, as in `npm run dev -- --port 8788`.
@@ -19,7 +19,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const SECRETS = [
   { name: "SLACK_BOT_TOKEN", hint: "xoxb-…", check: (value) => value.startsWith("xoxb-") },
   { name: "SLACK_SIGNING_SECRET" },
-  // Asked only when luma.config.json has the Sheet's address.
+  // Asked only when cade.config.json has the Sheet's address.
   { name: "SHEET_SECRET", when: (settings) => Boolean(settings.SHEET_URL) },
 ];
 
@@ -69,16 +69,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     let json;
     try {
-      json = await readFile(`${ROOT}luma.config.json`, "utf8");
+      json = await readFile(`${ROOT}cade.config.json`, "utf8");
     } catch {
-      throw new Error("No luma.config.json: copy luma.config.example.json to luma.config.json and fill it in.");
+      throw new Error("No cade.config.json: copy cade.config.example.json to cade.config.json and fill it in.");
     }
     const config = readConfig(json);
     const secrets = await askSecrets(config);
     const groups = JSON.parse(config.CHANNEL_PAIRS).map((pair) => pair.name).join(", ");
-    console.log(`Using luma.config.json: ${groups}${config.TIMEZONE ? `; timezone ${config.TIMEZONE}` : ""}`);
+    console.log(`Using cade.config.json: ${groups}${config.TIMEZONE ? `; timezone ${config.TIMEZONE}` : ""}`);
 
-    dir = await mkdtemp(join(tmpdir(), "luma-dev-"));
+    dir = await mkdtemp(join(tmpdir(), "cade-dev-"));
     const file = join(dir, ".env");
     await writeFile(file, envFile({ ...config, ...secrets }), { mode: 0o600 });
     const child = spawn("npx", ["wrangler", "dev", "--env-file", file, ...process.argv.slice(2)], {

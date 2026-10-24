@@ -19,7 +19,7 @@ const OPEN_ACTION = "track:open";
 export const TRACK_ASSIGN_ACTION = "track:assign";
 
 function notInRequirement(env, channel) {
-  return `Use \`@LUMA track\` in the thread of a requirement started with \`/luma requirement\`. For the team's own work, use \`/luma track\` in <#${tasksChannelFor(env, channel)}>.`;
+  return `Use \`@Cade track\` in the thread of a requirement started with \`/cade requirement\`. For the team's own work, use \`/cade track\` in <#${tasksChannelFor(env, channel)}>.`;
 }
 
 function alreadyTracked(requirement) {
@@ -29,7 +29,7 @@ function alreadyTracked(requirement) {
 
 // Each channel has one way to track a task:
 //
-// `@LUMA track` in the thread of a requirement started with `/luma
+// `@Cade track` in the thread of a requirement started with `/cade
 // requirement` tracks the requirement. It replies with a Track task button,
 // because only a click carries the trigger_id Slack needs to open a modal.
 // The form starts with the requirement's title and asks only for the task's
@@ -40,17 +40,17 @@ function alreadyTracked(requirement) {
 // has one task, so a tracked requirement cannot be tracked again.
 //
 // Incidents are tracked when they are reported (see requirement.js). If an
-// incident's task is deleted, `@LUMA track` in its thread tracks it again,
+// incident's task is deleted, `@Cade track` in its thread tracks it again,
 // in the pair's incidents channel.
 //
-// `/luma track` in a tasks channel, for the team's own work, opens the full
+// `/cade track` in a tasks channel, for the team's own work, opens the full
 // form straight away, since a slash command carries a trigger_id. The task is
 // posted in that channel with no external thread.
 export default {
   name: "track",
   description: "Track a requirement as a task (in its thread)",
-  usage: "@LUMA track",
-  slashUsage: "/luma track",
+  usage: "@Cade track",
+  slashUsage: "/cade track",
   section: "start",
   channel: "external",
   slashChannel: "tasks",
@@ -110,7 +110,7 @@ export default {
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
 // From a requirement thread it also has `requirement: true` and the
 // requirement's title, priority and due date, to show in the form, and from
-// "Track and assign" the `developers` to start the task with. From `/luma track` it has only the channel.
+// "Track and assign" the `developers` to start the task with. From `/cade track` it has only the channel.
 async function openModal(env, triggerId, origin) {
   await callSlack(env, "views.open", {
     trigger_id: triggerId,
@@ -167,7 +167,7 @@ async function submit(payload, context) {
 }
 
 // Posts the task and announces it. `origin` is where it was tracked from, as
-// for the form; `/luma incident` uses this too, with `incident: true`, so the
+// for the form; `/cade incident` uses this too, with `incident: true`, so the
 // task goes to the pair's incidents channel.
 export async function createTask(env, task, origin) {
   if (origin.requirement) {
@@ -241,7 +241,7 @@ export async function createTask(env, task, origin) {
   });
   await setPinned(env, message.channel, message.ts, true);
   // Tracked with "Track and assign": the developers may not be in the
-  // requirement thread, so the task's thread asks them, as `@LUMA assign`
+  // requirement thread, so the task's thread asks them, as `@Cade assign`
   // would.
   if (origin.developers?.length) {
     await callSlack(env, "chat.postMessage", {
@@ -273,7 +273,7 @@ export async function createTask(env, task, origin) {
   // The requirement thread hears it's tracked, with a link to the task: the
   // Track task button becomes that message, and "Track and assign", which
   // has no button message, posts it. Incidents are tracked as they are
-  // reported, and `/luma track` in a tasks channel has no thread to tell.
+  // reported, and `/cade track` in a tasks channel has no thread to tell.
   if (task.source && !origin.reported) {
     const text = `<@${task.createdBy}> tracked this as a task: <${permalink}|${escapeSlack(task.title)}>`;
     const body = { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
