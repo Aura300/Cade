@@ -1,10 +1,9 @@
 import { dispatch } from "./commands/dispatch.js";
-import { parseMessage, parseSlashCommand } from "./commands/parse.js";
+import { parseMessage } from "./commands/parse.js";
 import { actions, views } from "./commands/registry.js";
-import { callSlack, ephemeral, messageBody, verifySlackRequest } from "./slack.js";
+import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
 
 const ROUTES = {
-  "/slack/commands": handleSlashCommand,
   "/slack/events": handleEvent,
   "/slack/interactions": handleInteraction,
 };
@@ -41,14 +40,7 @@ export default {
   },
 };
 
-// `/luma <command>`: the reply is shown only to the person who ran it.
-async function handleSlashCommand(body, request, context) {
-  const command = parseSlashCommand(Object.fromEntries(new URLSearchParams(body)));
-  const reply = await dispatch(command, context);
-  return respond(reply && ephemeral(reply));
-}
-
-// Messages in channels Luma is in: commands such as `luma assign @person` are
+// Messages in channels Luma is in: commands such as `@LUMA assign @person` are
 // run in the background and answered in the message's thread.
 async function handleEvent(body, request, context) {
   const envelope = JSON.parse(body);

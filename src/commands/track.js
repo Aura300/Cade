@@ -4,24 +4,16 @@ import { PRIORITIES, parseDueDate, setPinned, taskMessage } from "../tasks.js";
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
 
-// `/luma track` opens a modal; submitting it posts the task to the dev channel
-// and announces it in the external channel with a link to the task's thread.
-//
-// Only slash commands and button clicks carry the trigger_id needed to open a
-// modal, so `luma track` sent as a message (for example in a thread) replies
-// with a button instead. That reply is replaced by the announcement once the
-// task has been created, which keeps the announcement in the same thread.
+// `@LUMA track` in the external channel (usually in a thread) replies with a
+// Track task button, because only a click carries the trigger_id Slack needs
+// to open a modal. Submitting the modal posts the task to the dev channel and
+// replaces the button with an announcement linking to the task's thread.
 export default {
   name: "track",
   description: "Track a new task in the dev channel",
-  usage: "/luma track",
-  sources: ["slash", "message"],
+  usage: "@LUMA track",
   channel: "EXTERNAL_CHANNEL_ID",
-  async run(command, { env }) {
-    if (command.source === "slash") {
-      await openModal(env, command.triggerId, { channel: command.channel });
-      return undefined;
-    }
+  async run(command) {
     const origin = { channel: command.channel, threadTs: command.threadTs ?? command.ts };
     return {
       text: "Track a new task",
@@ -51,7 +43,7 @@ export default {
   views: { [TRACK_VIEW]: submit },
 };
 
-// `origin` says where to announce the task: { channel, threadTs?, promptTs? }.
+// `origin` says where to announce the task: { channel, threadTs, promptTs }.
 async function openModal(env, triggerId, origin) {
   await callSlack(env, "views.open", {
     trigger_id: triggerId,
@@ -138,13 +130,12 @@ async function createTask(env, task, origin) {
       ...taskMessage(task),
     });
   } catch (error) {
-    if (origin.channel) {
-      await callSlack(env, "chat.postEphemeral", {
-        channel: origin.channel,
-        user: task.createdBy,
-        text: `Sorry, the task "${escapeSlack(task.title)}" could not be created.`,
-      }).catch(() => {});
-    }
+    await callSlack(env, "chat.postEphemeral", {
+      channel: origin.channel,
+      thread_ts: origin.threadTs,
+      user: task.createdBy,
+      text: `Sorry, the task "${escapeSlack(task.title)}" could not be created.`,
+    }).catch(() => {});
     throw error;
   }
   console.log("Task created", {
@@ -154,25 +145,16 @@ async function createTask(env, task, origin) {
     createdBy: task.createdBy,
   });
   await setPinned(env, message.channel, message.ts, true);
-  if (!origin.channel) return;
 
   const { permalink } = await callSlack(env, "chat.getPermalink", {
     channel: message.channel,
     message_ts: message.ts,
   });
   const text = `<@${task.createdBy}> tracked a task: <${permalink}|${escapeSlack(task.title)}>`;
-  if (origin.promptTs) {
-    await callSlack(env, "chat.update", {
-      channel: origin.channel,
-      ts: origin.promptTs,
-      text,
-      blocks: [{ type: "section", text: mrkdwn(text) }],
-    });
-  } else {
-    await callSlack(env, "chat.postMessage", {
-      channel: origin.channel,
-      thread_ts: origin.threadTs,
-      text,
-    });
-  }
+  await callSlack(env, "chat.update", {
+    channel: origin.channel,
+    ts: origin.promptTs,
+    text,
+    blocks: [{ type: "section", text: mrkdwn(text) }],
+  });
 }

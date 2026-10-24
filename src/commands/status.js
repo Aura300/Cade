@@ -3,16 +3,15 @@ import { NOT_A_TASK, STATUSES, loadTask, saveTask, setPinned } from "../tasks.js
 
 const SELECT_ACTION = "status:select";
 
-// `luma status` in a task thread replies with a menu of statuses; picking one
+// `@LUMA status` in a task thread replies with a menu of statuses; picking one
 // updates the task and replaces the menu with a confirmation. A status can
-// also be given directly, as `luma status IN_PROGRESS` or `luma status in
+// also be given directly, as `@LUMA status IN_PROGRESS` or `@LUMA status in
 // progress`. Moving a task to DONE unpins it from the channel; moving it out
 // of DONE pins it again.
 export default {
   name: "status",
   description: "Update the task's status (in its thread)",
-  usage: "luma status",
-  sources: ["message"],
+  usage: "@LUMA status",
   channel: "TASK_CHANNEL_ID",
   inThread: true,
   async run(command, { env }) {

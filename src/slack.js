@@ -71,10 +71,6 @@ export function escapeSlack(value) {
 }
 
 // Replies are either plain text or a message body such as { text, blocks }.
-export function ephemeral(reply) {
-  return { response_type: "ephemeral", ...messageBody(reply) };
-}
-
 export function messageBody(reply) {
   return typeof reply === "string" ? { text: reply } : reply;
 }

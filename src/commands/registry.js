@@ -8,7 +8,6 @@ import unassign from "./unassign.js";
 //   {
 //     name, description, usage,
 //     aliases?: other names that run the same handler,
-//     sources: ["slash" | "message"],
 //     channel?: env setting with the channel ID it is limited to,
 //     inThread?: true if it must be run from a thread reply,
 //     run(command, context) -> reply | undefined,

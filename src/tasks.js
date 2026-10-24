@@ -41,7 +41,7 @@ export function taskMessage(task) {
         type: "context",
         elements: [
           mrkdwn(
-            `Tracked by <@${task.createdBy}> · reply here with \`luma assign @person\`, \`luma status\` or \`luma help\``,
+            `Tracked by <@${task.createdBy}> · reply here with \`@LUMA assign @person\`, \`@LUMA status\` or \`@LUMA help\``,
           ),
         ],
       },

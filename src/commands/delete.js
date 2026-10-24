@@ -4,7 +4,7 @@ import { NOT_A_TASK, loadTask } from "../tasks.js";
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
 
-// `luma delete` (or `luma remove`) in a task thread replies with Delete and
+// `@LUMA delete` (or `@LUMA remove`) in a task thread replies with Delete and
 // Cancel buttons. Delete opens a second "are you sure" dialog, and only the
 // person who asked for the deletion can confirm or cancel it. Confirming
 // deletes the task message and Luma's replies in its thread.
@@ -15,8 +15,7 @@ export default {
   name: "delete",
   aliases: ["remove"],
   description: "Delete the task and Luma's messages in its thread",
-  usage: "luma delete",
-  sources: ["message"],
+  usage: "@LUMA delete",
   channel: "TASK_CHANNEL_ID",
   inThread: true,
   async run(command, { env }) {
@@ -92,7 +91,7 @@ async function authorize(payload, env) {
     channel: request.channel,
     thread_ts: request.ts,
     user: payload.user.id,
-    text: `Only <@${request.requestedBy}> can confirm this deletion. Send \`luma delete\` to ask for your own.`,
+    text: `Only <@${request.requestedBy}> can confirm this deletion. Send \`@LUMA delete\` to ask for your own.`,
   });
   return null;
 }
