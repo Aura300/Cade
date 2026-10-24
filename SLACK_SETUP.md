@@ -189,7 +189,7 @@ Try these in the test channels first.
 | `@LUMA track` in a thread Luma didn't start, or in `#test-dev` | Luma explains where to use it; nothing is tracked |
 | `/luma track` in `#test-dev` | The full form opens straight away; the task is created in `#test-dev` with no external thread |
 | `/luma track` in `#test-external` | Luma says, privately, to use it in `#test-dev` |
-| In the task's thread: `@LUMA assign` | Pickers for Developer, Reviewer and Tester; choosing someone as developer adds them and posts "please start working on this" |
+| In the task's thread: `@LUMA assign developer` | A people picker; choosing someone adds them, posts "please start working on this", and the picker goes |
 | In the task's thread: `@LUMA assign developer @someone` | The task message shows them as **Developer** |
 | In the task's thread: "@someone please look into this" | Only you see "Assign them as developer?"; **Assign as developer** adds them |
 | "@someone please start working on this" on a To do task | **Assign and move to In progress** adds them as developer and moves the task to 🔵 In progress |

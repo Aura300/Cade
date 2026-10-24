@@ -36,8 +36,7 @@ const HANDOFFS = [
 // `@LUMA assign developer @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way. The reply mentions
 // them with what to do next. Without anyone mentioned, `@LUMA assign
-// developer` replies with a people picker for that role, and `@LUMA assign`
-// with one for each role.
+// developer` replies with a people picker for that role.
 //
 // There is nothing to review until a pull request is linked, so reviewers
 // can be added ahead of time: until then the reply names no one, so they are
@@ -55,11 +54,11 @@ export default {
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
-    // No one mentioned: people pickers, for the role named or for every role.
-    if (!command.mentions.length) {
+    // A role and no one mentioned: a people picker for that role.
+    if (role && !command.mentions.length) {
       const task = await loadTask(env, command.channel, command.threadTs);
       if (!task) return NOT_A_TASK;
-      return peoplePickers(task, role ? [role] : Object.keys(ROLES));
+      return peoplePicker(task, role);
     }
     if (!role) {
       const examples = Object.keys(ROLES)
@@ -99,33 +98,32 @@ export default {
   },
 };
 
-// A people picker per role, showing who is assigned now. Changing one sets
-// that role to the people chosen; the message stays, so assignments can be
-// changed again later.
-function peoplePickers(task, roles) {
-  const prompt = roles.length === 1 ? `Who should be the ${ROLES[roles[0]].toLowerCase()}?` : "Who works on this task?";
+// A people picker for a role, showing who is assigned now. Choosing sets the
+// role to the people chosen.
+function peoplePicker(task, role) {
+  const prompt = `Who should be the ${ROLES[role].toLowerCase()}?`;
   return {
     text: prompt,
     blocks: [
-      { type: "section", text: mrkdwn(prompt) },
-      ...roles.map((role) => ({
+      {
         type: "section",
         block_id: role,
-        text: mrkdwn(`*${ROLES[role]}*`),
+        text: mrkdwn(prompt),
         accessory: {
           type: "multi_users_select",
           action_id: PICK_ACTIONS[role],
           placeholder: plainText(`Choose ${ROLES[role].toLowerCase()}s`),
           ...(task.people[role].length && { initial_users: task.people[role] }),
         },
-      })),
+      },
     ],
   };
 }
 
-// Sets a role to the people chosen in its picker. Those newly added are
-// asked as `@LUMA assign` would ask them; those removed aren't told, since
-// the task card shows it. The picker is a reply in the task's thread.
+// Sets a role to the people chosen in its picker, then removes the picker.
+// Those newly added are asked as `@LUMA assign` would ask them; those
+// removed aren't told, since the task card shows it. The picker is a reply
+// in the task's thread.
 async function pickPeople(payload, env, role) {
   const channel = payload.channel.id;
   const ts = payload.message.thread_ts;
@@ -143,6 +141,7 @@ async function pickPeople(payload, env, role) {
     text = `${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`;
   }
   if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+  await callSlack(env, "chat.delete", { channel, ts: payload.message.ts });
 }
 
 // For a message in a task's thread that mentions people with a phrase that

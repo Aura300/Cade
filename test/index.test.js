@@ -489,26 +489,22 @@ test("@LUMA assign without a role asks for one", async (t) => {
   );
 });
 
-test("@LUMA assign without anyone mentioned shows people pickers", async (t) => {
-  // One role named: one picker, showing who's there now.
-  let calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
+test("@LUMA assign with a role and no one mentioned shows that role's picker", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ reviewers: "URIA" })] } });
   await send("/slack/events", threadEvent("<@UBOT> assign reviewer"));
-  let reply = calls.at(-1).args;
+  const reply = calls.at(-1).args;
   assert.equal(reply.text, "Who should be the reviewer?");
   assert.deepEqual(
-    reply.blocks.slice(1).map((block) => [block.block_id, block.accessory.type, block.accessory.action_id, block.accessory.initial_users]),
+    reply.blocks.map((block) => [block.block_id, block.accessory.type, block.accessory.action_id, block.accessory.initial_users]),
     [["reviewer", "multi_users_select", "assign:pick:reviewer", ["URIA"]]],
   );
+});
 
-  // No role: one picker per role.
-  calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE" })] } });
+test("@LUMA assign with no role asks for one, rather than showing every role", async (t) => {
+  const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign"));
-  reply = calls.at(-1).args;
-  assert.equal(reply.text, "Who works on this task?");
-  assert.deepEqual(
-    reply.blocks.slice(1).map((block) => [block.block_id, block.accessory.initial_users]),
-    [["developer", ["UALICE"]], ["reviewer", undefined], ["tester", undefined]],
-  );
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
+  assert.match(calls[0].args.text, /^Say which role to assign: /);
 });
 
 test("@LUMA unassign with a role removes people from that role only", async (t) => {
@@ -3439,8 +3435,13 @@ test("picking people sets the role and asks the ones newly added", async (t) => 
   const ask = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(ask.thread_ts, "100.1");
   assert.equal(ask.text, "<@UREX> please start working on this.");
-  // The picker stays as it is, to change again later.
-  assert.ok(!calls.some((call) => call.method === "chat.update" && call.args.ts === "100.8"));
+  // The picker goes once used.
+  assert.deepEqual(calls.at(-1), {
+    method: "chat.delete",
+    args: { channel: "CDEV", ts: "100.8" },
+    headers: calls.at(-1).headers,
+    previews: calls.at(-1).previews,
+  });
 });
 
 test("removing people from a picker tells no one", async (t) => {
@@ -3448,6 +3449,7 @@ test("removing people from a picker tells no one", async (t) => {
   await send("/slack/interactions", pick("tester", []));
   assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.testers, "");
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+  assert.equal(calls.at(-1).method, "chat.delete");
 });
 
 test("reviewers picked are asked to review only once a PR is linked", async (t) => {
