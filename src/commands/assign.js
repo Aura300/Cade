@@ -1,6 +1,7 @@
 import { roleOf } from "../channels.js";
 import { callSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
-import { NOT_A_TASK, ROLES, loadTask, parseRole, prLink, saveTask } from "../tasks.js";
+import { clientStatus, reflectOnRequirement } from "../requirements.js";
+import { NOT_A_TASK, ROLES, STATUSES, loadTask, parseRole, prLink, saveTask, statusName } from "../tasks.js";
 
 const SUGGEST_ASSIGN_ACTION = "assign:suggest";
 const SUGGEST_SKIP_ACTION = "assign:suggest-skip";
@@ -95,11 +96,25 @@ export async function suggestAssignment(event, env, botUserId) {
   const task = await loadTask(env, event.channel, event.thread_ts);
   if (!task) return;
   const people = mentioned.filter((id) => !task.people[role].includes(id));
-  if (!people.length) return;
+  // Handing a task over moves it on, even when the people were assigned
+  // ahead of time.
+  const moveTo = nextStatus(role, task.status);
+  if (!people.length && !moveTo) return;
 
   const label = ROLES[role].toLowerCase();
-  const question = `You asked ${mentions(people)} to ${ASKED[role]}. Assign ${people.length === 1 ? "them" : "them all"} as ${label}?`;
-  const value = JSON.stringify({ channel: event.channel, ts: event.thread_ts, role, people });
+  const them = people.length > 1 ? "them all" : "them";
+  const asked = `You asked ${mentions(people.length ? people : mentioned)} to ${ASKED[role]}.`;
+  let question = `${asked} Assign ${them} as ${label}?`;
+  let button = `Assign as ${label}`;
+  if (moveTo) {
+    const status = STATUSES[moveTo];
+    const name = statusName(moveTo);
+    question = people.length
+      ? `${asked} Assign ${them} as ${label} and move the task to ${status}?`
+      : `${asked} Move the task to ${status}?`;
+    button = people.length ? `Assign and move to ${name}` : `Move to ${name}`;
+  }
+  const value = JSON.stringify({ channel: event.channel, ts: event.thread_ts, role, people, moveTo });
   await callSlack(env, "chat.postEphemeral", {
     channel: event.channel,
     thread_ts: event.thread_ts,
@@ -113,7 +128,7 @@ export async function suggestAssignment(event, env, botUserId) {
           {
             type: "button",
             action_id: SUGGEST_ASSIGN_ACTION,
-            text: plainText(`Assign as ${label}`),
+            text: { ...plainText(button), emoji: true },
             style: "primary",
             value,
           },
@@ -124,6 +139,22 @@ export async function suggestAssignment(event, env, botUserId) {
   });
 }
 
+// Where a hand-off moves a task, and the statuses it moves it from: starting
+// work moves a task that's To do to In progress, and testing moves one that
+// isn't being tested yet to In testing. Reviews move with linked PRs instead
+// (see pr.js). Assigning with `@LUMA assign` moves nothing, so people can be
+// added ahead of time.
+const MOVES = {
+  developer: { to: "IN_PROGRESS", from: ["TODO"] },
+  tester: { to: "IN_TESTING", from: ["TODO", "IN_PROGRESS", "IN_REVIEW"] },
+};
+
+// The status a hand-off to `role` moves a task in `status` to, or null.
+function nextStatus(role, status) {
+  const move = MOVES[role];
+  return move?.from.includes(status) ? move.to : null;
+}
+
 // How the question describes what the message asked for.
 const ASKED = {
   developer: "work on this",
@@ -131,19 +162,30 @@ const ASKED = {
   tester: "test this",
 };
 
-// Assigns the suggested people, says so in the thread without mentioning
-// them again (the message that asked them already did), and removes the
-// private question. Reviewers are asked to review if a PR is linked, as
-// `@LUMA assign reviewer` would.
+// Assigns the suggested people and moves the task on as the question said,
+// then says so in the thread without mentioning them
+// again (the message that asked them already did) and removes the private
+// question. Reviewers are asked to review if a PR is linked, as `@LUMA assign
+// reviewer` would.
 async function acceptAssignment(payload, env) {
-  const { channel, ts, role, people } = JSON.parse(payload.actions[0].value);
+  const { channel, ts, role, people, moveTo } = JSON.parse(payload.actions[0].value);
   const task = await loadTask(env, channel, ts);
   const added = task ? people.filter((id) => !task.people[role].includes(id)) : [];
-  if (added.length) {
+  // The task may have moved on since the question was asked.
+  const moved = Boolean(task && moveTo && nextStatus(role, task.status) === moveTo);
+  if (added.length || moved) {
     task.people[role] = [...task.people[role], ...added];
+    if (moved) task.status = moveTo;
     await saveTask(env, channel, ts, task);
+    // Clients see both as In progress, which the requirement shows already;
+    // this keeps it right if that ever changes.
+    if (moved) await reflectOnRequirement(env, ts, task, { status: clientStatus(task.status) });
+
     const label = ROLES[role].toLowerCase();
-    let text = `<@${payload.user.id}> added ${added.length === 1 ? `a ${label}` : `${added.length} ${label}s`}.`;
+    const parts = [];
+    if (added.length) parts.push(`added ${added.length === 1 ? `a ${label}` : `${added.length} ${label}s`}`);
+    if (moved) parts.push(`moved the task to ${STATUSES[moveTo]}`);
+    let text = `<@${payload.user.id}> ${parts.join(" and ")}.`;
     if (role === "reviewer" && task.prs.length) {
       text = `${text}\n${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`;
     }

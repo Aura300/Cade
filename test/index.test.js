@@ -2957,7 +2957,8 @@ test("removing a PR leaves the status alone", async (t) => {
   assert.equal(calls[1].args.metadata.event_payload.status, "IN_REVIEW");
 });
 
-const assignValue = (role, people) => JSON.stringify({ channel: "CDEV", ts: "100.1", role, people });
+const assignValue = (role, people, moveTo = null) =>
+  JSON.stringify({ channel: "CDEV", ts: "100.1", role, people, moveTo });
 
 const clickAssign = (actionId, value) =>
   interaction({
@@ -2975,10 +2976,9 @@ test("handing a task over in a message offers to assign them, privately", async 
     ["<@UREX> can you look into this?", "developer", "developer", "work on this"],
     ["<@UREX> Could you pick this up", "developer", "developer", "work on this"],
     ["<@UREX> please review this fix", "reviewer", "reviewer", "review this"],
-    ["<@UREX> please test it on staging", "tester", "tester", "test this"],
-    ["<@UREX> can you QA this", "tester", "tester", "test this"],
   ]) {
-    const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+    // In review already, so only the assignment is offered.
+    const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus("IN_REVIEW")] } });
     await send("/slack/events", threadReply(text));
     const question = calls.find((call) => call.method === "chat.postEphemeral")?.args;
     assert.ok(question, text);
@@ -2994,7 +2994,11 @@ test("handing a task over in a message offers to assign them, privately", async 
 
 test("hand-offs leave alone people already in the role, Luma and plain chat", async (t) => {
   for (const [text, root] of [
-    ["<@UREX> please start working on this", rootMessage({ developers: "UREX" })],
+    ["<@UREX> please start working on this", (() => {
+      const root = withStatus("IN_PROGRESS");
+      root.metadata.event_payload.developers = "UREX";
+      return root;
+    })()],
     ["<@UBOT> please look into this", rootMessage()],
     ["<@UREX> thanks, looks great", rootMessage()],
     ["please start working on this", rootMessage()],
@@ -3078,4 +3082,153 @@ test("Just link works like the other link button", async (t) => {
   const update = calls.find((call) => call.method === "chat.update").args;
   assert.equal(update.metadata.event_payload.prs, PR);
   assert.equal(update.metadata.event_payload.reviewers, "URIA");
+});
+
+test("handing a task to testing offers to assign the tester and move it to In testing", async (t) => {
+  for (const text of ["<@UTESS> please test it on staging", "<@UTESS> can you QA this"]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+    await send("/slack/events", threadReply(text));
+    const question = calls.find((call) => call.method === "chat.postEphemeral").args;
+    assert.equal(
+      question.text,
+      "You asked <@UTESS> to test this. Assign them as tester and move the task to :large_orange_circle: In testing?",
+      text,
+    );
+    const [assign] = question.blocks[1].elements;
+    assert.equal(assign.text.text, "Assign and move to In testing");
+    assert.equal(assign.value, assignValue("tester", ["UTESS"], "IN_TESTING"));
+  }
+});
+
+test("a tester assigned ahead of time is offered just the move to In testing", async (t) => {
+  const root = withStatus("IN_REVIEW");
+  root.metadata.event_payload.testers = "UTESS";
+  const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  await send("/slack/events", threadReply("<@UTESS> ready for testing"));
+  const question = calls.find((call) => call.method === "chat.postEphemeral").args;
+  assert.equal(question.text, "You asked <@UTESS> to test this. Move the task to :large_orange_circle: In testing?");
+  const [move] = question.blocks[1].elements;
+  assert.equal(move.text.text, "Move to In testing");
+  assert.equal(move.value, assignValue("tester", [], "IN_TESTING"));
+});
+
+test("a testing hand-off once testing has started only offers the assignment", async (t) => {
+  for (const status of ["IN_TESTING", "CLIENT_REVIEW", "DONE"]) {
+    let calls = mockSlack(t, { "conversations.replies": { messages: [withStatus(status)] } });
+    await send("/slack/events", threadReply("<@UTESS> please test this"));
+    const question = calls.find((call) => call.method === "chat.postEphemeral").args;
+    assert.equal(question.text, "You asked <@UTESS> to test this. Assign them as tester?", status);
+    assert.equal(question.blocks[1].elements[0].value, assignValue("tester", ["UTESS"]));
+
+    // With the tester already there, there's nothing to ask.
+    const root = withStatus(status);
+    root.metadata.event_payload.testers = "UTESS";
+    calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+    await send("/slack/events", threadReply("<@UTESS> please test this"));
+    assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), status);
+  }
+});
+
+test("Assign and move to In testing assigns the tester and moves the task", async (t) => {
+  const calls = mockSlack(t, threads(requirementRoot({ task: true }), requirementTask("IN_REVIEW")));
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("tester", ["UTESS"], "IN_TESTING")));
+
+  const task = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args;
+  assert.equal(task.metadata.event_payload.testers, "UTESS");
+  assert.equal(task.metadata.event_payload.status, "IN_TESTING");
+  // The client still sees In progress.
+  const requirement = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
+  assert.equal(requirement?.args.metadata.event_payload.status ?? "IN_PROGRESS", "IN_PROGRESS");
+  assert.ok(!calls.some((call) => call.method.startsWith("pins.")));
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.text, "<@UACTOR> added a tester and moved the task to :large_orange_circle: In testing.");
+});
+
+test("Move to In testing moves a task whose tester was assigned ahead of time", async (t) => {
+  const root = withStatus("IN_PROGRESS");
+  root.metadata.event_payload.testers = "UTESS";
+  const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("tester", [], "IN_TESTING")));
+  const task = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(task.metadata.event_payload.status, "IN_TESTING");
+  assert.equal(task.metadata.event_payload.testers, "UTESS");
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    "<@UACTOR> moved the task to :large_orange_circle: In testing.",
+  );
+});
+
+test("a task that moved on before the click is not moved back to testing", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus("CLIENT_REVIEW")] } });
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("tester", ["UTESS"], "IN_TESTING")));
+  const task = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(task.metadata.event_payload.status, "CLIENT_REVIEW");
+  assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UACTOR> added a tester.");
+});
+
+test("@LUMA assign tester never changes the status", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus("IN_PROGRESS")] } });
+  await send("/slack/events", threadEvent("<@UBOT> assign tester <@UTESS>"));
+  assert.equal(calls[1].args.metadata.event_payload.status, "IN_PROGRESS");
+  assert.equal(calls[1].args.metadata.event_payload.testers, "UTESS");
+});
+
+test("handing a To do task to a developer offers to move it to In progress", async (t) => {
+  // A new developer: assign and move.
+  let calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadReply("<@UREX> please start working on this"));
+  let question = calls.find((call) => call.method === "chat.postEphemeral").args;
+  assert.equal(
+    question.text,
+    "You asked <@UREX> to work on this. Assign them as developer and move the task to :large_blue_circle: In progress?",
+  );
+  assert.equal(question.blocks[1].elements[0].text.text, "Assign and move to In progress");
+  assert.equal(question.blocks[1].elements[0].value, assignValue("developer", ["UREX"], "IN_PROGRESS"));
+
+  // Assigned ahead of time: just the move.
+  calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UREX" })] } });
+  await send("/slack/events", threadReply("<@UREX> you can start working on this now"));
+  question = calls.find((call) => call.method === "chat.postEphemeral").args;
+  assert.equal(question.text, "You asked <@UREX> to work on this. Move the task to :large_blue_circle: In progress?");
+  assert.equal(question.blocks[1].elements[0].text.text, "Move to In progress");
+  assert.equal(question.blocks[1].elements[0].value, assignValue("developer", [], "IN_PROGRESS"));
+});
+
+test("a developer hand-off once work has started only offers the assignment", async (t) => {
+  for (const status of ["IN_PROGRESS", "IN_REVIEW", "IN_TESTING", "DONE"]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus(status)] } });
+    await send("/slack/events", threadReply("<@UREX> please look into this"));
+    const question = calls.find((call) => call.method === "chat.postEphemeral").args;
+    assert.equal(question.text, "You asked <@UREX> to work on this. Assign them as developer?", status);
+  }
+});
+
+test("Assign and move to In progress assigns the developer and moves the task", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("developer", ["UREX"], "IN_PROGRESS")));
+  const task = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(task.metadata.event_payload.developers, "UREX");
+  assert.equal(task.metadata.event_payload.status, "IN_PROGRESS");
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    "<@UACTOR> added a developer and moved the task to :large_blue_circle: In progress.",
+  );
+});
+
+test("a task started before the click is not moved again", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus("IN_REVIEW")] } });
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("developer", ["UREX"], "IN_PROGRESS")));
+  assert.equal(calls.find((call) => call.method === "chat.update").args.metadata.event_payload.status, "IN_REVIEW");
+  assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UACTOR> added a developer.");
+});
+
+test("@LUMA assign developer never changes the status", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UREX>"));
+  assert.equal(calls[1].args.metadata.event_payload.status, "TODO");
 });

@@ -200,6 +200,12 @@ In a task's thread in `#aura300-dev` or the incidents channel:
 
   If a message matches more than one, reviewer comes before tester, and
   tester before developer. People already in that role aren't asked about.
+  A hand-off also moves the task on: to a developer, a task that's To do
+  moves to 🔵 In progress; to a tester, a task that's To do, In progress or
+  In review moves to 🟠 In testing (**Assign and move to …**). When the
+  people were assigned ahead of time, Luma offers just **Move to …**.
+  Reviews move with linked PRs instead. `@LUMA assign` never changes the
+  status, so people can be added in advance.
   Assigning says "@you added a developer" in the thread without mentioning
   them again, since your message already did. A message with a PR link gets
   the PR question below instead.
