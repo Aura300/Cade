@@ -65,7 +65,11 @@ function findRow(sheet, id) {
 // Creates the pair's tab with a bold, frozen header row the first time it is
 // used.
 function sheetFor(name) {
-  const book = SpreadsheetApp.getActiveSpreadsheet();
+  // A script opened from the sheet (Extensions → Apps Script) writes to that
+  // sheet; a standalone script needs the SPREADSHEET_ID script property.
+  const id = PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID");
+  const book = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!book) throw new Error("Set the SPREADSHEET_ID script property");
   let sheet = book.getSheetByName(name);
   if (!sheet) {
     sheet = book.insertSheet(name);

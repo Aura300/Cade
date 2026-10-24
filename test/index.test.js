@@ -1175,6 +1175,41 @@ test("a sheet failure does not stop the command", async (t) => {
   assert.equal(calls.at(-1).args.text, "<@UBOB> please test this.");
 });
 
+// Apps Script answers a POST with a redirect to a page holding its reply.
+function mockRedirectingSheet(t, replyPage) {
+  const calls = mockSlack(t, { ...slackUsers, "conversations.replies": { messages: [rootMessage()] } });
+  const mocked = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    if (url === SHEET_URL) {
+      requests.push(init);
+      return new Response(null, { status: 302, headers: { location: "https://script.googleusercontent.com/echo" } });
+    }
+    if (url === "https://script.googleusercontent.com/echo") return replyPage();
+    return mocked(url, init);
+  };
+  return { calls, requests };
+}
+
+test("a sheet redirect counts as delivered even when the reply page is missing", async (t) => {
+  const { requests } = mockRedirectingSheet(t, () => new Response("Not found", { status: 404 }));
+  const warn = t.mock.method(console, "warn");
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"));
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].redirect, "manual");
+  assert.ok(
+    !warn.mock.calls.some((call) => call.arguments[0] === "Could not sync task to sheet"),
+  );
+});
+
+test("a sheet reply that rejects the row is logged", async (t) => {
+  mockRedirectingSheet(t, () => Response.json({ ok: false, error: "unauthorized" }));
+  const warn = t.mock.method(console, "warn");
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"));
+  const logged = warn.mock.calls.find((call) => call.arguments[0] === "Could not sync task to sheet");
+  assert.match(logged.arguments[1].error, /unauthorized/);
+});
+
 test("without users:read the sheet shows user IDs", async (t) => {
   const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
   const originalFetch = globalThis.fetch;

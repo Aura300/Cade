@@ -27,7 +27,14 @@ column. Times are in Sri Lanka time (`TIMEZONE` in `wrangler.toml`).
    example "LUMA tasks".
 2. **Add the script.** In the sheet, open **Extensions → Apps Script**.
    Replace the contents of `Code.gs` with the contents of
-   [`Code.gs`](Code.gs) from this folder, then click **Save**.
+   [`Code.gs`](Code.gs) from this folder, then click **Save**. You don't need
+   to create any tabs; the script adds one per channel pair (for example
+   **aura300** and **test**) the first time it writes to it.
+
+   If you created the script separately at script.google.com instead, it
+   isn't attached to the sheet. Add a script property `SPREADSHEET_ID` (in
+   step 3) set to the sheet's ID, the long part of its URL between `/d/` and
+   `/edit`.
 3. **Choose a secret.** This stops anyone else from writing to the sheet.
    Generate a random value, for example:
 
@@ -75,6 +82,13 @@ The Worker logs `Could not sync task to sheet` with the reason in
 - `Sheet returned HTTP 401/403`: the web app's access isn't set to
   **Anyone**.
 - No log at all: `SHEET_URL` or `SHEET_SECRET` isn't set, so syncing is off.
+
+On some Google accounts, the page holding the script's reply returns 404
+even though the script ran. The Worker counts the request as delivered in
+that case, so a wrong secret may not appear in its logs. If rows don't
+appear, open **Executions** in Apps Script: each update shows as a `doPost`
+**Web App** run, and the sheet only changes when `SECRET` matches
+`SHEET_SECRET`.
 
 Tasks that existed before the sheet was set up appear the next time they
 change.

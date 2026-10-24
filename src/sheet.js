@@ -15,7 +15,21 @@ export async function sendRow(env, project, row) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ secret: env.SHEET_SECRET, project, row }),
+    redirect: "manual",
   });
+
+  // Apps Script runs doPost before answering, then redirects to a page that
+  // holds its reply. On some Google accounts that page returns 404 even though
+  // doPost completed, so the redirect itself counts as delivered and the reply
+  // is only checked when it can be read.
+  if (response.status === 302) {
+    const reply = await fetch(response.headers.get("location")).catch(() => null);
+    const isJson = reply?.ok && reply.headers.get("content-type")?.includes("json");
+    const result = isJson ? await reply.json() : null;
+    if (result && !result.ok) throw new Error(`Sheet rejected the row: ${result.error}`);
+    return;
+  }
+
   if (!response.ok) throw new Error(`Sheet returned HTTP ${response.status}`);
   const result = await response.json();
   if (!result.ok) throw new Error(`Sheet rejected the row: ${result.error}`);
