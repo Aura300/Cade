@@ -191,6 +191,7 @@ Try these in the test channels first.
 | `/luma track` in `#test-dev` | The full form opens straight away; the task is created in `#test-dev` with no external thread |
 | `/luma track` in `#test-external` | Luma says, privately, to use it in `#test-dev` |
 | In the task's thread: `@LUMA assign developer @someone` | The task message shows them as **Developer** |
+| In the task's thread: "@someone please look into this" | Only you see "Assign them as developer?"; **Assign as developer** adds them |
 | `@LUMA assign reviewer @someone`, `@LUMA assign tester @someone` | They appear as **Reviewer** / **Tester** |
 | `@LUMA status` | A status menu appears; picking **In progress** changes **Status** to 🔵 In progress |
 | `@LUMA status done` | Status changes to ✅ Done, the task is unpinned, and Luma asks whether to inform the external thread |

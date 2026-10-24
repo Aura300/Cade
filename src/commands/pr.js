@@ -95,6 +95,17 @@ async function linkPullRequests(env, channel, ts, task, urls, user) {
 
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
+// The pull requests linked in a message's text, each once.
+export function pullRequestsIn(text) {
+  return [
+    ...new Set(
+      [...(text ?? "").matchAll(LINK)]
+        .map((match) => parsePullRequest(match[1] ?? match[2])?.url)
+        .filter(Boolean),
+    ),
+  ];
+}
+
 // For a message in a task's thread that holds pull request links but is not
 // a command, asks whoever posted it, privately, whether to link the ones not
 // linked yet, and whether to add the people it mentions who aren't reviewers
@@ -103,13 +114,7 @@ export async function suggestPullRequests(event, env, botUserId) {
   const inThread = event.thread_ts && event.thread_ts !== event.ts;
   if (!inThread || event.subtype || event.bot_id) return;
   const text = event.text ?? "";
-  const urls = [
-    ...new Set(
-      [...text.matchAll(LINK)]
-        .map((match) => parsePullRequest(match[1] ?? match[2])?.url)
-        .filter(Boolean),
-    ),
-  ];
+  const urls = pullRequestsIn(text);
   if (!urls.length) return;
   if (!["tasks", "incidents"].includes(roleOf(env, event.channel))) return;
 

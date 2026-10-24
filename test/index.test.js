@@ -2932,3 +2932,107 @@ test("removing a PR leaves the status alone", async (t) => {
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
   assert.equal(calls[1].args.metadata.event_payload.status, "IN_REVIEW");
 });
+
+const assignValue = (role, people) => JSON.stringify({ channel: "CDEV", ts: "100.1", role, people });
+
+const clickAssign = (actionId, value) =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    channel: { id: "CDEV" },
+    container: { is_ephemeral: true },
+    response_url: RESPONSE_URL,
+    actions: [{ action_id: actionId, value }],
+  });
+
+test("handing a task over in a message offers to assign them, privately", async (t) => {
+  for (const [text, role, label, asked] of [
+    ["<@UREX> please start working on this", "developer", "developer", "work on this"],
+    ["<@UREX> can you look into this?", "developer", "developer", "work on this"],
+    ["<@UREX> Could you pick this up", "developer", "developer", "work on this"],
+    ["<@UREX> please review this fix", "reviewer", "reviewer", "review this"],
+    ["<@UREX> please test it on staging", "tester", "tester", "test this"],
+    ["<@UREX> can you QA this", "tester", "tester", "test this"],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+    await send("/slack/events", threadReply(text));
+    const question = calls.find((call) => call.method === "chat.postEphemeral")?.args;
+    assert.ok(question, text);
+    assert.equal(question.user, "UACTOR");
+    assert.equal(question.thread_ts, "100.1");
+    assert.equal(question.text, `You asked <@UREX> to ${asked}. Assign them as ${label}?`, text);
+    const [assign, skip] = question.blocks[1].elements;
+    assert.equal(assign.text.text, `Assign as ${label}`, text);
+    assert.equal(assign.value, assignValue(role, ["UREX"]), text);
+    assert.equal(skip.text.text, "Not now");
+  }
+});
+
+test("hand-offs leave alone people already in the role, Luma and plain chat", async (t) => {
+  for (const [text, root] of [
+    ["<@UREX> please start working on this", rootMessage({ developers: "UREX" })],
+    ["<@UBOT> please look into this", rootMessage()],
+    ["<@UREX> thanks, looks great", rootMessage()],
+    ["please start working on this", rootMessage()],
+    ["<@UREX> please look into this", { ts: "100.1" }],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+    await send("/slack/events", threadReply(text));
+    assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"), text);
+  }
+  // Outside the team channels nothing is even looked up.
+  const calls = mockSlack(t);
+  await send("/slack/events", threadReply("<@UREX> please look into this", { channel: "CEXTERNAL" }));
+  assert.equal(calls.length, 0);
+});
+
+test("a message with a PR link gets the PR question, not a hand-off one", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadReply(`<@UREX> please review <${PR}>`));
+  const questions = calls.filter((call) => call.method === "chat.postEphemeral");
+  assert.equal(questions.length, 1);
+  assert.equal(questions[0].args.blocks[1].elements[0].action_id, "pr:suggest-link");
+});
+
+test("Assign as developer adds them without mentioning them again", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage({ developers: "UALICE" })] } });
+  const sent = recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("developer", ["UREX", "UBOB"])));
+
+  const update = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(update.metadata.event_payload.developers, "UALICE,UREX,UBOB");
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.thread_ts, "100.1");
+  assert.equal(post.text, "<@UACTOR> added 2 developers.");
+  assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("Assign as reviewer asks them to review only if a PR is linked", async (t) => {
+  let calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("reviewer", ["UREX"])));
+  assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UACTOR> added a reviewer.");
+
+  const root = rootMessage();
+  root.metadata.event_payload.prs = PR;
+  calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+  recordResponses(t);
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("reviewer", ["UREX"])));
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    `<@UACTOR> added a reviewer.\n<@UREX>, please review <${PR}|project-helper/42>.`,
+  );
+});
+
+test("Assign after they were assigned anyway, or Not now, just removes the question", async (t) => {
+  for (const [actionId, root] of [
+    ["assign:suggest", rootMessage({ developers: "UREX" })],
+    ["assign:suggest-skip", rootMessage()],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+    const sent = recordResponses(t);
+    await send("/slack/interactions", clickAssign(actionId, assignValue("developer", ["UREX"])));
+    assert.ok(!calls.some((call) => ["chat.update", "chat.postMessage"].includes(call.method)), actionId);
+    assert.equal(sent.length, 1, actionId);
+  }
+});

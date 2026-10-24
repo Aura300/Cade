@@ -189,6 +189,20 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   same way. Each role can have several people. Developers and testers are
   asked to start straight away. Reviewers can be added ahead of time: until
   a PR is linked, Luma doesn't name them, so they aren't notified.
+- Handing a task over in your own words works too. A reply in a task's
+  thread that mentions people with a hand-off phrase makes Luma ask you,
+  in a message only you see, whether to assign them, with **Assign as
+  developer** (or reviewer, tester) and **Not now**:
+  - **developer:** "start working", "work on", "look into", "pick this up",
+    "take this", "handle this", "fix this";
+  - **reviewer:** "review";
+  - **tester:** "test", "QA", "verify".
+
+  If a message matches more than one, reviewer comes before tester, and
+  tester before developer. People already in that role aren't asked about.
+  Assigning says "@you added a developer" in the thread without mentioning
+  them again, since your message already did. A message with a PR link gets
+  the PR question below instead.
 - `@LUMA unassign developer @person` removes people from that role;
   `@LUMA unassign @person` removes them from every role.
 - `@LUMA status` replies with a menu of statuses (To do, In progress, In
