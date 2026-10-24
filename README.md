@@ -204,7 +204,8 @@ In a task's thread in `#aura300-dev` or the incidents channel:
   with **Assign as
   developer** (or reviewer, tester) and **Not now**:
   - **developer:** "start working", "work on", "look into", "pick this up",
-    "take this", "handle this", "fix this";
+    "take this", "take care of", "handle this", "fix this", "assigned this
+    to you", "over to you";
   - **reviewer:** "review";
   - **tester:** "test", "QA", "verify".
 

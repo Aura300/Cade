@@ -30,7 +30,24 @@ const HANDOFFS = [
   ["tester", /\b(test|qa|verify)/i],
   [
     "developer",
-    /\b(start(ed)? working|work(ing)? on|look(ing)? into|pick (this |it )?up|take (this|it)|handle (this|it)|fix (this|it))\b/i,
+    new RegExp(
+      [
+        "start(ed)? working",
+        "work(ing)? on",
+        "look(ing)? into",
+        "pick (this |it )?up",
+        "take (this|it)",
+        "take care of",
+        "handle (this|it)",
+        "fix (this|it)",
+        // "assigned this to you", "assigning it to @rex"
+        "assign(ed|ing)? (this|it)( task)? to",
+        "over to you",
+      ]
+        .map((phrase) => `\\b${phrase}\\b`)
+        .join("|"),
+      "i",
+    ),
   ],
 ];
 

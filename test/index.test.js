@@ -3521,3 +3521,44 @@ test("removed reviewers are told they no longer need to review", async (t) => {
   await send("/slack/events", threadEvent("<@UBOT> unassign reviewer <@URIA>"));
   assert.equal(calls.at(-1).args.text, "<@URIA>, you no longer need to review this.");
 });
+
+test("assign-style hand-offs are caught too", async (t) => {
+  for (const [text, label] of [
+    ["<@UREX> I assigned this to you", "developer"],
+    ["Assigning it to <@UREX>", "developer"],
+    ["<@UREX> assigned this task to you", "developer"],
+    ["<@UREX> can you take care of this?", "developer"],
+    ["<@UREX> over to you", "developer"],
+    // The role still follows the words used.
+    ["<@UREX> assigned this to you for review", "reviewer"],
+    ["<@UREX> assigned this to you for testing", "tester"],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [withStatus("IN_REVIEW")] } });
+    await send("/slack/events", threadReply(text));
+    const question = calls.find((call) => call.method === "chat.postEphemeral")?.args;
+    assert.ok(question, text);
+    assert.match(question.text, new RegExp(`Assign them as ${label}`), text);
+  }
+});
+
+test("assign-style words without a mention are left alone", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [rootMessage()] } });
+  await send("/slack/events", threadReply("this was assigned to the wrong sprint, I assigned it to QA board"));
+  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
+});
+
+test("\"assigned this to you\" in a requirement thread offers to track or assign", async (t) => {
+  for (const [root, start] of [
+    [requirementRoot(), "You asked <@URANDIL> to work on this. Track it as a task"],
+    [requirementRoot({ task: true }), "You asked <@URANDIL> to work on this. Assign them as developer of"],
+  ]) {
+    const calls = mockSlack(t, threads(root, requirementTask("TODO")));
+    await send(
+      "/slack/events",
+      threadEvent("<@URANDIL|Randil Fernando> assigned this to you", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+    );
+    const question = calls.find((call) => call.method === "chat.postEphemeral")?.args;
+    assert.ok(question, start);
+    assert.ok(question.text.startsWith(start), question.text);
+  }
+});
