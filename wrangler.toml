@@ -2,8 +2,6 @@ name = "cade"
 main = "src/index.js"
 compatibility_date = "2026-10-13"
 
-# Every five minutes, tasks and requirements Slack refused to post are tried
-# again (src/retry.js).
 [triggers]
 crons = ["*/5 * * * *"]
 
@@ -15,11 +13,6 @@ enabled = true
 invocation_logs = true
 head_sampling_rate = 1
 
-# Tasks and requirements are stored here. Create the database once with
-# `npx wrangler d1 create cade` and put its ID below, then create the tables
-# with `npm run db:migrate`. See GETTING_STARTED.md.
 [[d1_databases]]
 binding = "DB"
-database_name = "cade"
-database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
 migrations_dir = "migrations"

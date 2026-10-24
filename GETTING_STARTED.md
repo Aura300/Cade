@@ -102,25 +102,6 @@ again; on a machine without a browser, use an API token instead
 In `wrangler.toml`, set `name` (for example `cade`). It must be unique in
 your Cloudflare account, and becomes part of the URL.
 
-Then create the database the tasks are kept in, and its tables:
-
-```sh
-npx wrangler d1 create cade
-```
-
-**Expect:** a `database_id`. Put it in `wrangler.toml`, in place of
-`REPLACE_WITH_YOUR_DATABASE_ID` under `[[d1_databases]]`. (If Wrangler offers
-to add the database to `wrangler.toml` itself, decline, since the entry
-already exists; just copy the ID.) Then:
-
-```sh
-npm run db:migrate
-```
-
-**Expect:** `0001_tasks_and_requirements.sql` listed with ✅. **If it
-fails** with "Couldn't find a D1 DB": the `database_id` in `wrangler.toml`
-doesn't match the one `d1 create` printed.
-
 All other settings are Worker secrets, set in later steps, so nothing else
 in the file needs changing.
 
@@ -128,9 +109,15 @@ in the file needs changing.
 npm run deploy
 ```
 
-**Expect:** a URL such as `https://cade.<your-subdomain>.workers.dev`. Note
-it: it's the **Worker URL**. On a new account, Wrangler first asks you to
-choose your `workers.dev` subdomain.
+The first deploy also creates the database Cade keeps its tasks in, named
+after the Worker (`cade-db`), then its tables; there's nothing to copy into
+`wrangler.toml`. Wrangler asks you to confirm before creating the tables.
+
+**Expect:** a URL such as `https://cade.<your-subdomain>.workers.dev`, then
+`0001_tasks_and_requirements.sql` listed with ✅. Note the URL: it's the
+**Worker URL**. On a new account, Wrangler first asks you to choose your
+`workers.dev` subdomain. **If the tables step fails** (for example, the
+connection drops), run `npm run db:migrate`.
 
 ## 4. Get a Slack app configuration token (person)
 
@@ -272,8 +259,7 @@ Information**); `not_in_channel` means the app isn't invited;
 git pull
 npm install
 npm test
-npm run db:migrate                          # only if migrations/ has new files
-npm run deploy
+npm run deploy                              # also applies new files in migrations/
 npm run slack:update                        # only if slack/manifest.json changed
 npm run sheet:update                        # only if google-sheet/Code.gs changed
 ```

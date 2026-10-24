@@ -35,7 +35,7 @@ Other scripts:
 | --- | --- |
 | `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
-| `npm run db:migrate` | Applies `migrations/` to the deployed D1 database (`npm run dev` does this for the local one) |
+| `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
 | `npm run sheet:create` | Creates the Google Sheet and its web app with clasp, and gives the Worker its address and secret |
@@ -103,8 +103,10 @@ team's own tasks have none. Deleted tasks and requirements keep their rows,
 with `deleted_at` set. Open tasks and requirements are still pinned, for
 people to find in Slack.
 
-To change the tables, add a numbered file to `migrations/` and run
-`npm run db:migrate` before deploying.
+The database isn't named in `wrangler.toml`, so nothing account-specific is
+committed: the first `wrangler deploy` creates one for the Worker, named
+after it (`<name>-db`), and later deploys reuse it. To change the tables, add
+a numbered file to `migrations/`; `npm run deploy` applies it.
 
 ### Files
 
