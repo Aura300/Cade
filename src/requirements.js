@@ -15,8 +15,8 @@ export const REQUIREMENT_STATUSES = {
   ...STATUSES,
 };
 
-export const NOT_A_TRACKED_REQUIREMENT =
-  "This thread is not a requirement with a tracked task. Use `/luma requirement` to start one, then `@LUMA track` in its thread.";
+export const NOT_A_REQUIREMENT =
+  "This thread is not a requirement. Use `/luma requirement` to start one, then change its priority and due date in its thread.";
 
 export function requirementMessage(requirement) {
   // Three lines, then who started it: the requirement; its status, priority
@@ -118,26 +118,33 @@ export async function reflectOnRequirement(env, ts, task, fields) {
   );
 }
 
-// Finds the task a thread is about: the task itself in a tasks channel, or
-// the task tracked from a requirement thread in an external channel. Returns
-// { channel, ts, task } or null.
-export async function findTask(env, channel, threadTs) {
+// Finds what a thread's priority and due date belong to. In a tasks channel
+// that is the task. In a requirement thread it is the requirement until a
+// task is tracked from it; after that the task owns them, so `kind` is
+// "tracked" and they can only be changed in the task's thread. Returns
+// { kind, channel, ts, item } with `kind` "task", "requirement" or "tracked",
+// or null.
+export async function findDetails(env, channel, threadTs) {
   if (tasksChannelFor(env, channel) === channel) {
-    const task = await loadTask(env, channel, threadTs);
-    return task && { channel, ts: threadTs, task };
+    return loadDetails(env, { kind: "task", channel, ts: threadTs });
   }
   const requirement = await loadRequirement(env, channel, threadTs);
-  if (!requirement?.task) return null;
-  const { channel: taskChannel, ts } = requirement.task;
-  const task = await loadTask(env, taskChannel, ts);
-  return task && { channel: taskChannel, ts, task };
+  if (!requirement) return null;
+  const kind = requirement.task ? "tracked" : "requirement";
+  return { kind, channel, ts: threadTs, item: requirement };
 }
 
-// Saves a task's priority or due date on the task and on its requirement.
-export async function saveTaskDetails(env, { channel, ts, task }) {
-  await saveTask(env, channel, ts, task);
-  await reflectOnRequirement(env, ts, task, {
-    priority: task.priority,
-    dueDate: task.dueDate,
-  });
+// Loads the task or requirement that `findDetails` found, again. Pickers
+// posted before requirements had details name only a task, with no `kind`.
+export async function loadDetails(env, { kind = "task", channel, ts }) {
+  const load = kind === "requirement" ? loadRequirement : loadTask;
+  const item = await load(env, channel, ts);
+  return item && { kind, channel, ts, item };
+}
+
+// Saves a priority or due date change. A task's requirement is only updated
+// when the external thread is informed, as with status changes.
+export async function saveDetails(env, { kind, channel, ts, item }) {
+  if (kind === "requirement") await saveRequirement(env, channel, ts, item);
+  else await saveTask(env, channel, ts, item);
 }

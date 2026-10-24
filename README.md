@@ -97,8 +97,11 @@ priority and due date, and a link to the task. When the dev channel uses
 discussion.
 
 `@LUMA priority` and `@LUMA due` (below) also work in the requirement's
-thread once it has a task: they change the task in `#aura300-dev`, and Luma
-notes the change in the task's thread.
+thread. Before a task is tracked they change the requirement, so
+`@LUMA track` starts with the new values. Once there is a task they change
+the task in `#aura300-dev` instead, and Luma notes the change in the task's
+thread. They only work in threads Luma started with `/luma requirement`;
+other external threads have no message Luma can update.
 
 ### Task commands
 

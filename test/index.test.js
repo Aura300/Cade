@@ -1566,15 +1566,79 @@ test("@LUMA priority in a requirement thread updates the task and tells the dev 
   );
 });
 
-test("@LUMA priority in an external thread without a tracked task says so", async (t) => {
-  for (const root of [requirementRoot(), { ts: "200.1" }]) {
-    const calls = mockSlack(t, { "conversations.replies": { messages: [root] } });
+test("@LUMA priority and due in a requirement thread change the requirement until it is tracked", async (t) => {
+  for (const [text, field, value, reply] of [
+    ["<@UBOT> priority urgent", "priority", "Urgent", "<@UACTOR> set the priority to :red_circle: Urgent."],
+    ["<@UBOT> due 15/12/2026", "due_date", "15/12/2026", "<@UACTOR> set the due date to 15/12/2026."],
+    ["<@UBOT> due none", "due_date", "", "<@UACTOR> removed the due date."],
+  ]) {
+    const calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
     await send(
       "/slack/events",
-      threadEvent("<@UBOT> priority low", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+      threadEvent(text, { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
     );
-    assert.match(calls.at(-1).args.text, /^This thread is not a requirement with a tracked task/);
+    assert.deepEqual(calls.map((call) => [call.method, call.args.channel]), [
+      ["conversations.replies", "CEXTERNAL"],
+      ["chat.update", "CEXTERNAL"],
+      ["chat.postMessage", "CEXTERNAL"],
+    ], text);
+    const update = calls[1].args;
+    assert.equal(update.ts, "200.1");
+    assert.equal(update.metadata.event_payload[field], value, text);
+    assert.equal(update.metadata.event_payload.status, "DISCUSSION");
+    assert.equal(calls[2].args.text, reply, text);
   }
+});
+
+test("a requirement's new priority and due date fill in the track form", async (t) => {
+  const requirement = requirementRoot();
+  Object.assign(requirement.metadata.event_payload, { priority: "Low", due_date: "15/12/2026" });
+  const calls = mockSlack(t, { "conversations.replies": { messages: [requirement] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+  );
+  const origin = JSON.parse(calls[1].args.blocks[0].elements[0].value);
+  assert.equal(origin.priority, "Low");
+  assert.equal(origin.dueDate, "15/12/2026");
+});
+
+test("@LUMA priority in an external thread Luma did not start says so", async (t) => {
+  const calls = mockSlack(t, { "conversations.replies": { messages: [{ ts: "200.1" }] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> priority low", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+  );
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"]);
+  assert.match(calls[1].args.text, /^This thread is not a requirement\. Use `\/luma requirement`/);
+});
+
+test("the priority menu in an untracked requirement thread changes the requirement", async (t) => {
+  let calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> priority", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+  );
+  const block = calls.at(-1).args.blocks[0];
+  assert.deepEqual(JSON.parse(block.block_id), { kind: "requirement", channel: "CEXTERNAL", ts: "200.1" });
+
+  calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLICKER" },
+      channel: { id: "CEXTERNAL" },
+      message: { ts: "200.8", thread_ts: "200.1" },
+      actions: [{ action_id: "priority:select", block_id: block.block_id, selected_option: { value: "Low" } }],
+    }),
+  );
+  assert.deepEqual(calls.map((call) => [call.method, call.args.ts]), [
+    ["conversations.replies", "200.1"],
+    ["chat.update", "200.1"],
+    ["chat.update", "200.8"],
+  ]);
+  assert.equal(calls[1].args.metadata.event_payload.priority, "Low");
 });
 
 test("@LUMA priority without a valid priority shows a menu for the task", async (t) => {
@@ -1585,7 +1649,7 @@ test("@LUMA priority without a valid priority shows a menu for the task", async 
       threadEvent(text, { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
     );
     const block = calls.at(-1).args.blocks[0];
-    assert.deepEqual(JSON.parse(block.block_id), { channel: "CDEV", ts: "100.1" });
+    assert.deepEqual(JSON.parse(block.block_id), { kind: "task", channel: "CDEV", ts: "100.1" });
     assert.equal(block.accessory.action_id, "priority:select");
     assert.equal(block.accessory.initial_option.value, "High");
   }
