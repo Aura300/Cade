@@ -44,7 +44,8 @@ export function noPeople() {
 }
 
 export function taskMessage(task) {
-  const from = task.source?.link ? ` from <${task.source.link}|the request thread>` : "";
+  const thread = task.source?.requirement ? "the requirement thread" : "the request thread";
+  const from = task.source?.link ? ` from <${task.source.link}|${thread}>` : "";
   // Four lines: the title, the task's details, who works on it, then who
   // tracked it.
   const details = [

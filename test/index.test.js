@@ -1368,10 +1368,9 @@ test("submitting a requirement starts its thread in the external channel", async
   assert.deepEqual(
     post.blocks.map((block) => block.text?.text ?? block.elements[0].text),
     [
-      "*:memo: Export &lt;reports&gt;*",
+      "*Export &lt;reports&gt;*",
       "*Status:* :speech_balloon: In discussion  ·  *Priority:* :large_orange_circle: High  ·  *Due:* 30/11/2026",
-      "*Tracked task:* _None yet. Discuss it in this thread, then send `@LUMA track` here._",
-      "Started by <@UCREATOR>",
+      "Started by <@UCREATOR>\nNot tracked yet. Discuss it in this thread, then send `@LUMA track` here.",
     ],
   );
   assert.equal(post.metadata.event_type, "luma_requirement");
@@ -1420,12 +1419,25 @@ test("tracking from a requirement thread moves the requirement to In progress", 
   const post = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV");
   assert.equal(post.args.metadata.event_payload.source_requirement, "true");
   const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
-  assert.deepEqual(
-    update.args.blocks.slice(1, 3).map((block) => block.text.text),
-    [
-      "*Status:* :large_blue_circle: In progress  ·  *Priority:* :large_orange_circle: High  ·  *Due:* 30/11/2026",
-      "*Tracked task:* <https://slack.example/p100|Export reports> by <@UCREATOR>",
+  assert.equal(
+    update.args.blocks[1].text.text,
+    "*Status:* :large_blue_circle: In progress  ·  *Priority:* :large_orange_circle: High  ·  *Due:* 30/11/2026",
+  );
+  // Who started and who tracked it share the small text, one per line, and
+  // the task is linked the way the task links back to the requirement.
+  assert.deepEqual(update.args.blocks[2], {
+    type: "context",
+    elements: [
+      {
+        type: "mrkdwn",
+        text: "Started by <@UCREATOR>\nTracked by <@UCREATOR> in <https://slack.example/p100|the task thread>",
+      },
     ],
+  });
+  assert.equal(update.args.blocks.length, 3);
+  assert.equal(
+    post.args.blocks[3].elements[0].text,
+    "Tracked by <@UCREATOR> from <https://slack.example/source|the requirement thread>",
   );
   assert.equal(update.args.metadata.event_payload.task_ts, "100.1");
   // The button is still replaced by the announcement.
@@ -1499,7 +1511,7 @@ test("deleting a task returns its requirement to discussion", async (t) => {
   const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
   assert.equal(update.args.metadata.event_payload.status, "DISCUSSION");
   assert.equal(update.args.metadata.event_payload.task_ts, "");
-  assert.match(update.args.blocks[2].text.text, /_None yet/);
+  assert.match(update.args.blocks[2].elements[0].text, /\nNot tracked yet\./);
 });
 
 test("parseDate accepts DD/MM/YYYY and YYYY-MM-DD real dates only", () => {

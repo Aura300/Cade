@@ -26,25 +26,28 @@ export const NOT_A_REQUIREMENT =
   "This thread is not a requirement. Use `/luma requirement` to start one, then change its priority and due date in its thread.";
 
 export function requirementMessage(requirement) {
-  // Three lines, then who started it: the requirement; its status, priority
-  // and due date (from the requirement form, then from the task once one is
-  // tracked); then the task.
+  // The requirement, then its status, priority and due date (from the
+  // requirement form, then from the task once one is tracked). Below them, in
+  // small text, who started it and who tracked it, linking to the task the
+  // way a task links to its requirement thread.
   const { priority, task } = requirement;
   const details = [
     `*Status:* ${REQUIREMENT_STATUSES[requirement.status]}`,
     `*Priority:* ${priority ? `${PRIORITIES[priority]} ${priority}` : "_None_"}`,
     `*Due:* ${requirement.dueDate || "_None_"}`,
   ].join("  ·  ");
-  const tracked = task
-    ? `*Tracked task:* <${task.link}|${escapeSlack(task.title)}> by <@${task.trackedBy}>`
-    : "*Tracked task:* _None yet. Discuss it in this thread, then send `@LUMA track` here._";
+  const people = [
+    `Started by <@${requirement.createdBy}>`,
+    task
+      ? `Tracked by <@${task.trackedBy}> in <${task.link}|the task thread>`
+      : "Not tracked yet. Discuss it in this thread, then send `@LUMA track` here.",
+  ];
   return {
     text: `Requirement: ${requirement.title}`,
     blocks: [
-      { type: "section", text: mrkdwn(`*:memo: ${escapeSlack(requirement.title)}*`) },
+      { type: "section", text: mrkdwn(`*${escapeSlack(requirement.title)}*`) },
       { type: "section", text: mrkdwn(details) },
-      { type: "section", text: mrkdwn(tracked) },
-      { type: "context", elements: [mrkdwn(`Started by <@${requirement.createdBy}>`)] },
+      { type: "context", elements: [mrkdwn(people.join("\n"))] },
     ],
     metadata: {
       event_type: REQUIREMENT_EVENT_TYPE,

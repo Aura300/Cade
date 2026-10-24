@@ -87,7 +87,9 @@ message shows:
 
 1. the requirement name,
 2. its status, priority and due date, and
-3. the tracked task ("None yet" until there is one).
+3. in small text, who started it and who tracked it, linking to the task
+   thread ("Not tracked yet" until there is one), the same way a task
+   links back to its requirement thread.
 
 The message always shows the current status, priority and due date. Who
 changes what follows who knows it:
