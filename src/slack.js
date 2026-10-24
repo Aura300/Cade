@@ -32,6 +32,12 @@ export async function verifySlackRequest(request, body, signingSecret) {
   );
 }
 
+// Luma's messages link to other messages, such as "tracked a task: <link>".
+// Slack would preview each link as a copy of the linked message, repeating
+// the task card, so previews are turned off for everything Luma posts.
+const NO_PREVIEWS = { unfurl_links: false, unfurl_media: false };
+const POSTING_METHODS = ["chat.postMessage", "chat.update"];
+
 // Read methods such as conversations.replies do not accept JSON bodies, so
 // every call is form-encoded with object arguments sent as JSON strings.
 export async function callSlack(env, method, args) {
@@ -40,7 +46,8 @@ export async function callSlack(env, method, args) {
   }
 
   const form = new URLSearchParams();
-  for (const [name, value] of Object.entries(args)) {
+  const fields = POSTING_METHODS.includes(method) ? { ...NO_PREVIEWS, ...args } : args;
+  for (const [name, value] of Object.entries(fields)) {
     if (value === undefined) continue;
     form.set(name, typeof value === "string" ? value : JSON.stringify(value));
   }

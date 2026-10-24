@@ -1,6 +1,6 @@
 import { pairFor } from "./channels.js";
 import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
-import { callSlack, escapeSlack, mentions, mrkdwn } from "./slack.js";
+import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js";
 
 // Task details live in the root message's metadata, so assignments can be
 // updated without a separate datastore.
@@ -196,6 +196,73 @@ export async function setPinned(env, channel, ts, pinned) {
     if (/already_pinned|no_pin/.test(error.message)) return;
     console.warn("Could not update pin", { ts, pinned, error: error.message });
   }
+}
+
+// The title, due date and priority fields shared by the task and requirement
+// forms. `initial` fills them in: { title, dueDate (DD/MM/YYYY), priority }.
+export function taskFormBlocks(titleLabel, initial = {}) {
+  const option = (priority) => ({
+    text: { ...plainText(`${PRIORITIES[priority]} ${priority}`), emoji: true },
+    value: priority,
+  });
+  return [
+    {
+      type: "input",
+      block_id: "title",
+      label: plainText(titleLabel),
+      element: {
+        type: "plain_text_input",
+        action_id: "value",
+        max_length: 150,
+        initial_value: initial.title?.slice(0, 150) || undefined,
+      },
+    },
+    {
+      type: "input",
+      block_id: "due_date",
+      optional: true,
+      label: plainText("Due date"),
+      element: {
+        type: "datepicker",
+        action_id: "value",
+        placeholder: plainText("Select a date"),
+        initial_date: pickerDate(initial.dueDate),
+      },
+    },
+    {
+      type: "input",
+      block_id: "priority",
+      label: plainText("Priority"),
+      element: {
+        type: "static_select",
+        action_id: "value",
+        placeholder: plainText("Select a priority"),
+        options: Object.keys(PRIORITIES).map(option),
+        initial_option: PRIORITIES[initial.priority] ? option(initial.priority) : undefined,
+      },
+    },
+  ];
+}
+
+// Reads the fields from taskFormBlocks. `errors` is keyed by block_id, as a
+// modal's response_action "errors" expects, or null when there are none.
+export function readTaskForm(values, titleError) {
+  const title = values.title.value.value?.trim() ?? "";
+  // The date picker gives YYYY-MM-DD, or null when no date was chosen.
+  const dueDate = formatDueDate(values.due_date.value.selected_date);
+  const priority = values.priority.value.selected_option?.value;
+
+  const errors = {};
+  if (!title) errors.title = titleError;
+  if (!PRIORITIES[priority]) errors.priority = "Select a priority.";
+  return { title, dueDate, priority, errors: Object.keys(errors).length ? errors : null };
+}
+
+// Turns DD/MM/YYYY back into the date picker's YYYY-MM-DD (undefined when
+// there is none).
+export function pickerDate(dueDate) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dueDate ?? "");
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : undefined;
 }
 
 // Turns the date picker's YYYY-MM-DD into DD/MM/YYYY ("" when there is none).

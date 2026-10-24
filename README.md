@@ -78,8 +78,9 @@ channel. Such a task has no external thread, so it shows only "Tracked by
 
 ### Requirements
 
-**`/luma requirement`** in `#aura300-external` asks for the requirement's
-name, then posts it as a new message to discuss it in its thread. The
+**`/luma requirement`** in `#aura300-external` opens the same form as a
+task: the requirement's **name**, an optional **due date** and the
+**priority**. Luma then posts it as a new message to discuss in its thread. The
 message shows:
 
 1. the requirement name,
@@ -87,7 +88,8 @@ message shows:
 3. the tracked task ("None yet" until there is one).
 
 It starts **In discussion**. When it's agreed, send **`@LUMA track`** in its
-thread: the form starts with the requirement name as the task title. Once
+thread: the form starts with the requirement's name, priority and due date,
+which you can change before creating the task. Once
 the task is created, the requirement shows 🔵 In progress, the task's
 priority and due date, and a link to the task. When the dev channel uses
 **Inform external thread**, the requirement's status changes to match

@@ -2,11 +2,11 @@ import { pairFor, tasksChannelFor } from "../channels.js";
 import { loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
-  PRIORITIES,
-  formatDueDate,
   noPeople,
+  readTaskForm,
   setPinned,
   syncTask,
+  taskFormBlocks,
   taskMessage,
 } from "../tasks.js";
 
@@ -24,8 +24,8 @@ const OPEN_ACTION = "track:open";
 // created in that channel with no external thread.
 //
 // In a requirement thread started with `/luma requirement`, the form starts
-// with the requirement's title, and the requirement's root message is updated
-// to link to the task.
+// with the requirement's title, priority and due date, and the requirement's
+// root message is updated to link to the task.
 //
 // `/luma track` opens the form straight away, since a slash command carries a
 // trigger_id, so no message is needed to start from. In a tasks channel the
@@ -42,7 +42,10 @@ export default {
     const inThread = command.threadTs && command.threadTs !== command.ts;
     if (inThread && pairFor(env, command.channel).external === command.channel) {
       const requirement = await loadRequirement(env, command.channel, command.threadTs);
-      if (requirement) Object.assign(origin, { requirement: true, title: requirement.title });
+      if (requirement) {
+        const { title, priority, dueDate } = requirement;
+        Object.assign(origin, { requirement: true, title, priority, dueDate });
+      }
     }
     return {
       text: "Track a new task",
@@ -76,8 +79,8 @@ export default {
 };
 
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
-// From a requirement thread it also has `requirement: true` and the `title`
-// to start the form with. From `/luma track` it has only the channel.
+// From a requirement thread it also has `requirement: true` and the title,
+// priority and due date to start the form with. From `/luma track` it has only the channel.
 async function openModal(env, triggerId, origin) {
   await callSlack(env, "views.open", {
     trigger_id: triggerId,
@@ -93,58 +96,16 @@ function trackView(origin) {
     title: plainText("Track task"),
     submit: plainText("Create"),
     close: plainText("Cancel"),
-    blocks: [
-      {
-        type: "input",
-        block_id: "title",
-        label: plainText("Task title"),
-        element: {
-          type: "plain_text_input",
-          action_id: "value",
-          max_length: 150,
-          initial_value: origin.title?.slice(0, 150),
-        },
-      },
-      {
-        type: "input",
-        block_id: "due_date",
-        optional: true,
-        label: plainText("Due date"),
-        element: {
-          type: "datepicker",
-          action_id: "value",
-          placeholder: plainText("Select a date"),
-        },
-      },
-      {
-        type: "input",
-        block_id: "priority",
-        label: plainText("Priority"),
-        element: {
-          type: "static_select",
-          action_id: "value",
-          placeholder: plainText("Select a priority"),
-          options: Object.keys(PRIORITIES).map((priority) => ({
-            text: { ...plainText(`${PRIORITIES[priority]} ${priority}`), emoji: true },
-            value: priority,
-          })),
-        },
-      },
-    ],
+    blocks: taskFormBlocks("Task title", origin),
   };
 }
 
 async function submit(payload, context) {
-  const values = payload.view.state.values;
-  const title = values.title.value.value?.trim() ?? "";
-  // The date picker gives YYYY-MM-DD, or null when no date was chosen.
-  const dueDate = formatDueDate(values.due_date.value.selected_date);
-  const priority = values.priority.value.selected_option?.value;
-
-  const errors = {};
-  if (!title) errors.title = "Enter a task title.";
-  if (!PRIORITIES[priority]) errors.priority = "Select a priority.";
-  if (Object.keys(errors).length) return { response_action: "errors", errors };
+  const { title, dueDate, priority, errors } = readTaskForm(
+    payload.view.state.values,
+    "Enter a task title.",
+  );
+  if (errors) return { response_action: "errors", errors };
 
   const origin = JSON.parse(payload.view.private_metadata || "{}");
   const task = {

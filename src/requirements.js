@@ -20,7 +20,8 @@ export const NOT_A_TRACKED_REQUIREMENT =
 
 export function requirementMessage(requirement) {
   // Three lines, then who started it: the requirement; its status, priority
-  // and due date (taken from the task once one is tracked); then the task.
+  // and due date (from the requirement form, then from the task once one is
+  // tracked); then the task.
   const { priority, task } = requirement;
   const details = [
     `*Status:* ${REQUIREMENT_STATUSES[requirement.status]}`,

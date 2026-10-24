@@ -1,7 +1,7 @@
 import { tasksChannelFor } from "../channels.js";
 import { NOT_A_TRACKED_REQUIREMENT, findTask, saveTaskDetails } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, PRIORITIES, formatDueDate, loadTask } from "../tasks.js";
+import { NOT_A_TASK, PRIORITIES, formatDueDate, loadTask, pickerDate } from "../tasks.js";
 
 const PRIORITY_ACTION = "priority:select";
 const DUE_ACTION = "due:select";
@@ -186,12 +186,6 @@ export function parseDate(input) {
   const date = new Date(Date.UTC(year, month - 1, day));
   if (date.getUTCDate() !== Number(day) || date.getUTCMonth() !== month - 1) return "";
   return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
-}
-
-// The date picker wants YYYY-MM-DD.
-function pickerDate(dueDate) {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dueDate ?? "");
-  return match ? `${match[3]}-${match[2]}-${match[1]}` : undefined;
 }
 
 // chat.update keeps a message's old blocks unless new ones are sent, so text

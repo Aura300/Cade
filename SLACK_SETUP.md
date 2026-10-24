@@ -163,8 +163,8 @@ Try these in the test channels first.
 | --- | --- |
 | `@LUMA help` in either channel | A reply listing all commands |
 | `/luma help` | The same list, shown only to you |
-| `/luma requirement` in `#aura300-external` | A form asks for the requirement name; submitting posts it as a new message showing **In discussion** |
-| `@LUMA track` in that requirement's thread | The form opens with the requirement name filled in; submitting changes the requirement message to 🔵 In progress with a link to the task |
+| `/luma requirement` in `#aura300-external` | A form asks for the requirement name, due date and priority; submitting posts it as a new message showing **In discussion** with that priority and due date |
+| `@LUMA track` in that requirement's thread | The form opens with the requirement's name, priority and due date filled in; submitting changes the requirement message to 🔵 In progress with a link to the task |
 | `@LUMA priority urgent` or `@LUMA due 30/11/2026` in the requirement thread | Both the requirement message and the task in `#aura300-dev` show the change, and the task thread gets a note |
 | `/luma track` in `#test-dev` | The form opens straight away; the task is posted with no reply |
 | `@LUMA track` in a thread in `#aura300-external` | Luma replies with a **Track task** button; clicking it opens the form |

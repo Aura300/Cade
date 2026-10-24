@@ -57,7 +57,8 @@ const interaction = (payload) =>
   new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
 
 // Replaces fetch with a fake Slack API. `responses` maps a method name to its
-// result; every call is recorded with its decoded arguments. Requests to the
+// result; every call is recorded with its decoded arguments. Link preview
+// settings are recorded as `previews` rather than with the arguments. Requests to the
 // Google Sheet are recorded as the "sheet" method with their JSON body.
 function mockSlack(t, responses = {}) {
   const calls = [];
@@ -72,7 +73,10 @@ function mockSlack(t, responses = {}) {
     for (const name of ["view", "blocks", "metadata"]) {
       if (args[name]) args[name] = JSON.parse(args[name]);
     }
-    calls.push({ method, args, headers: init.headers });
+    const previews = { links: args.unfurl_links, media: args.unfurl_media };
+    delete args.unfurl_links;
+    delete args.unfurl_media;
+    calls.push({ method, args, headers: init.headers, previews });
     const result =
       typeof responses[method] === "function"
         ? responses[method](args)
@@ -360,6 +364,9 @@ test("the Track task button opens the modal for that thread", async (t) => {
       ["priority", "static_select", false],
     ],
   );
+  assert.equal(blocks[0].element.initial_value, undefined);
+  assert.equal(blocks[1].element.initial_date, undefined);
+  assert.equal(blocks[2].element.initial_option, undefined);
 });
 
 test("@LUMA assign adds people to a role on the root message", async (t) => {
@@ -817,6 +824,7 @@ test("confirming deletion removes Luma's replies and then the task", async (t) =
     method: "chat.postEphemeral",
     args: { channel: "CDEV", user: "UACTOR", text: 'Deleted the task "Fix login".' },
     headers: calls.at(-1).headers,
+    previews: calls.at(-1).previews,
   });
 });
 
@@ -1253,8 +1261,8 @@ const requirementRoot = ({ task = false, status = task ? "IN_PROGRESS" : "DISCUS
     event_payload: {
       title: "Export reports",
       status,
-      priority: task ? "High" : "",
-      due_date: task ? "31/10/2026" : "",
+      priority: "High",
+      due_date: "31/10/2026",
       created_by: "UCREATOR",
       task_channel: task ? "CDEV" : "",
       task_ts: task ? "100.1" : "",
@@ -1338,7 +1346,10 @@ test("/luma requirement opens the requirement form in an external channel only",
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
   assert.equal(calls[0].args.view.callback_id, "requirement");
   assert.deepEqual(JSON.parse(calls[0].args.view.private_metadata), { channel: "CEXTERNAL" });
-  assert.deepEqual(calls[0].args.view.blocks.map((block) => block.block_id), ["title"]);
+  assert.deepEqual(
+    calls[0].args.view.blocks.map((block) => [block.block_id, !!block.optional]),
+    [["title", false], ["due_date", true], ["priority", false]],
+  );
 
   calls = mockSlack(t);
   const response = await send("/slack/commands", slash("requirement", "CDEV"));
@@ -1375,7 +1386,7 @@ test("submitting a requirement starts its thread in the external channel", async
       view: {
         callback_id: "requirement",
         private_metadata: JSON.stringify({ channel: "CEXTERNAL" }),
-        state: { values: { title: { value: { value: " Export <reports> " } } } },
+        state: submission({ title: " Export <reports> ", dueDate: "2026-11-30", priority: "High" }).view.state,
       },
     }),
   );
@@ -1389,7 +1400,7 @@ test("submitting a requirement starts its thread in the external channel", async
     post.blocks.map((block) => block.text?.text ?? block.elements[0].text),
     [
       "*:memo: Export &lt;reports&gt;*",
-      "*Status:* :speech_balloon: In discussion  ·  *Priority:* _None_  ·  *Due:* _None_",
+      "*Status:* :speech_balloon: In discussion  ·  *Priority:* :large_orange_circle: High  ·  *Due:* 30/11/2026",
       "*Tracked task:* _None yet. Discuss it in this thread, then send `@LUMA track` here._",
       "Started by <@UCREATOR>",
     ],
@@ -1397,6 +1408,8 @@ test("submitting a requirement starts its thread in the external channel", async
   assert.equal(post.metadata.event_type, "luma_requirement");
   assert.equal(post.metadata.event_payload.title, "Export <reports>");
   assert.equal(post.metadata.event_payload.status, "DISCUSSION");
+  assert.equal(post.metadata.event_payload.priority, "High");
+  assert.equal(post.metadata.event_payload.due_date, "30/11/2026");
 });
 
 test("a requirement needs a name", async (t) => {
@@ -1409,18 +1422,18 @@ test("a requirement needs a name", async (t) => {
       view: {
         callback_id: "requirement",
         private_metadata: JSON.stringify({ channel: "CEXTERNAL" }),
-        state: { values: { title: { value: { value: "  " } } } },
+        state: submission({ title: "  " }).view.state,
       },
     }),
   );
   assert.equal(calls.length, 0);
   assert.deepEqual(await response.json(), {
     response_action: "errors",
-    errors: { title: "Enter a requirement name." },
+    errors: { title: "Enter a requirement name.", priority: "Select a priority." },
   });
 });
 
-test("@LUMA track in a requirement thread fills in the requirement's title", async (t) => {
+test("@LUMA track in a requirement thread fills in the requirement's details", async (t) => {
   let calls = mockSlack(t, { "conversations.replies": { messages: [requirementRoot()] } });
   await send(
     "/slack/events",
@@ -1432,6 +1445,8 @@ test("@LUMA track in a requirement thread fills in the requirement's title", asy
     threadTs: "200.1",
     requirement: true,
     title: "Export reports",
+    priority: "High",
+    dueDate: "31/10/2026",
   });
 
   calls = mockSlack(t);
@@ -1444,7 +1459,10 @@ test("@LUMA track in a requirement thread fills in the requirement's title", asy
       actions: [{ action_id: "track:open", value }],
     }),
   );
-  assert.equal(calls[0].args.view.blocks[0].element.initial_value, "Export reports");
+  const [title, dueDate, priority] = calls[0].args.view.blocks;
+  assert.equal(title.element.initial_value, "Export reports");
+  assert.equal(dueDate.element.initial_date, "2026-10-31");
+  assert.equal(priority.element.initial_option.value, "High");
 });
 
 test("@LUMA track in other threads leaves the title empty", async (t) => {
@@ -1680,4 +1698,27 @@ test("parseDate accepts DD/MM/YYYY and YYYY-MM-DD real dates only", () => {
   assert.equal(parseDate("29/02/2027"), "");
   assert.equal(parseDate("13/13/2027"), "");
   assert.equal(parseDate("tomorrow"), "");
+});
+
+test("Luma's messages never preview the messages they link to", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true }), requirementTask("DONE")),
+    ...createdTask,
+  });
+  await send(
+    "/slack/interactions",
+    interaction(submission({ title: "Fix login", priority: "High" })),
+  );
+  await send("/slack/interactions", statusButton("status:inform"));
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> priority low", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
+  );
+
+  const posts = calls.filter((call) => ["chat.postMessage", "chat.update"].includes(call.method));
+  assert.ok(posts.length >= 6);
+  for (const call of posts) {
+    assert.deepEqual(call.previews, { links: "false", media: "false" }, call.method);
+  }
+  assert.ok(calls.filter((call) => call.method === "pins.add").every((call) => !call.previews.links));
 });
