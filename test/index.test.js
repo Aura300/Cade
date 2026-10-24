@@ -2794,6 +2794,8 @@ const clickAssign = (actionId, value) =>
 test("handing a task over in a message offers to assign them, privately", async (t) => {
   for (const [text, role, label, asked] of [
     ["<@UREX> please start working on this", "developer", "developer", "work on this"],
+    ["<@UREX> shall we start working on this?", "developer", "developer", "work on this"],
+    ["<@UREX> can you start on this", "developer", "developer", "work on this"],
     ["<@UREX> can you look into this?", "developer", "developer", "work on this"],
     ["<@UREX> Could you pick this up", "developer", "developer", "work on this"],
     ["<@UREX> please review this fix", "reviewer", "reviewer", "review this"],

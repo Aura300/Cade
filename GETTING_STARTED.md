@@ -425,7 +425,7 @@ In a task's thread in `#acme-dev` or the incidents channel:
   makes Cade ask you, in a message only you see, whether to assign them,
   with **Assign as
   developer** (or reviewer, tester) and **Not now**:
-  - **developer:** "start working", "work on", "look into", "pick this up",
+  - **developer:** "start working", "start on this", "work on", "look into", "pick this up",
     "take this", "take care of", "handle this", "fix this", "assigned this
     to you", "over to you";
   - **reviewer:** "review";

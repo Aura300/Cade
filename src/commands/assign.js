@@ -31,6 +31,7 @@ const HANDOFFS = {
     order: 40,
     phrases: [
       "start(ed)? working",
+      "start on (this|it)",
       "work(ing)? on",
       "look(ing)? into",
       "pick (this |it )?up",
