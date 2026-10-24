@@ -1,4 +1,5 @@
-import { tasksChannelFor } from "../channels.js";
+import { pairFor, tasksChannelFor } from "../channels.js";
+import { loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
   PRIORITIES,
@@ -21,13 +22,28 @@ const OPEN_ACTION = "track:open";
 // the paired tasks channel and remembers that thread, so later updates can be
 // shared there. Sent in a tasks channel, for the team's own work, the task is
 // created in that channel with no external thread.
+//
+// In a requirement thread started with `/luma requirement`, the form starts
+// with the requirement's title, and the requirement's root message is updated
+// to link to the task.
+//
+// `/luma track` opens the form straight away, since a slash command carries a
+// trigger_id, so no message is needed to start from. In a tasks channel the
+// task is simply posted there; in an external channel Luma posts a message to
+// act as the task's external thread.
 export default {
   name: "track",
   description: "Track a new task (from a request thread, or in the dev channel for your own work)",
   usage: "@LUMA track",
+  slashUsage: "/luma track",
   channel: ["external", "tasks"],
-  async run(command) {
+  async run(command, { env }) {
     const origin = { channel: command.channel, threadTs: command.threadTs ?? command.ts };
+    const inThread = command.threadTs && command.threadTs !== command.ts;
+    if (inThread && pairFor(env, command.channel).external === command.channel) {
+      const requirement = await loadRequirement(env, command.channel, command.threadTs);
+      if (requirement) Object.assign(origin, { requirement: true, title: requirement.title });
+    }
     return {
       text: "Track a new task",
       blocks: [
@@ -46,6 +62,9 @@ export default {
       ],
     };
   },
+  async slash(command, { env }) {
+    await openModal(env, command.triggerId, { channel: command.channel });
+  },
   actions: {
     [OPEN_ACTION]: async (payload, { env }) => {
       const origin = JSON.parse(payload.actions[0].value);
@@ -57,6 +76,8 @@ export default {
 };
 
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
+// From a requirement thread it also has `requirement: true` and the `title`
+// to start the form with. From `/luma track` it has only the channel.
 async function openModal(env, triggerId, origin) {
   await callSlack(env, "views.open", {
     trigger_id: triggerId,
@@ -77,7 +98,12 @@ function trackView(origin) {
         type: "input",
         block_id: "title",
         label: plainText("Task title"),
-        element: { type: "plain_text_input", action_id: "value", max_length: 150 },
+        element: {
+          type: "plain_text_input",
+          action_id: "value",
+          max_length: 150,
+          initial_value: origin.title?.slice(0, 150),
+        },
       },
       {
         type: "input",
@@ -135,8 +161,23 @@ async function submit(payload, context) {
 
 async function createTask(env, task, origin) {
   const tasksChannel = tasksChannelFor(env, origin.channel);
+  if (origin.channel !== tasksChannel && !origin.threadTs) {
+    // `/luma track` in an external channel: this message becomes the external
+    // thread, and is replaced by the announcement like the button would be.
+    const placeholder = `<@${task.createdBy}> is tracking a task: ${escapeSlack(task.title)}`;
+    const { ts } = await callSlack(env, "chat.postMessage", {
+      channel: origin.channel,
+      text: placeholder,
+      blocks: [{ type: "section", text: mrkdwn(placeholder) }],
+    });
+    origin = { ...origin, threadTs: ts, promptTs: ts };
+  }
   if (origin.channel !== tasksChannel) {
-    task.source = { channel: origin.channel, threadTs: origin.threadTs };
+    task.source = {
+      channel: origin.channel,
+      threadTs: origin.threadTs,
+      requirement: Boolean(origin.requirement),
+    };
     // The task message links back to the thread it was tracked from. The link
     // is a convenience, so the task is still created without it.
     try {
@@ -178,6 +219,22 @@ async function createTask(env, task, origin) {
     channel: message.channel,
     message_ts: message.ts,
   });
+  await updateRequirement(env, task.source, (requirement) => ({
+    ...requirement,
+    status: "IN_PROGRESS",
+    priority: task.priority,
+    dueDate: task.dueDate,
+    task: {
+      channel: message.channel,
+      ts: message.ts,
+      title: task.title,
+      link: permalink,
+      trackedBy: task.createdBy,
+    },
+  }));
+
+  // `/luma track` in a tasks channel has no prompt; the task message is enough.
+  if (!origin.promptTs) return;
   const text = `<@${task.createdBy}> tracked a task: <${permalink}|${escapeSlack(task.title)}>`;
   await callSlack(env, "chat.update", {
     channel: origin.channel,

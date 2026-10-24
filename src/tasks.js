@@ -91,6 +91,9 @@ export function taskMessage(task) {
         source_channel: task.source?.channel ?? "",
         source_thread_ts: task.source?.threadTs ?? "",
         source_link: task.source?.link ?? "",
+        // "true" when the source thread is a requirement started with
+        // `/luma requirement`, whose root message follows the task.
+        source_requirement: task.source?.requirement ? "true" : "",
       },
     },
   };
@@ -130,6 +133,7 @@ export async function loadTask(env, channel, ts) {
           channel: payload.source_channel,
           threadTs: payload.source_thread_ts,
           link: payload.source_link || undefined,
+          requirement: payload.source_requirement === "true",
         }
       : undefined,
   };

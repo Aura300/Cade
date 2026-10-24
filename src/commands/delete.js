@@ -1,3 +1,4 @@
+import { updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, loadTask, syncTask } from "../tasks.js";
 
@@ -8,7 +9,8 @@ const CANCEL_ACTION = "delete:cancel";
 // Cancel buttons. Delete opens a second "are you sure" dialog, and only the
 // person who asked for the deletion can confirm or cancel it. Confirming
 // deletes the task message and Luma's replies in its thread, and says so in
-// the external thread the task was tracked from.
+// the external thread the task was tracked from. A requirement the task was
+// tracked from goes back to In discussion.
 //
 // A bot token can only delete the bot's own messages, so people's replies
 // stay behind under Slack's "This message was deleted" placeholder.
@@ -136,6 +138,11 @@ async function deleteTask(env, channel, ts, user) {
       text,
       blocks: [{ type: "section", text: mrkdwn(text) }],
     });
+    await updateRequirement(env, task.source, (requirement) =>
+      requirement.task?.ts === ts
+        ? { ...requirement, status: "DISCUSSION", priority: "", dueDate: "", task: undefined }
+        : null,
+    );
   }
 
   await callSlack(env, "chat.postEphemeral", {

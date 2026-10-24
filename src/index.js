@@ -1,11 +1,12 @@
-import { dispatch } from "./commands/dispatch.js";
-import { parseMessage } from "./commands/parse.js";
+import { dispatch, dispatchSlash } from "./commands/dispatch.js";
+import { parseMessage, parseSlashCommand } from "./commands/parse.js";
 import { actions, views } from "./commands/registry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
 
 const ROUTES = {
   "/slack/events": handleEvent,
   "/slack/interactions": handleInteraction,
+  "/slack/commands": handleSlashCommand,
 };
 
 export default {
@@ -70,6 +71,15 @@ async function handleEvent(body, request, context) {
     );
   }
   return respond();
+}
+
+// `/luma name …` slash commands. They run before Slack is answered, so that a
+// modal can be opened with the command's trigger_id, which expires after
+// three seconds. Replies are shown only to the person who sent the command.
+async function handleSlashCommand(body, request, context) {
+  const command = parseSlashCommand(new URLSearchParams(body));
+  const reply = await dispatchSlash(command, context);
+  return respond(reply && { response_type: "ephemeral", ...messageBody(reply) });
 }
 
 // Modal submissions and button clicks go to the handler that registered the

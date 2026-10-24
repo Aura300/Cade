@@ -1,3 +1,4 @@
+import { reflectOnRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, saveTask, setPinned } from "../tasks.js";
 
@@ -16,7 +17,8 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 //
 // When a task moves from an open status to CLIENT_REVIEW or DONE, the
 // confirmation asks whether Luma should tell the external thread the task was
-// tracked from, or whether someone will tell them themselves.
+// tracked from, or whether someone will tell them themselves. Informing a
+// requirement thread also updates the status on the requirement's message.
 export default {
   name: "status",
   description: "Update the task's status (in its thread)",
@@ -185,6 +187,7 @@ async function announce(env, channel, ts, task, user) {
     thread_ts: task.source.threadTs,
     ...asMessage(text),
   });
+  await reflectOnRequirement(env, ts, task, { status: task.status });
 }
 
 function changedText(user, status) {

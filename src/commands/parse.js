@@ -1,6 +1,7 @@
-// Commands are messages that start by mentioning the bot, such as
-// `@LUMA assign @person`. Slack does not allow custom slash commands in
-// threads, and most commands are sent from a task's thread.
+// Most commands are messages that start by mentioning the bot, such as
+// `@LUMA assign @person`, because Slack does not allow custom slash commands
+// in threads and most commands are sent from a task's thread. Commands that
+// start something new, such as `/luma track`, also work as slash commands.
 const MESSAGE_PREFIX = /^\s*<@([A-Z0-9]+)>(?:\s+(.*))?$/s;
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
@@ -31,5 +32,21 @@ export function parseMessage(event, botUserId) {
     channel: event.channel,
     ts: event.ts,
     threadTs: event.thread_ts,
+  };
+}
+
+// Returns the command in a `/luma name …` request, in the same shape as
+// parseMessage, plus the triggerId for opening a modal. Slash commands are
+// never in a thread.
+export function parseSlashCommand(form) {
+  const input = (form.get("text") ?? "").trim();
+  const [name = ""] = input.split(/\s+/, 1);
+  return {
+    name: name.toLowerCase(),
+    text: input.slice(name.length).trim(),
+    mentions: [],
+    user: form.get("user_id"),
+    channel: form.get("channel_id"),
+    triggerId: form.get("trigger_id"),
   };
 }
