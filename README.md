@@ -85,6 +85,14 @@ mention works whatever the bot is named.
 The task's details are stored as Slack message metadata on the root message,
 so the Worker needs no database.
 
+### Channels
+
+`CHANNEL_PAIRS` in `wrangler.toml` links each external channel to the channel
+its tasks are posted to. Several pairs can run at once, so a pair of test
+channels can sit alongside `#aura300-external` → `#aura300-dev`: tracking
+from the test external channel creates tasks in the test tasks channel, and
+the thread commands work in either tasks channel.
+
 ## Setup
 
 See [SLACK_SETUP.md](SLACK_SETUP.md) for the Slack app settings, Worker

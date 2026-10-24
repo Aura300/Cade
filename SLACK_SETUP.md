@@ -34,12 +34,17 @@ must be deployed and have its secrets set first.
    npx wrangler secret put SLACK_SIGNING_SECRET
    ```
 
-3. Set the channel IDs in `wrangler.toml`:
+3. Set the channel pairs in `wrangler.toml`. Each pair links an external
+   channel, where `@LUMA track` is used, to the channel its tasks go to. Add
+   a second pair for test channels to try LUMA without touching the real
+   ones; both pairs work at the same time.
 
    ```toml
    [vars]
-   EXTERNAL_CHANNEL_ID = "C…" # #aura300-external
-   TASK_CHANNEL_ID = "C…" # #aura300-dev
+   CHANNEL_PAIRS = [
+     { external = "C…", tasks = "C…" }, # #aura300-external → #aura300-dev
+     { external = "C…", tasks = "C…" }, # test external → test dev
+   ]
    ```
 
    In Slack, open each channel → click the channel name → **About** tab; the
@@ -122,13 +127,16 @@ npx wrangler secret put SLACK_BOT_TOKEN
 
 ## 7. Invite LUMA to the channels
 
-In both `#aura300-external` and `#aura300-dev`, type:
+In every channel listed in `CHANNEL_PAIRS` (for example `#aura300-external`,
+`#aura300-dev` and both test channels), type:
 
 ```
 /invite @LUMA
 ```
 
 ## 8. Check that it works
+
+Try these in the test channels first.
 
 | Try | Expected result |
 | --- | --- |

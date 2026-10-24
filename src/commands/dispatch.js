@@ -1,3 +1,4 @@
+import { channelsWithRole } from "../channels.js";
 import { commands } from "./registry.js";
 
 // Runs a parsed command and returns the reply to post in the message's thread,
@@ -22,22 +23,21 @@ export async function dispatch(command, context) {
 }
 
 // Handlers declare where they may run:
-//   channel   the env setting holding the only channel ID they work in
+//   channel   the role of the channels they work in ("external" or "tasks";
+//             see CHANNEL_PAIRS)
 //   inThread  whether they must be sent as a thread reply
 function checkScope(handler, command, env) {
-  const channel = handler.channel && env[handler.channel];
-  if (handler.channel && !channel) {
-    throw new Error(`${handler.channel} is not configured`);
-  }
-
+  const channels = handler.channel ? channelsWithRole(env, handler.channel) : [];
   const inThread = Boolean(command.threadTs) && command.threadTs !== command.ts;
   const allowed =
-    (!channel || command.channel === channel) &&
+    (!channels.length || channels.includes(command.channel)) &&
     (!handler.inThread || inThread);
   if (allowed) return undefined;
 
   const where = handler.inThread ? " in a task thread" : "";
-  const channelHint = channel ? ` in <#${channel}>` : "";
+  const channelHint = channels.length
+    ? ` in ${channels.map((id) => `<#${id}>`).join(" or ")}`
+    : "";
   return `Use \`${handler.usage}\`${where}${channelHint}.`;
 }
 

@@ -12,7 +12,7 @@ export default {
   name: "status",
   description: "Update the task's status (in its thread)",
   usage: "@LUMA status",
-  channel: "TASK_CHANNEL_ID",
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     const task = await loadTask(env, command.channel, command.threadTs);

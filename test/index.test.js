@@ -8,8 +8,10 @@ const SIGNING_SECRET = "test-signing-secret";
 const env = {
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
-  EXTERNAL_CHANNEL_ID: "CEXTERNAL",
-  TASK_CHANNEL_ID: "CDEV",
+  CHANNEL_PAIRS: [
+    { external: "CEXTERNAL", tasks: "CDEV" },
+    { external: "CTESTEXT", tasks: "CTESTDEV" },
+  ],
 };
 
 async function sign(body, timestamp = Math.floor(Date.now() / 1000)) {
@@ -602,7 +604,66 @@ test("@LUMA assign in a thread that is not a task says so", async (t) => {
 test("@LUMA assign outside the dev channel points to it", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign <@UBOB>", { channel: "CEXTERNAL" }));
-  assert.equal(calls[0].args.text, "Use `@LUMA assign @person` in a task thread in <#CDEV>.");
+  assert.equal(
+    calls[0].args.text,
+    "Use `@LUMA assign @person` in a task thread in <#CDEV> or <#CTESTDEV>.",
+  );
+});
+
+test("@LUMA track outside an external channel points to them", async (t) => {
+  const calls = mockSlack(t);
+  await send("/slack/events", threadEvent("<@UBOT> track", { channel: "CDEV" }));
+  assert.equal(calls[0].args.text, "Use `@LUMA track` in <#CEXTERNAL> or <#CTESTEXT>.");
+});
+
+test("tasks tracked from the test channel go to the test tasks channel", async (t) => {
+  let calls = mockSlack(t);
+  await send("/slack/events", threadEvent("<@UBOT> track", { channel: "CTESTEXT" }));
+  assert.equal(calls[0].args.blocks[0].elements[0].action_id, "track:open");
+
+  calls = mockSlack(t, {
+    ...createdTask,
+    "chat.postMessage": { channel: "CTESTDEV", ts: "100.1" },
+  });
+  await send(
+    "/slack/interactions",
+    interaction(
+      submission(
+        { title: "Fix login", priority: "High" },
+        { channel: "CTESTEXT", threadTs: "200.1", promptTs: "300.1" },
+      ),
+    ),
+  );
+  assert.equal(calls[0].args.channel, "CTESTDEV");
+  assert.deepEqual(calls[1].args, { channel: "CTESTDEV", timestamp: "100.1" });
+  assert.equal(calls[3].args.channel, "CTESTEXT");
+});
+
+test("thread commands work in the test tasks channel", async (t) => {
+  const calls = mockSlack(t, {
+    "conversations.replies": { messages: [rootMessage()] },
+  });
+  await send("/slack/events", threadEvent("<@UBOT> assign <@UBOB>", { channel: "CTESTDEV" }));
+  assert.equal(calls[0].args.channel, "CTESTDEV");
+  assert.equal(calls[1].args.channel, "CTESTDEV");
+  assert.equal(calls[1].args.metadata.event_payload.assignees, "UBOB");
+});
+
+test("a missing CHANNEL_PAIRS setting is reported", async (t) => {
+  const calls = mockSlack(t);
+  const pending = [];
+  const body = threadEvent("<@UBOT> assign <@UBOB>");
+  await worker.fetch(
+    new Request("https://worker.example.net/slack/events", {
+      method: "POST",
+      headers: await sign(body),
+      body,
+    }),
+    { ...env, CHANNEL_PAIRS: undefined },
+    { waitUntil: (promise) => pending.push(promise) },
+  );
+  await Promise.all(pending);
+  assert.equal(calls[0].args.text, "Sorry, `assign` failed. Please try again.");
 });
 
 test("@LUMA help, a bare @LUMA and unknown commands reply with usage", async (t) => {

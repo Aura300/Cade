@@ -16,7 +16,7 @@ export default {
   aliases: ["remove"],
   description: "Delete the task and Luma's messages in its thread",
   usage: "@LUMA delete",
-  channel: "TASK_CHANNEL_ID",
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     const task = await loadTask(env, command.channel, command.threadTs);

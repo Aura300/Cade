@@ -7,7 +7,7 @@ export default {
   name: "unassign",
   description: "Unassign people from the task (in its thread)",
   usage: "@LUMA unassign @person",
-  channel: "TASK_CHANNEL_ID",
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     if (!command.mentions.length) {

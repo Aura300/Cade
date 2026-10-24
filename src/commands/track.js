@@ -1,3 +1,4 @@
+import { tasksChannelFor } from "../channels.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { PRIORITIES, parseDueDate, setPinned, taskMessage } from "../tasks.js";
 
@@ -6,13 +7,14 @@ const OPEN_ACTION = "track:open";
 
 // `@LUMA track` in the external channel (usually in a thread) replies with a
 // Track task button, because only a click carries the trigger_id Slack needs
-// to open a modal. Submitting the modal posts the task to the dev channel and
-// replaces the button with an announcement linking to the task's thread.
+// to open a modal. Submitting the modal posts the task to the tasks channel
+// paired with this external channel, and replaces the button with an
+// announcement linking to the task's thread.
 export default {
   name: "track",
   description: "Track a new task in the dev channel",
   usage: "@LUMA track",
-  channel: "EXTERNAL_CHANNEL_ID",
+  channel: "external",
   async run(command) {
     const origin = { channel: command.channel, threadTs: command.threadTs ?? command.ts };
     return {
@@ -126,7 +128,7 @@ async function createTask(env, task, origin) {
   let message;
   try {
     message = await callSlack(env, "chat.postMessage", {
-      channel: env.TASK_CHANNEL_ID,
+      channel: tasksChannelFor(env, origin.channel),
       ...taskMessage(task),
     });
   } catch (error) {

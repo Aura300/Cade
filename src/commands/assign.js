@@ -6,7 +6,7 @@ export default {
   name: "assign",
   description: "Assign people to the task (in its thread)",
   usage: "@LUMA assign @person",
-  channel: "TASK_CHANNEL_ID",
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     if (!command.mentions.length) {
