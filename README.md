@@ -135,6 +135,39 @@ in `#aura300-dev`, and Luma's reply links there.
 Assign and unassign are for tasks only, and only tracked tasks are recorded
 in the Google Sheet.
 
+### Your tasks
+
+Message Luma directly (open Luma in Slack, **Messages** tab) and type
+**`tasks aura300`**, naming the group (the channel pair, such as `aura300`
+or `test`). `/luma tasks aura300` and `@LUMA tasks aura300` work anywhere
+too. Without a group, or with one Luma doesn't know, it replies with the
+groups to choose from.
+
+Luma sends your open tasks in that group's dev and incidents channels to
+your messages with it, grouped by what you do on each:
+
+- **Developing**, **Reviewing** and **Testing**, in that order, with
+  "Nothing assigned" for a role you have no tasks in;
+- incidents first in each group, labelled **Incident:**, then by priority
+  and the soonest due date;
+- each linking to its task thread, with its status, priority and due date;
+- and, at the bottom, when it was last updated.
+
+Each group has one list, pinned in your messages with Luma: asking for a
+group's tasks again posts a new list at the end of the conversation, pins
+it, and deletes that group's earlier list, so each pinned list is that
+group's latest. Other groups' lists, your own messages and pins, and Luma's
+other replies stay. Luma finds the lists from the conversation's pins, not
+by reading its messages.
+
+Done tasks are left out. Open tasks are the pinned ones (Luma unpins a task
+when it is Done), so Luma reads only the pins of the group's dev and
+incidents channels. A task someone unpins by hand won't appear until it is
+pinned again.
+
+In a direct message with Luma there's no need to mention it, so
+`tasks aura300` on its own works.
+
 ### Incidents
 
 Incidents come in through the external channel too, but are tracked in the

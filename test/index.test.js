@@ -1037,6 +1037,7 @@ test("parseMessage reads the command name and mentioned people", () => {
     name: "assign",
     text: "<@UBOB> <@UALICE|alice> <@UBOB> <@UBOT>",
     mentions: ["UBOB", "UALICE"],
+    direct: false,
     user: "UACTOR",
     channel: "CDEV",
     ts: "100.5",
@@ -1046,6 +1047,14 @@ test("parseMessage reads the command name and mentioned people", () => {
   assert.equal(parseMessage({ text: "<@UBOT>" }, "UBOT").name, "");
   assert.equal(parseMessage({ text: "@LUMA track" }, "UBOT"), null);
   assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
+
+  // In a direct message with Luma the mention is optional.
+  const direct = parseMessage({ text: "Tasks please", channel_type: "im" }, "UBOT");
+  assert.equal(direct.name, "tasks");
+  assert.equal(direct.text, "please");
+  assert.equal(direct.direct, true);
+  assert.equal(parseMessage({ text: "<@UBOT> tasks", channel_type: "im" }, "UBOT").name, "tasks");
+  assert.equal(parseMessage({ text: "tasks", channel_type: "im", bot_id: "BLUMA" }, "UBOT"), null);
 });
 
 const sheetEnv = { ...env, SHEET_URL, SHEET_SECRET: "sheet-secret" };
@@ -2331,4 +2340,207 @@ test("tasks with no requirement pin only themselves", async (t) => {
   await send("/slack/events", threadEvent("<@UBOT> status done"));
   const pins = calls.filter((call) => call.method.startsWith("pins."));
   assert.deepEqual(pins.map((call) => call.args.channel), ["CDEV"]);
+});
+
+// A pinned task's message as pins.list returns it.
+const historyTask = (ts, fields) => {
+  const root = rootMessage();
+  root.ts = ts;
+  Object.assign(root.metadata.event_payload, fields);
+  return root;
+};
+
+// Each channel's pinned messages; other channels have none.
+const histories = (byChannel) => ({
+  "auth.test": { url: "https://acme.slack.com/", user_id: "UBOT" },
+  // Posting to a user ID lands in their conversation with Luma.
+  "chat.postMessage": (args) => ({ channel: args.channel.startsWith("U") ? "DLUMA" : args.channel, ts: "600.1" }),
+  "pins.list": (args) => ({
+    items: (byChannel[args.channel] ?? []).map((message) => ({ type: "message", created_by: "UBOT", message })),
+  }),
+});
+
+const directEvent = (text) =>
+  JSON.stringify({
+    type: "event_callback",
+    authorizations: [{ user_id: "UBOT" }],
+    event: { type: "message", channel_type: "im", channel: "DLUMA", user: "UME", text, ts: "500.1" },
+  });
+
+const listPost = (calls) => calls.find((call) => call.method === "chat.postMessage" && call.args.channel.startsWith("U"));
+
+test("tasks for a group lists its open tasks by role, incidents first", async (t) => {
+  const calls = mockSlack(t, histories({
+    CDEV: [
+      historyTask("100.1", { title: "Low task", priority: "Low", developers: "UME" }),
+      historyTask("100.2", { title: "High task", priority: "High", due_date: "05/11/2026", developers: "UME,UBOB" }),
+      historyTask("100.3", { title: "High, sooner", priority: "High", due_date: "01/11/2026", developers: "UME" }),
+      historyTask("100.4", { title: "Done task", status: "DONE", developers: "UME" }),
+      historyTask("100.5", { title: "Not mine", developers: "UBOB" }),
+      historyTask("100.6", { title: "Review me", reviewers: "UME", status: "IN_REVIEW" }),
+      { ts: "100.7", text: "a chat message" },
+    ],
+    CINC: [
+      historyTask("100.8", { title: "Checkout is down", priority: "Urgent", due_date: "Immediate", developers: "UME" }),
+    ],
+    // Another group's task is left out.
+    CTESTDEV: [historyTask("100.9", { title: "Test task", developers: "UME" })],
+  }));
+  await send("/slack/events", directEvent("tasks AURA300"), {}, incidentEnv);
+
+  // Only the group's channels' pins are read, and the conversation's.
+  const read = calls.filter((call) => call.method === "pins.list").map((call) => call.args.channel);
+  assert.deepEqual(read.sort(), ["CDEV", "CINC", "DLUMA"]);
+  assert.ok(!calls.some((call) => call.method === "conversations.history"));
+  // Pins with a task's details are not loaded again; only the pinned chat
+  // message, which has none, is checked.
+  const loaded = calls.filter((call) => call.method === "conversations.replies");
+  assert.deepEqual(loaded.map((call) => call.args.ts), ["100.7"]);
+
+  const reply = listPost(calls).args;
+  assert.equal(reply.channel, "UME", "sent to the user's messages with Luma");
+  assert.equal(reply.thread_ts, undefined);
+  assert.equal(reply.text, "aura300: You have 5 open tasks.");
+  const [header, developing, reviewing, testing, updated] = reply.blocks;
+  assert.equal(header.text.text, "Your aura300 tasks");
+  assert.equal(
+    developing.text.text,
+    [
+      "*Developing (4)*",
+      "• *Incident:* <https://acme.slack.com/archives/CINC/p1008|Checkout is down>  ·  :white_circle: To do  ·  :red_circle: Urgent  ·  Due Immediate",
+      "• <https://acme.slack.com/archives/CDEV/p1003|High, sooner>  ·  :white_circle: To do  ·  :large_orange_circle: High  ·  Due 01/11/2026",
+      "• <https://acme.slack.com/archives/CDEV/p1002|High task>  ·  :white_circle: To do  ·  :large_orange_circle: High  ·  Due 05/11/2026",
+      "• <https://acme.slack.com/archives/CDEV/p1001|Low task>  ·  :white_circle: To do  ·  :large_green_circle: Low  ·  Due 31/10/2026",
+    ].join("\n"),
+  );
+  assert.match(reviewing.text.text, /^\*Reviewing \(1\)\*\n• <https:\/\/acme\.slack\.com\/archives\/CDEV\/p1006\|Review me>/);
+  assert.equal(testing.text.text, "*Testing*\n_Nothing assigned._");
+  // When it was last updated, and how to refresh it.
+  assert.match(
+    updated.elements[0].text,
+    /^Updated \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}\. Send `tasks aura300` to refresh it\.$/,
+  );
+  // Pinned, so it stays at hand and the next list can replace it.
+  assert.ok(calls.some((call) => call.method === "pins.add" && call.args.channel === "DLUMA"));
+});
+
+test("tasks without a known group asks which one", async (t) => {
+  for (const [text, reply] of [
+    ["tasks", "Say which group: `tasks aura300` or `tasks test`."],
+    ["tasks mars", '"mars" is not a group. Say which group: `tasks aura300` or `tasks test`.'],
+  ]) {
+    const calls = mockSlack(t);
+    await send("/slack/events", directEvent(text));
+    assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], text);
+    assert.equal(calls[0].args.channel, "DLUMA");
+    assert.equal(calls[0].args.text, reply);
+  }
+
+  const calls = mockSlack(t);
+  const reply = await (await send("/slack/commands", slash("tasks", "CDEV"))).json();
+  assert.equal(calls.length, 0);
+  assert.equal(reply.text, "Say which group: `tasks aura300` or `tasks test`.");
+});
+
+test("someone with no open tasks in the group is told so", async (t) => {
+  const calls = mockSlack(t, histories({ CDEV: [historyTask("100.1", { developers: "UBOB" })] }));
+  await send("/slack/events", directEvent("tasks aura300"));
+  const reply = listPost(calls).args;
+  assert.equal(reply.text, "aura300: You have no open tasks.");
+  assert.equal(reply.blocks[1].text.text, "You have no open tasks.");
+  assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1);
+});
+
+test("a pin without the task's details loads the task", async (t) => {
+  const calls = mockSlack(t, {
+    ...histories({ CDEV: [{ ts: "100.1", text: "task" }] }),
+    "conversations.replies": { messages: [historyTask("100.1", { testers: "UME" })] },
+  });
+  await send("/slack/events", directEvent("tasks aura300"));
+  const load = calls.find((call) => call.method === "conversations.replies").args;
+  assert.equal(load.ts, "100.1");
+  assert.equal(load.include_all_metadata, "true");
+  assert.equal(listPost(calls).args.text, "aura300: You have 1 open task.");
+});
+
+test("@LUMA tasks in a channel sends the list to your messages with Luma", async (t) => {
+  const calls = mockSlack(t, histories({ CDEV: [historyTask("100.1", { developers: "UACTOR" })] }));
+  await send("/slack/events", threadEvent("<@UBOT> tasks aura300", { channel: "CEXTERNAL", thread_ts: undefined }));
+  assert.equal(listPost(calls).args.text, "aura300: You have 1 open task.");
+  const reply = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
+  assert.equal(reply.args.text, "<@UACTOR>, I sent your aura300 tasks to your messages with Luma.");
+});
+
+test("/luma tasks answers at once and sends the list to your messages with Luma", async (t) => {
+  const calls = mockSlack(t, histories({ CTESTDEV: [historyTask("100.1", { reviewers: "UACTOR" })] }));
+  const reply = await (await send("/slack/commands", slash("tasks test", "CDEV"))).json();
+  assert.deepEqual(reply, { response_type: "ephemeral", text: "Sending your test tasks to your messages with Luma." });
+  const post = listPost(calls).args;
+  assert.equal(post.text, "test: You have 1 open task.");
+  assert.match(post.blocks[2].text.text, /^\*Reviewing \(1\)\*/);
+
+  // In the conversation with Luma itself, the list is the only answer.
+  mockSlack(t, histories({}));
+  const direct = await send("/slack/commands", slash("tasks test", "DLUMA"));
+  assert.equal(await direct.text(), "");
+});
+
+test("other commands in a direct message point to where they work", async (t) => {
+  const calls = mockSlack(t);
+  await send("/slack/events", directEvent("assign developer <@UBOB>"));
+  assert.match(calls[0].args.text, /^Use `@LUMA assign developer @person` in a task thread in <#CDEV> or <#CTESTDEV>\.$/);
+  assert.equal(calls[0].args.thread_ts, undefined);
+});
+
+test("a group's new list replaces only that group's earlier list", async (t) => {
+  const pin = (ts, text, createdBy = "UBOT") => ({ type: "message", created_by: createdBy, message: { ts, text } });
+  const calls = mockSlack(t, {
+    ...histories({}),
+    "pins.list": (args) => ({
+      items:
+        args.channel === "DLUMA"
+          ? [
+              pin("600.1", "aura300: You have 2 open tasks."),
+              pin("400.1", "aura300: You have 1 open task."),
+              pin("380.1", "test: You have 3 open tasks."),
+              pin("350.1", "aura300: my own note", "UME"),
+              // A list from before lists had groups.
+              pin("200.1", "You have 4 open tasks."),
+            ]
+          : [],
+    }),
+  });
+  await send("/slack/events", directEvent("tasks aura300"));
+
+  // The new list is pinned before the conversation's pins are read.
+  const methods = calls.map((call) => call.method);
+  assert.ok(methods.indexOf("pins.add") < methods.lastIndexOf("pins.list"));
+  // aura300's earlier list and the ungrouped one go; the test list, the new
+  // one and the user's own pin stay.
+  const deleted = calls.filter((call) => call.method === "chat.delete");
+  assert.deepEqual(deleted.map((call) => [call.args.channel, call.args.ts]), [
+    ["DLUMA", "400.1"],
+    ["DLUMA", "200.1"],
+  ]);
+});
+
+test("a failed clean-up still leaves the new task list", async (t) => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const method = new URL(url).pathname.replace("/api/", "");
+    calls.push(method);
+    if (method === "pins.add") return Response.json({ ok: false, error: "missing_scope" });
+    const results = {
+      "auth.test": { url: "https://acme.slack.com/", user_id: "UBOT" },
+      "chat.postMessage": { channel: "DLUMA", ts: "600.1" },
+    };
+    return Response.json({ ok: true, ...results[method] });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  await send("/slack/events", directEvent("tasks aura300"));
+  assert.ok(calls.includes("chat.postMessage"));
+  assert.ok(!calls.includes("chat.delete"));
 });
