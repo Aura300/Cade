@@ -1,0 +1,17 @@
+name = "project-helper"
+main = "src/index.js"
+compatibility_date = "2026-10-13"
+
+# Slack channel IDs (channel name → View channel details → bottom of the About
+# tab). Replace the placeholders before deploying.
+[vars]
+EXTERNAL_CHANNEL_ID = "C0C178XHSQH" # #aura300-external
+TASK_CHANNEL_ID = "C0C143QFZL3" # #aura300-dev
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
