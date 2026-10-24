@@ -1,6 +1,6 @@
 import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
 import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, STATUSES, loadTask, saveTask, setPinned } from "../tasks.js";
+import { NOT_A_TASK, STATUSES, loadTask, prLink, saveTask, setPinned } from "../tasks.js";
 
 const SELECT_ACTION = "status:select";
 const APPROVE_ACTION = "status:approve";
@@ -167,19 +167,21 @@ async function announce(env, channel, ts, task, user) {
   });
 }
 
-// The announcement with the client's Approve and Not approve buttons,
-// mentioning whoever started the requirement so they are notified. The
-// buttons carry the announcement, to keep it when they are replaced.
+// The announcement with the task's linked pull requests, for the client to
+// look at, and the client's Approve and Not approve buttons, mentioning
+// whoever started the requirement so they are notified. The buttons carry
+// the announcement, PRs included, to keep it when they are replaced.
 async function reviewPrompt(env, text, channel, ts, task) {
   const requirement = await loadRequirement(env, task.source.channel, task.source.threadTs);
   const who = requirement ? `<@${requirement.createdBy}>, please` : "Please";
   const request = `${who} review it and approve it, or say what needs to change.`;
-  const value = JSON.stringify({ channel, ts, text });
+  const announced = task.prs.length ? `${text}\n*PRs:* ${task.prs.map(prLink).join(", ")}` : text;
+  const value = JSON.stringify({ channel, ts, text: announced });
   return {
     // The mention is in the notification text too.
-    text: `${text}\n${request}`,
+    text: `${announced}\n${request}`,
     blocks: [
-      { type: "section", text: mrkdwn(`${text}\n${request}`) },
+      { type: "section", text: mrkdwn(`${announced}\n${request}`) },
       {
         type: "actions",
         elements: [

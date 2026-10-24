@@ -108,9 +108,9 @@ changes what follows who knows it:
   to Done directly. Client review is an optional step for work the client
   should check first: when the dev channel moves a requirement's task to
   Client review, Luma posts in the requirement thread straight away,
-  without asking whether to inform it, mentioning whoever started the
-  requirement so they are notified, with **Approve** and
-  **Not approve** buttons. **Approve** moves the task to Done; **Not
+  mentioning whoever started the requirement so they are notified, listing
+  the task's linked PRs for them to look at, with **Approve** and **Not
+  approve** buttons. **Approve** moves the task to Done; **Not
   approve** moves it back to In progress, and the client explains what
   needs to change in the thread. Either way Luma tells the task's thread in
   `#aura300-dev`. The buttons do nothing once the team has moved the task

@@ -3333,3 +3333,39 @@ test("other typed statuses get only the ✅", async (t) => {
   assert.equal(calls.at(-1).method, "reactions.add");
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
 });
+
+test("Client review lists the task's PRs for the client, and keeps them after a decision", async (t) => {
+  const task = requirementTask("IN_TESTING");
+  task.metadata.event_payload.prs = `${PR},${MR}`;
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true }), task),
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send("/slack/events", threadEvent("<@UBOT> status client review"));
+
+  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
+  const announced = [
+    "<@UACTOR> marked a task as :large_yellow_circle: Client review: <https://slack.example/p100|Fix login>",
+    `*PRs:* <${PR}|project-helper/42>, <${MR}|web-app/118>`,
+  ].join("\n");
+  assert.equal(
+    review.blocks[0].text.text,
+    `${announced}\n<@UCREATOR>, please review it and approve it, or say what needs to change.`,
+  );
+  assert.deepEqual(
+    review.blocks[1].elements.map((button) => button.action_id),
+    ["status:approve", "status:reject"],
+  );
+  // The buttons carry the PRs, so they stay when the buttons are replaced.
+  assert.equal(JSON.parse(review.blocks[1].elements[0].value).text, announced);
+});
+
+test("Client review on a task with no PRs shows no PRs line", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true }), requirementTask("IN_TESTING")),
+    "chat.getPermalink": { permalink: "https://slack.example/p100" },
+  });
+  await send("/slack/events", threadEvent("<@UBOT> status client review"));
+  const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
+  assert.ok(!review.blocks[0].text.text.includes("*PRs:*"));
+});
