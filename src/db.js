@@ -251,6 +251,95 @@ export async function deleteCanvas(env, channel) {
   await env.DB.prepare("DELETE FROM canvases WHERE channel = ?").bind(channel).run();
 }
 
+// The group's last posted executive summary, as { id, postedAt }, or null.
+export async function lastExecSummary(env, group) {
+  const row = await env.DB.prepare(
+    `SELECT id, posted_at FROM exec_summaries
+     WHERE group_name = ? AND posted_at IS NOT NULL
+     ORDER BY posted_at DESC LIMIT 1`,
+  )
+    .bind(group)
+    .first();
+  return row ? { id: row.id, postedAt: row.posted_at } : null;
+}
+
+// Starts an executive summary draft, `summary` being { group, channel,
+// createdBy, since }, and returns its id. `channel` is where it is written
+// and will be posted.
+export async function insertExecSummary(env, summary) {
+  const { id } = await env.DB.prepare(
+    "INSERT INTO exec_summaries (group_name, channel, created_by, since) VALUES (?, ?, ?, ?) RETURNING id",
+  )
+    .bind(summary.group, summary.channel, summary.createdBy, summary.since)
+    .first();
+  return id;
+}
+
+// The executive summary `id`, as { id, group, channel, createdBy, since,
+// postedAt, postedChannel, postedTs }, or null.
+export async function getExecSummary(env, id) {
+  const row = await env.DB.prepare("SELECT * FROM exec_summaries WHERE id = ?").bind(id).first();
+  return row
+    ? {
+        id: row.id,
+        group: row.group_name,
+        channel: row.channel,
+        createdBy: row.created_by,
+        since: row.since,
+        postedAt: row.posted_at,
+        postedChannel: row.posted_channel,
+        postedTs: row.posted_ts,
+      }
+    : null;
+}
+
+// What was chosen for each requirement or task in the summary `id`, keyed
+// by its message's "channel:ts", as { included, health, progress, notes }.
+export async function execItems(env, id) {
+  const { results } = await env.DB.prepare("SELECT * FROM exec_summary_items WHERE summary_id = ?").bind(id).all();
+  return Object.fromEntries(
+    results.map((row) => [
+      `${row.task_channel}:${row.task_ts}`,
+      { included: Boolean(row.included), health: row.health, progress: row.progress, notes: row.notes },
+    ]),
+  );
+}
+
+export async function putExecItem(env, id, channel, ts, item) {
+  await env.DB.prepare(
+    `INSERT INTO exec_summary_items (summary_id, task_channel, task_ts, included, health, progress, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (summary_id, task_channel, task_ts) DO UPDATE SET
+       included = excluded.included, health = excluded.health,
+       progress = excluded.progress, notes = excluded.notes`,
+  )
+    .bind(id, channel, ts, item.included ? 1 : 0, item.health ?? null, item.progress ?? "", item.notes ?? "")
+    .run();
+}
+
+// Claims the summary for posting at `postedAt`. Returns false if it was
+// claimed already, by another click.
+export async function claimExecPost(env, id, postedAt) {
+  const row = await env.DB.prepare(
+    "UPDATE exec_summaries SET posted_at = ? WHERE id = ? AND posted_at IS NULL RETURNING id",
+  )
+    .bind(postedAt, id)
+    .first();
+  return Boolean(row);
+}
+
+// Records where the claimed summary was posted.
+export async function recordExecPost(env, id, channel, ts) {
+  await env.DB.prepare("UPDATE exec_summaries SET posted_channel = ?, posted_ts = ? WHERE id = ?")
+    .bind(channel, ts, id)
+    .run();
+}
+
+// Gives up the claim, when posting failed, so it can be tried again.
+export async function releaseExecPost(env, id) {
+  await env.DB.prepare("UPDATE exec_summaries SET posted_at = NULL WHERE id = ? AND posted_ts IS NULL").bind(id).run();
+}
+
 // The requirements whose root message Slack hasn't taken yet, as { id,
 // channel, requirement, attempts }, as for unpostedTasks.
 export async function unpostedRequirements(env) {

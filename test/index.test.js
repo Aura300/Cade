@@ -1002,7 +1002,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
       assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary`");
+    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary` · `/cade exec`");
   }
 });
 
@@ -6359,4 +6359,257 @@ test("a summary's Closed section keeps the last 50 done", async (t) => {
   assert.match(closed[0], /^\| \[Done 54\]/);
   assert.match(closed.at(-1), /^\| \[Done 5\]/);
   assert.match(markdown, /The last 50 done, most recently first\./);
+});
+
+// The acme pair with an incidents channel, in UTC.
+const execEnv = {
+  ...env,
+  TIMEZONE: "UTC",
+  CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC" }],
+};
+
+const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
+
+// Stores a group's work for an executive summary:
+//   CEXTERNAL/200.1  requirement "Export reports", its task CDEV/100.1 done
+//                    two days ago
+//   CEXTERNAL/200.2  requirement "Dark mode", in discussion
+//   CEXTERNAL/200.4  incident "Checkout is down", its task CINC/100.8 to do
+//   CDEV/100.3       the team's own task "Upgrade Node", in review
+//   CDEV/100.5       the team's own task "Old work", done long ago
+async function storeExecWork() {
+  const requirement = (title, fields) => ({ title, status: "DISCUSSION", priority: "High", dueDate: "31/10/2026", createdBy: "UCLIENT", ...fields });
+  const task = (channel, ts, title, fields) => ({ ...historyTask(ts, { title, ...fields }), channel });
+  await putRequirement(env, "CEXTERNAL", "200.1", requirement("Export reports", {
+    status: "DONE",
+    task: { channel: "CDEV", ts: "100.1", title: "Export reports", link: "https://slack.example/p100", trackedBy: "UACTOR" },
+  }));
+  await putRequirement(env, "CEXTERNAL", "200.2", requirement("Dark mode", { priority: "Low", dueDate: "" }));
+  await putRequirement(env, "CEXTERNAL", "200.4", requirement("Checkout is down", {
+    status: "IN_PROGRESS",
+    priority: "Urgent",
+    dueDate: "Immediate",
+    incident: true,
+    task: { channel: "CINC", ts: "100.8", title: "Checkout is down", link: "https://slack.example/p108", trackedBy: "UACTOR" },
+  }));
+  for (const record of [
+    task("CDEV", "100.1", "Export reports", { status: "DONE", completedAt: daysAgo(2), developers: ["UALICE"] }),
+    task("CINC", "100.8", "Checkout is down", { priority: "Urgent", dueDate: "Immediate", developers: ["UBOB"] }),
+  ]) {
+    record.task.source = { channel: "CEXTERNAL", threadTs: record.ts === "100.1" ? "200.1" : "200.4", incident: record.ts === "100.8" };
+    await putTask(env, record.channel, record.ts, record.task);
+  }
+  for (const record of [
+    task("CDEV", "100.3", "Upgrade Node", { priority: "Medium", status: "IN_REVIEW", developers: ["UALICE"] }),
+    task("CDEV", "100.5", "Old work", { status: "DONE", completedAt: daysAgo(30) }),
+  ]) {
+    record.task.source = undefined;
+    await putTask(env, record.channel, record.ts, record.task);
+  }
+}
+
+// A click on the walk's button `actionId`, with `values` as the message's
+// state.
+const execClick = (message, actionId, values = {}) => {
+  const button = message.blocks.at(-1).elements.find((element) => element.action_id === actionId);
+  assert.ok(button, `no ${actionId} button`);
+  return interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    response_url: RESPONSE_URL,
+    trigger_id: "trigger-9",
+    actions: [{ action_id: actionId, value: button.value, block_id: "nav" }],
+    state: { values },
+  });
+};
+
+// A step's block for `field`.
+const execField = (message, field) => message.blocks.find((block) => block.block_id?.startsWith("{") && JSON.parse(block.block_id).f === field);
+
+// The state of a step's fields.
+const execFields = (message, { health, progress, notes, included = true }) => ({
+  [execField(message, "health").block_id]: { value: { type: "static_select", selected_option: { value: health } } },
+  [execField(message, "progress").block_id]: { value: { type: "plain_text_input", value: progress } },
+  [execField(message, "notes").block_id]: { value: { type: "plain_text_input", value: notes } },
+  [execField(message, "include").block_id]: { value: { type: "checkboxes", selected_options: included ? [{ value: "yes" }] : [] } },
+});
+
+const messageText = (message) => message.blocks.map(blockText).filter(Boolean).join("\n");
+
+const execLink = (channel, ts) => `https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
+
+test("/cade exec goes through requirements, then the team's own tasks, and posts the summary where it was run", async (t) => {
+  const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
+  await storeExecWork();
+  // Run in a channel outside the group, which has the only group.
+  const { now, later: first } = await runTasksCommand("exec", "CLEADS", execEnv);
+  assert.equal(now, "");
+
+  // Step 1: the requirement completed in the past week, ticked to mention.
+  // Its task, tracked from it, isn't listed again; old work is left out.
+  assert.match(blockText(first.blocks[0]), /^\*Executive summary: acme\*  ·  Step 1 of 5$/);
+  const done = first.blocks.filter((block) => block.accessory?.type === "checkboxes");
+  assert.deepEqual(done.map((block) => block.text.text.match(/\|([^>]+)>/)[1]), ["Export reports"]);
+  assert.match(done[0].text.text, /^• <https:\/\/acme\.slack\.com\/archives\/CEXTERNAL\/p2001\?thread_ts=200\.1&cid=CEXTERNAL\|Export reports>  ·  Done/);
+  assert.deepEqual(done[0].accessory.initial_options, done[0].accessory.options);
+
+  const sent = recordResponses(t);
+  // Step 2: the incident, most urgent, with its incident and task threads to
+  // peek at.
+  await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
+  const incident = sent.at(-1);
+  assert.match(messageText(incident), /Requirements and incidents\*  ·  1 of 2[\s\S]*\*Incident:\* <[^|]+\|Checkout is down>  ·  To do  ·  :red_circle: Urgent  ·  Due Immediate  ·  <@UBOB>/);
+  const peek = incident.blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory;
+  assert.deepEqual(JSON.parse(peek.value), [
+    { c: "CEXTERNAL", t: "200.4", n: "Incident thread" },
+    { c: "CINC", t: "100.8", n: "Incidents channel thread" },
+  ]);
+  await send("/slack/interactions", execClick(incident, "exec:next", execFields(incident, { health: "BLOCKED", progress: "", notes: "Waiting on the payment provider\nETA Monday" })), {}, execEnv);
+
+  // Step 3: the requirement in discussion, not tracked yet.
+  const dark = sent.at(-1);
+  assert.match(messageText(dark), /Requirements and incidents\*  ·  2 of 2[\s\S]*Dark mode>  ·  In discussion  ·  :large_green_circle: Low  ·  Due _none_  ·  _Not tracked yet_/);
+  await send("/slack/interactions", execClick(dark, "exec:next", execFields(dark, { health: "ON_TRACK", progress: "", notes: "", included: false })), {}, execEnv);
+
+  // Step 4: the team's own task, with its dev thread to peek at.
+  const own = sent.at(-1);
+  assert.match(messageText(own), /The team's own tasks\*  ·  1 of 1[\s\S]*Upgrade Node>  ·  In review/);
+  assert.deepEqual(JSON.parse(own.blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory.value), [
+    { c: "CDEV", t: "100.3", n: "Dev thread" },
+  ]);
+  await send("/slack/interactions", execClick(own, "exec:next", execFields(own, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
+
+  // Back keeps what was chosen.
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:back"), {}, execEnv);
+  const ownAgain = sent.at(-1);
+  assert.equal(execField(ownAgain, "progress").element.initial_value, "3/5");
+  assert.equal(execField(ownAgain, "health").element.initial_option.value, "AT_RISK");
+  await send("/slack/interactions", execClick(ownAgain, "exec:next", execFields(ownAgain, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
+
+  // Step 5: the summary as it will read, worst first, without what was left
+  // out.
+  const review = sent.at(-1);
+  assert.match(messageText(review), /Step 5 of 5[\s\S]*This is what I'll post in <#CLEADS>/);
+  const expected = [
+    "*Completed (1)*",
+    `• <${execLink("CEXTERNAL", "200.1")}|Export reports>`,
+    "",
+    "*Active (2)*",
+    "*:no_entry: Blocked (1)*",
+    `• *Incident:* <${execLink("CEXTERNAL", "200.4")}|Checkout is down>  ·  To do`,
+    "      _Waiting on the payment provider_",
+    "      _ETA Monday_",
+    "*:warning: At risk (1)*",
+    `• <${execLink("CDEV", "100.3")}|Upgrade Node>  ·  In review  ·  3/5`,
+  ].join("\n");
+  assert.ok(messageText(review).includes(expected));
+
+  calls.length = 0;
+  await send("/slack/interactions", execClick(review, "exec:post"), {}, execEnv);
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].args.channel, "CLEADS");
+  assert.ok(posts[0].args.text.startsWith("*acme executive summary*"));
+  assert.ok(posts[0].args.text.includes(expected));
+  assert.equal(sent.at(-1).text, "Posted the executive summary. The next one starts from now.");
+
+  // Posting again does nothing.
+  await send("/slack/interactions", execClick(review, "exec:post"), {}, execEnv);
+  assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1);
+});
+
+test("Peek at threads shows each thread's latest replies in a modal", async (t) => {
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    "views.open": { view: { id: "V1" } },
+    "conversations.replies": (args) => ({
+      messages:
+        args.channel === "CEXTERNAL"
+          ? [
+              { ts: "200.4", user: "UBOT", text: "card" },
+              { ts: "1761300000.000100", user: "UCLIENT", text: "Still failing for EU customers" },
+              { ts: "1761300060.000100", user: "UBOB", text: "", files: [{ id: "F1" }] },
+            ]
+          : [{ ts: "100.8", user: "UBOT", text: "card" }],
+    }),
+  });
+  await storeExecWork();
+  const { later: first } = await runTasksCommand("exec", "CDEV", execEnv);
+  const sent = recordResponses(t);
+  await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
+  const peek = sent.at(-1).blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory;
+  calls.length = 0;
+  await send("/slack/interactions", interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    trigger_id: "trigger-7",
+    response_url: RESPONSE_URL,
+    actions: [{ action_id: "exec:peek", value: peek.value, block_id: "x" }],
+  }), {}, execEnv);
+
+  const opened = calls.find((call) => call.method === "views.open");
+  assert.equal(opened.args.trigger_id, "trigger-7");
+  const update = calls.find((call) => call.method === "views.update");
+  assert.equal(update.args.view_id, "V1");
+  const { view } = update.args;
+  const text = view.blocks.map(blockText).filter(Boolean);
+  assert.deepEqual(text, [
+    `*Incident thread*  ·  <${execLink("CEXTERNAL", "200.4")}|Open>`,
+    "*<@UCLIENT>*  ·  24/10/2025 10:00\nStill failing for EU customers",
+    "*<@UBOB>*  ·  24/10/2025 10:01\n_(attachment)_",
+    `*Incidents channel thread*  ·  <${execLink("CINC", "100.8")}|Open>`,
+    "_No replies yet._",
+  ]);
+  // Peeking leaves the step as it was.
+  assert.equal(sent.length, 1);
+});
+
+test("the next /cade exec starts from the last one, with its health and progress", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
+  await storeExecWork();
+  const { later: first } = await runTasksCommand("exec", "CDEV", execEnv);
+  const sent = recordResponses(t);
+  await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
+  const incident = sent.at(-1);
+  await send("/slack/interactions", execClick(incident, "exec:next", execFields(incident, { health: "DELAYED", progress: "1/2", notes: "Once only" })), {}, execEnv);
+  for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1), "exec:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
+
+  // Nothing has been done since, so it starts with the incident.
+  const { later: next } = await runTasksCommand("exec", "CDEV", execEnv);
+  assert.match(messageText(next), /Step 1 of 4[\s\S]*Checkout is down/);
+  assert.equal(execField(next, "health").element.initial_option.value, "DELAYED");
+  assert.equal(execField(next, "progress").element.initial_value, "1/2");
+  // Notes are for one summary only.
+  assert.equal(execField(next, "notes").element.initial_value, undefined);
+});
+
+test("/cade exec says so when Cade isn't in the channel", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
+  await storeExecWork();
+  const { later: first } = await runTasksCommand("exec", "CLEADS", execEnv);
+  const sent = recordResponses(t);
+  const fakeFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) =>
+    String(url).endsWith("/chat.postMessage") ? Response.json({ ok: false, error: "not_in_channel" }) : fakeFetch(url, init);
+  for (let i = 0; i < 4; i++) {
+    await send("/slack/interactions", execClick(sent.at(-1) ?? first, "exec:next"), {}, execEnv);
+  }
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
+  assert.match(blockText(sent.at(-1).blocks[0]), /I'm not in <#CLEADS>. Invite me/);
+  // It can be posted once Cade is invited.
+  globalThis.fetch = fakeFetch;
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
+  assert.equal(sent.at(-1).text, "Posted the executive summary. The next one starts from now.");
+});
+
+test("/cade exec outside a group asks which, when there are several", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+  const { now } = await runTasksCommand("exec", "CLEADS");
+  assert.equal(JSON.parse(now).text, "Which group? Try `/cade exec acme` or `/cade exec test`.");
+  const { now: unknown } = await runTasksCommand("exec nope", "CLEADS");
+  assert.match(JSON.parse(unknown).text, /I don't know a group called "nope"/);
+  const { now: named, later } = await runTasksCommand("exec test", "CLEADS");
+  assert.equal(named, "");
+  assert.match(blockText(later.blocks[0]), /Executive summary: test/);
 });
