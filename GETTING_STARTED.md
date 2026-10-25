@@ -399,6 +399,32 @@ tracked, its task goes too: the question names the task, and confirming
 deletes the task in `#acme-dev` first (like `@Cade delete` there), then
 the requirement.
 
+More about a requirement sometimes arrives as a message of its own. Post
+a message in the external channel outside any thread, and Cade asks you, in
+a message only you see, whether it's a new requirement, an incident, or part
+of one already open: **Start requirement** and **Report incident** open
+their forms named from the message's first line, and once it's posted the
+message is moved into its thread; **Move to existing** shows the open
+requirements and incidents to move it to (only when there are some); **Not
+now** dismisses the question. To do the same for a message later, reply
+**`@Cade requirement`** or **`@Cade incident`** in its thread.
+
+`#acme-dev` works the same way for the team's own work: a message posted
+there outside any thread gets **Track as task** (the `/cade track` form,
+named from its first line), **Move to existing** and **Not now**, and
+**`@Cade track`** replied in a message's thread offers to track it. Once the
+task is posted, the message is moved into its thread.
+
+To move a message later, reply **`@Cade move`** in its thread and pick where
+it goes, privately. It works the same in `#acme-dev` and the incidents
+channel, with their open tasks to pick from; messages only move within their
+channel. Slack can't move messages, so Cade copies it into the chosen
+thread, quoted and crediting its author, with a link back, replies under the
+original "moved this message to the requirement thread… Please carry on the
+conversation there", and reacts to it with :outbox_tray:, so moved messages
+can be passed over. Only the message is copied, not its replies or
+attachments, and a message moved once isn't moved again.
+
 Assign and unassign are for tasks only, and only tracked tasks are recorded
 in the Google Sheet.
 
@@ -597,7 +623,9 @@ In a task's thread in `#acme-dev` or the incidents channel:
 - `@Cade delete` (or `@Cade remove`) is for the team's own tasks, from
   `/cade track`. A task tracked from a requirement or incident is removed
   from its requirement or incident thread instead, which removes both;
-  here Cade replies with a link to that thread. For the team's own task,
+  here Cade replies with a link to that thread. Once that requirement or
+  incident is gone, deleted with Cade or by hand in Slack, the task can be
+  removed here on its own. For the team's own task,
   it replies with a prominent **Cancel**
   button and a plain **Delete task** button. **Delete task** opens a second "Delete task?" dialog,
   and only the person who sent `@Cade delete` can confirm or cancel. Once

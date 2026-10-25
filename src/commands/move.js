@@ -1,48 +1,124 @@
-import { activeRequirements } from "../db.js";
+import { pairFor, roleOf } from "../channels.js";
+import { activeRequirements, tasksWithStatus } from "../db.js";
+import { intent } from "../intents.js";
 import { loadRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
+import { STATUSES, loadTask, statusName } from "../tasks.js";
+import { incidentView, requirementView } from "./requirement.js";
+import { trackView } from "./track.js";
 
 const PICK_ACTION = "move:pick";
 const MOVE_ACTION = "move:confirm";
 const CANCEL_ACTION = "move:cancel";
-const PICK_BLOCK = "move:requirement";
+const PICK_BLOCK = "move:target";
+const START_ACTION = "move:start-requirement";
+const INCIDENT_ACTION = "move:report-incident";
+const TRACK_ACTION = "move:track-task";
+const EXISTING_ACTION = "move:existing";
+const DISMISS_ACTION = "move:dismiss";
+
+// Added to a moved message, so it can be passed over without opening it.
+const MOVED_REACTION = "outbox_tray";
 
 const NOT_IN_THREAD = "Reply `@Cade move` in the thread of the message you want to move.";
-const NO_REQUIREMENTS = "There are no open requirements here. Start one with `/cade requirement`.";
 
-// More about a requirement sometimes arrives as a message of its own in the
-// external channel. `@Cade move`, replied in that message's thread, asks
-// privately which open requirement or incident it belongs to. Slack can't
-// move messages, so Move copies it into the requirement's thread, quoted and
-// credited to whoever wrote it, and replies under the original with a link
-// to the copy, asking people to carry on there. Only the message moves, not its replies, which the copy's
+// What a message can be moved to: requirements and incidents in the external
+// channel, tasks in a tasks or incidents channel. Each lists the open ones,
+// newest first, and loads one, or null if it is gone; `open` says whether it
+// can still take a message, and `noun` names its thread.
+const REQUIREMENTS = {
+  noun: (requirement) => (requirement.incident ? "incident" : "requirement"),
+  list: (env, channel) => activeRequirements(env, channel),
+  load: loadRequirement,
+  open: (requirement) => requirement.status !== "DONE",
+  label: (requirement) => `${requirement.incident ? "Incident" : "Requirement"} · ${requirement.title}`,
+  alreadyThere: "This is already a requirement thread.",
+  none: "There are no open requirements here.",
+  start: "Start one with `/cade requirement`.",
+};
+
+const OPEN_STATUSES = Object.keys(STATUSES).filter((status) => status !== "DONE");
+
+const TASKS = {
+  noun: () => "task",
+  list: async (env, channel) =>
+    (await tasksWithStatus(env, channel, OPEN_STATUSES))
+      .reverse()
+      .slice(0, 100)
+      .map(({ ts, task }) => ({ ts, ...task })),
+  load: loadTask,
+  open: (task) => task.status !== "DONE",
+  label: (task) => `${statusName(task.status)} · ${task.title}`,
+  alreadyThere: "This is already a task thread.",
+  none: "There are no open tasks here.",
+  start: "Start one with `/cade track`.",
+};
+
+const targetsIn = (env, channel) => (roleOf(env, channel) === "external" ? REQUIREMENTS : TASKS);
+
+// More about a requirement or task sometimes arrives as a message of its own.
+// `@Cade move`, replied in that message's thread, asks privately which open
+// requirement or incident (in the external channel) or task (in a tasks or
+// incidents channel) it belongs to; messages only move within their channel.
+// Slack can't move messages, so Move copies it into that thread, quoted and
+// credited to whoever wrote it, replies under the original with a link to
+// the copy, asking people to carry on there, and reacts to the original with
+// :outbox_tray:. Only the message moves, not its replies, which the copy's
 // link back still reaches. A bot token can't delete people's messages, so
 // the original stays.
+//
+// A message posted on its own in the external channel, not in a thread, gets
+// a private question for whoever posted it: start a requirement or report
+// an incident from it, with its first line as the name, or move it to an
+// open one. In a tasks channel the question is whether to track it as a
+// task, or move it to an open one. A requirement, incident or task started
+// from it takes the message into its thread once it is posted, as Move
+// would. `@Cade requirement`, `@Cade incident` and `@Cade track`, replied in
+// a message's thread, offer the same for that message (see offerStart).
 export default {
   name: "move",
-  description: "Move a message into a requirement's thread",
+  description: "Move a message into a requirement's or task's thread",
   usage: "@Cade move",
   section: "thread",
-  channel: "external",
+  channel: ["external", "tasks", "incidents"],
   async run(command, { env }) {
     const inThread = command.threadTs && command.threadTs !== command.ts;
     if (!inThread) return NOT_IN_THREAD;
-    if (await loadRequirement(env, command.channel, command.threadTs)) {
-      return "This is already a requirement thread.";
-    }
-    const message = await rootMessage(env, command.channel, command.threadTs);
-    if (!message || message.bot_id) return "I can only move people's messages.";
-    const requirements = await activeRequirements(env, command.channel);
-    if (!requirements.length) return NO_REQUIREMENTS;
-
-    await callSlack(env, "chat.postEphemeral", {
-      channel: command.channel,
-      thread_ts: command.threadTs,
-      user: command.user,
-      ...picker(command.channel, command.threadTs, requirements),
-    });
+    const { problem, moved } = await checkRoot(env, command.channel, command.threadTs);
+    if (moved) return privately(env, command, { text: moved });
+    if (problem) return problem;
+    const targets = targetsIn(env, command.channel);
+    const open = await targets.list(env, command.channel);
+    if (!open.length) return `${targets.none} ${targets.start}`;
+    await privately(env, command, picker(command.channel, command.threadTs, open, targets));
   },
+  intents: [
+    intent({
+      name: "new-thread",
+      order: 50,
+      match: (message) => !message.inThread,
+      handle: (message, { env }) => offerThread(env, message),
+    }),
+  ],
   actions: {
+    [START_ACTION]: async (payload, { env }) => {
+      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: requirementView(prompted(payload)) });
+      await respondLater(payload.response_url, { delete_original: true });
+    },
+    [INCIDENT_ACTION]: async (payload, { env }) => {
+      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: incidentView(prompted(payload)) });
+      await respondLater(payload.response_url, { delete_original: true });
+    },
+    [TRACK_ACTION]: async (payload, { env }) => {
+      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: trackView(prompted(payload)) });
+      await respondLater(payload.response_url, { delete_original: true });
+    },
+    [EXISTING_ACTION]: async (payload, context) => {
+      context.waitUntil(offerExisting(context.env, payload));
+    },
+    [DISMISS_ACTION]: async (payload) => {
+      await respondLater(payload.response_url, { delete_original: true });
+    },
     // Picking only chooses; Move moves.
     [PICK_ACTION]: async () => {},
     [MOVE_ACTION]: async (payload, context) => {
@@ -51,11 +127,11 @@ export default {
         await callSlack(context.env, "chat.postEphemeral", {
           channel: payload.channel.id,
           user: payload.user.id,
-          text: "Pick a requirement first, then press Move.",
+          text: "Pick where it goes first, then press Move.",
         });
         return;
       }
-      context.waitUntil(move(context.env, payload, picked));
+      context.waitUntil(movePicked(context.env, payload, picked));
     },
     [CANCEL_ACTION]: async (payload) => {
       await respondLater(payload.response_url, { delete_original: true });
@@ -63,8 +139,8 @@ export default {
   },
 };
 
-function picker(channel, ts, requirements) {
-  const text = "Which requirement should I move this message to?";
+function picker(channel, ts, open, targets) {
+  const text = "Where should I move this message?";
   const value = JSON.stringify({ channel, ts });
   return {
     text,
@@ -77,10 +153,10 @@ function picker(channel, ts, requirements) {
           {
             type: "static_select",
             action_id: PICK_ACTION,
-            placeholder: plainText("Choose a requirement"),
-            options: requirements.map((requirement) => ({
-              text: plainText(optionText(requirement)),
-              value: requirement.ts,
+            placeholder: plainText(targets === TASKS ? "Choose a task" : "Choose a requirement"),
+            options: open.map((target) => ({
+              text: plainText(optionText(targets.label(target))),
+              value: target.ts,
             })),
           },
         ],
@@ -97,57 +173,190 @@ function picker(channel, ts, requirements) {
 }
 
 // A menu option's text is at most 75 characters.
-function optionText({ title, incident }) {
-  const text = `${incident ? "Incident" : "Requirement"} · ${title}`;
+function optionText(text) {
   return text.length > 75 ? `${text.slice(0, 74)}…` : text;
 }
 
-// Copies the message into the picked requirement's thread, replies under the
-// original, and removes the private picker. The requirement may have been
-// done or deleted, or the message deleted, since the picker was shown.
-async function move(env, payload, requirementTs) {
-  const { channel, ts } = JSON.parse(payload.actions[0].value);
-  const done = (text) => respondLater(payload.response_url, { replace_original: true, text });
+// What can be started from a message: the question and button
+// `@Cade <kind>` offers, and the action that opens its form.
+const STARTS = {
+  requirement: { question: "Shall I start a requirement from this message?", button: "Start requirement", action: START_ACTION },
+  incident: { question: "Shall I report an incident from this message?", button: "Report incident", action: INCIDENT_ACTION },
+  task: { question: "Shall I track this message as a task?", button: "Track task", action: TRACK_ACTION },
+};
 
-  const requirement = await loadRequirement(env, channel, requirementTs);
-  if (!requirement || requirement.status === "DONE") {
-    await done("That requirement has been closed or deleted since, so I didn't move anything.");
-    return;
-  }
-  const message = await rootMessage(env, channel, ts);
-  if (!message) {
-    await done("That message has been deleted since, so there's nothing to move.");
-    return;
-  }
+// The private question for a message posted on its own. In the external
+// channel, Report incident is there if the pair has an incidents channel;
+// Move to existing is there if there's anything open to move it to. The
+// incidents channel's tasks come only from incidents, so it isn't asked.
+async function offerThread(env, message) {
+  const role = roleOf(env, message.channel);
+  if (role !== "external" && role !== "tasks") return;
+  const value = JSON.stringify({
+    channel: message.channel,
+    ts: message.ts,
+    title: firstLine(message.text),
+  });
+  const button = (action_id, text, style) => ({ type: "button", action_id, text: plainText(text), value, style });
+  const open = await targetsIn(env, message.channel).list(env, message.channel);
+  const [text, starts] =
+    role === "external"
+      ? [
+          "Is this a new requirement, an incident, or part of one we're already on?",
+          [
+            button(START_ACTION, "Start requirement", "primary"),
+            pairFor(env, message.channel).incidents && button(INCIDENT_ACTION, "Report incident"),
+          ],
+        ]
+      : ["Should I track this as a task, or is it part of one we're already on?", [button(TRACK_ACTION, "Track as task", "primary")]];
+  const buttons = [
+    ...starts,
+    open.length && button(EXISTING_ACTION, "Move to existing"),
+    button(DISMISS_ACTION, "Not now"),
+  ].filter(Boolean);
+  await callSlack(env, "chat.postEphemeral", {
+    channel: message.channel,
+    user: message.user,
+    text,
+    blocks: [{ type: "section", text: mrkdwn(text) }, { type: "actions", elements: buttons }],
+  });
+}
+
+// For `@Cade requirement`, `@Cade incident` or `@Cade track` replied in a
+// message's thread: offers, privately, to start a `kind` from the thread's
+// root message, or returns why it can't.
+export async function offerStart(env, command, kind) {
+  const { problem, moved, root } = await checkRoot(env, command.channel, command.threadTs);
+  if (moved) return privately(env, command, { text: moved });
+  if (problem) return problem;
+  const { question, button, action } = STARTS[kind];
+  const value = JSON.stringify({ channel: command.channel, ts: command.threadTs, title: firstLine(root.text ?? "") });
+  await privately(env, command, {
+    text: question,
+    blocks: [
+      { type: "section", text: mrkdwn(question) },
+      {
+        type: "actions",
+        elements: [
+          { type: "button", action_id: action, text: plainText(button), style: "primary", value },
+          { type: "button", action_id: DISMISS_ACTION, text: plainText("Not now"), value },
+        ],
+      },
+    ],
+  });
+}
+
+// Whether the root of the thread at `ts` can be moved, or have something
+// started from it: { root } if so, or { problem } to reply with, or { moved }
+// to tell the person privately where it went.
+async function checkRoot(env, channel, ts) {
+  const targets = targetsIn(env, channel);
+  if (await targets.load(env, channel, ts)) return { problem: targets.alreadyThere };
+  const thread = await readThread(env, channel, ts);
+  if (!thread || thread.root.bot_id) return { problem: "I can only move people's messages." };
+  if (thread.movedTo) return { moved: `This message was already moved: <${thread.movedTo}|see it there>.` };
+  return { root: thread.root };
+}
+
+// Shows `body` in the command's thread to whoever sent it.
+async function privately(env, command, body) {
+  await callSlack(env, "chat.postEphemeral", {
+    channel: command.channel,
+    thread_ts: command.threadTs,
+    user: command.user,
+    ...body,
+  });
+}
+
+// The message's first line, without formatting marks, as a name to start
+// the form with.
+function firstLine(text) {
+  return text.split("\n").find((line) => line.trim())?.replace(/[*_~`>]/g, "").trim().slice(0, 150) ?? "";
+}
+
+// The form's origin, from a button on the question: the message to move
+// into the new thread, and its first line.
+function prompted(payload) {
+  const { channel, ts, title } = JSON.parse(payload.actions[0].value);
+  return { channel, moveTs: ts, title };
+}
+
+// Replaces the question with the picker, as `@Cade move` shows it.
+async function offerExisting(env, payload) {
+  const { channel, ts } = JSON.parse(payload.actions[0].value);
+  const targets = targetsIn(env, channel);
+  const open = await targets.list(env, channel);
+  const body = open.length
+    ? picker(channel, ts, open, targets)
+    : { text: `Everything here has been closed since. ${targets.start}` };
+  await respondLater(payload.response_url, { replace_original: true, ...body });
+}
+
+// Moves the message the picker is for, then removes the picker, or says
+// why it didn't.
+async function movePicked(env, payload, targetTs) {
+  const { channel, ts } = JSON.parse(payload.actions[0].value);
+  const problem = await moveMessage(env, { channel, ts, targetTs, user: payload.user.id });
+  await respondLater(
+    payload.response_url,
+    problem ? { replace_original: true, text: problem } : { delete_original: true },
+  );
+}
+
+// Copies the message at `ts` into the thread of the requirement or task at
+// `targetTs`, in the same channel, replies under the original and reacts to
+// it, on behalf of `user`. Returns why it didn't, or null if it did: the
+// target may have been done or deleted, or the message deleted or moved,
+// since the move was asked for.
+export async function moveMessage(env, { channel, ts, targetTs, user }) {
+  const targets = targetsIn(env, channel);
+  const target = await targets.load(env, channel, targetTs);
+  if (!target || !targets.open(target)) return "That has been closed or deleted since, so I didn't move anything.";
+  const thread = await readThread(env, channel, ts);
+  if (!thread) return "That message has been deleted since, so there's nothing to move.";
+  if (thread.movedTo) return `This message was already moved: <${thread.movedTo}|see it there>.`;
+  const { root } = thread;
 
   const { permalink: original } = await callSlack(env, "chat.getPermalink", { channel, message_ts: ts });
-  const quoted = (message.text ?? "").split("\n").map((line) => `> ${line}`).join("\n");
-  const files = message.files?.length ? "\n_It has attachments: see the original._" : "";
+  const quoted = (root.text ?? "").split("\n").map((line) => `> ${line}`).join("\n");
+  const files = root.files?.length ? "\n_It has attachments: see the original._" : "";
   const copy = await callSlack(env, "chat.postMessage", {
     channel,
-    thread_ts: requirementTs,
-    text: `Moved from <@${message.user}>'s <${original}|message>:\n${quoted}${files}`,
+    thread_ts: targetTs,
+    text: `Moved from <@${root.user}>'s <${original}|message>:\n${quoted}${files}`,
   });
 
   const { permalink } = await callSlack(env, "chat.getPermalink", { channel, message_ts: copy.ts });
-  const noun = requirement.incident ? "incident" : "requirement";
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,
-    text: `<@${payload.user.id}> moved this message to the ${noun} thread <${permalink}|${escapeSlack(requirement.title)}>. Please carry on the conversation there.`,
+    text: `<@${user}> moved this message to the ${targets.noun(target)} thread <${permalink}|${escapeSlack(target.title)}>. Please carry on the conversation there.`,
   });
-  await respondLater(payload.response_url, { delete_original: true });
-  console.log("Message moved", { ts, requirementTs, user: payload.user.id });
+  // The reaction is only a signal, so the move stands without it.
+  await callSlack(env, "reactions.add", { channel, timestamp: ts, name: MOVED_REACTION }).catch((error) => {
+    console.warn("Could not mark the message moved", { ts, error: error.message });
+  });
+  console.log("Message moved", { ts, targetTs, user });
+  return null;
 }
 
-// The thread's root message, or null if it is gone.
-async function rootMessage(env, channel, ts) {
+// The thread's root message and, if Cade moved it already, the link to its
+// copy, from Cade's note under it; or null if the root is gone.
+async function readThread(env, channel, ts) {
+  let messages;
   try {
-    const { messages } = await callSlack(env, "conversations.replies", { channel, ts, limit: 1 });
-    const message = messages?.[0];
-    return message && message.ts === ts && message.subtype !== "tombstone" ? message : null;
+    ({ messages = [] } = await callSlack(env, "conversations.replies", { channel, ts, limit: 200 }));
   } catch (error) {
     if (/message_not_found|thread_not_found/.test(error.message)) return null;
     throw error;
   }
+  const [root] = messages;
+  if (!root || root.ts !== ts || root.subtype === "tombstone") return null;
+  const note = messages
+    .slice(1)
+    .map((message) => message.bot_id && MOVED_NOTE.exec(message.text ?? ""))
+    .find(Boolean);
+  return { root, movedTo: note?.[1] };
 }
+
+const MOVED_NOTE = /moved this message to the \w+ thread <([^|>]+)\|/;

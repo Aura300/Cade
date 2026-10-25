@@ -2,6 +2,7 @@ import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, hasUnpostedTask, insertTask, markTaskPosted } from "../db.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { moveMessage, offerStart } from "./move.js";
 import {
   PRIORITIES,
   REQUESTS,
@@ -50,16 +51,26 @@ const ALREADY_WAITING =
 // `/cade track` in a tasks channel, for the team's own work, opens the full
 // form straight away, since a slash command carries a trigger_id. The task is
 // posted in that channel with no external thread.
+//
+// `@Cade track` in the thread of a message in a tasks channel offers,
+// privately, to track that message as a task: the full form, named from its
+// first line, and once the task is posted the message is moved into its
+// thread (see move.js).
 export default {
   name: "track",
-  description: "Track a requirement as a task (in its thread)",
+  description: "Track a requirement, or a message in the dev channel, as a task (in its thread)",
   usage: "@Cade track",
   slashUsage: "/cade track",
   section: "start",
-  channel: "external",
+  channel: ["external", "tasks"],
   slashChannel: "tasks",
   async run(command, { env }) {
     const inThread = command.threadTs && command.threadTs !== command.ts;
+    if (roleOf(env, command.channel) === "tasks") {
+      return inThread
+        ? offerStart(env, command, "task")
+        : "To track a message as a task, reply `@Cade track` in its thread, or use `/cade track` for something new.";
+    }
     const requirement =
       inThread && (await loadRequirement(env, command.channel, command.threadTs));
     if (!requirement) return notInRequirement(env, command.channel);
@@ -114,7 +125,9 @@ export default {
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
 // From a requirement thread it also has `requirement: true` and the
 // requirement's title, priority and due date, to show in the form, and from
-// "Track and assign" the `developers` to start the task with. From `/cade track` it has only the channel.
+// "Track and assign" the `developers` to start the task with. From `/cade track` it has only the channel,
+// and for a message in a tasks channel (see move.js) the message's `moveTs`
+// and its first line as the `title`, to start with.
 async function openModal(env, triggerId, origin) {
   await callSlack(env, "views.open", {
     trigger_id: triggerId,
@@ -122,7 +135,7 @@ async function openModal(env, triggerId, origin) {
   });
 }
 
-function trackView(origin) {
+export function trackView(origin) {
   return {
     type: "modal",
     callback_id: TRACK_VIEW,
@@ -233,6 +246,7 @@ export async function createTask(env, task, origin) {
     promptTs: origin.promptTs,
     developers: origin.developers,
     reported: origin.reported,
+    moveTs: origin.moveTs,
   };
   const id = await insertTask(env, tasksChannel, task, after);
   await publishTask(env, { id, channel: tasksChannel, task, origin: after, attempts: 0 });
@@ -292,6 +306,17 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
     });
   }
   await syncTask(env, message.channel, message.ts, task);
+  // Tracked from a message in the tasks channel: the message moves into the
+  // task's thread.
+  if (origin.moveTs) {
+    const problem = await moveMessage(env, {
+      channel: message.channel,
+      ts: origin.moveTs,
+      targetTs: message.ts,
+      user: task.createdBy,
+    }).catch((error) => error.message);
+    if (problem) console.warn("Could not move the message", { ts: origin.moveTs, problem });
+  }
 
   const permalink = task.link;
   await updateRequirement(env, task.source, (requirement) => ({
