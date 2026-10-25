@@ -2,6 +2,7 @@ import assign from "./assign.js";
 import remove from "./delete.js";
 import { due, priority } from "./details.js";
 import pr from "./pr.js";
+import release from "./release.js";
 import requirement, { incident } from "./requirement.js";
 import standup from "./standup.js";
 import status from "./status.js";
@@ -29,7 +30,7 @@ import unassign from "./unassign.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [requirement, incident, track, assign, unassign, status, priority, due, pr, remove, tasks, standup];
+const handlers = [requirement, incident, track, assign, unassign, status, priority, due, pr, release, remove, tasks, standup];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>

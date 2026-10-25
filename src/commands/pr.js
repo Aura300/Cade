@@ -1,5 +1,6 @@
 import { roleOf } from "../channels.js";
 import { intent } from "../intents.js";
+import { reflectOnRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 
@@ -66,6 +67,7 @@ export default {
     if (!removed.length) return "Those pull requests aren't linked to this task.";
     task.prs = task.prs.filter((url) => !removed.includes(url));
     await saveTask(env, command.channel, command.threadTs, task);
+    await reflectOnRequirement(env, command.threadTs, task, {});
     return `<@${command.user}> unlinked ${removed.map(prLink).join(", ")}.`;
   },
   // Checked before hand-offs: a message with PR links gets only this question.
@@ -105,11 +107,12 @@ async function addPullRequests(env, channel, ts, task, urls) {
   const added = urls.filter((url) => !task.prs.includes(url));
   if (!added.length) return null;
   task.prs = [...task.prs, ...added];
-  // The requirement it came from shows In progress either way, so it needs
-  // no update.
+  // The requirement it came from shows In progress either way; it is
+  // updated only to show the new PRs.
   const moved = BEFORE_REVIEW.includes(task.status);
   if (moved) task.status = "IN_REVIEW";
   await saveTask(env, channel, ts, task);
+  await reflectOnRequirement(env, ts, task, {});
   return { added, moved };
 }
 

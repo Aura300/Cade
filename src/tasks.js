@@ -6,7 +6,18 @@ import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js"
 // Tasks are stored in D1 (see db.js). The root message in the tasks channel
 // and the task's row in the Google Sheet are rendered from the stored task.
 
-// Slack cannot colour text, so each value is shown with a coloured emoji.
+// Slack cannot colour text, so each value is shown with a coloured emoji
+// in menus and lists. Task and requirement messages show the priority as
+// the colour of the strip down their side instead, the same colours. Other
+// values use emoji that aren't coloured circles, so they can't be taken
+// for a priority.
+export const PRIORITY_COLORS = {
+  Urgent: "#E01E5A",
+  High: "#E8912D",
+  Medium: "#ECB22E",
+  Low: "#2EB67D",
+};
+
 export const PRIORITIES = {
   Urgent: ":red_circle:",
   High: ":large_orange_circle:",
@@ -15,11 +26,11 @@ export const PRIORITIES = {
 };
 
 export const STATUSES = {
-  TODO: ":white_circle: To do",
-  IN_PROGRESS: ":large_blue_circle: In progress",
-  IN_REVIEW: ":large_purple_circle: In review",
-  IN_TESTING: ":large_orange_circle: In testing",
-  CLIENT_REVIEW: ":large_yellow_circle: Client review",
+  TODO: ":memo: To do",
+  IN_PROGRESS: ":arrow_forward: In progress",
+  IN_REVIEW: ":eyes: In review",
+  IN_TESTING: ":test_tube: In testing",
+  CLIENT_REVIEW: ":raising_hand: Client review",
   DONE: ":white_check_mark: Done",
 };
 
@@ -31,7 +42,46 @@ export const ROLES = {
   tester: "Tester",
 };
 
+// The roles as a task's card shows them, by who works on it.
+const SHORT_ROLES = { developer: "Dev", reviewer: "Review", tester: "Test" };
+
 export const NOT_A_TASK = "This thread is not a tracked task.";
+
+// The task's pull requests that are pending: not sent for approval, nor
+// approved.
+export function unsentPrs(task) {
+  const sent = new Set((task.releases ?? []).flatMap((release) => release.prs));
+  return task.prs.filter((url) => !sent.has(url));
+}
+
+// The task's PRs for its card and its requirement's, a line each for those
+// approved, pending approval and pending, leaving out the empty ones:
+//   Approved: Login (cade/42, web/7) | Profile page (web/9)
+//   Pending approval: Search (web/11)
+//   Pending: web/12, web/13
+// A PR goes from pending to pending approval, once sent with `@Cade
+// release` (see release.js) and recorded in the task's `releases`, to
+// approved by the client. Releases are named by what they complete; the
+// labels say where each PR is, so PRs have no emoji. Once the task is Done,
+// all of them are approved, with the PRs never sent as the rest of the
+// requirement.
+export function prLines(task) {
+  const done = task.status === "DONE";
+  const releases = task.releases ?? [];
+  const group = (prs, note) => `${escapeSlack(note.replace(/\s+/g, " "))} (${prs.map(prLink).join(", ")})`;
+  const groups = (status) =>
+    releases.filter((release) => done || release.status === status).map((release) => group(release.prs, release.note));
+  const approved = groups("APPROVED");
+  const unsent = unsentPrs(task);
+  if (done && unsent.length) approved.push(group(unsent, releases.length ? "The rest of the requirement" : "The requirement"));
+  const awaiting = done ? [] : groups("PENDING_APPROVAL");
+  const pending = done ? [] : unsent;
+  return [
+    approved.length && `*Approved:* ${approved.join("  |  ")}`,
+    awaiting.length && `*Pending approval:* ${awaiting.join("  |  ")}`,
+    pending.length && `*Pending:* ${pending.map(prLink).join(", ")}`,
+  ].filter(Boolean);
+}
 
 // What Cade asks of people when they are assigned to a role. Reviewers are
 // asked once there's a pull request to review instead (see pr.js).
@@ -53,39 +103,36 @@ export function noPeople() {
 export function taskMessage(task) {
   const thread = task.source?.incident ? "the incident thread" : "the requirement thread";
   const from = task.source?.link ? ` from <${task.source.link}|${thread}>` : "";
-  // The title, the task's details, who works on it, its linked pull requests
-  // (when it has any), then who tracked it.
-  const details = [
-    `*Status:* ${STATUSES[task.status]}`,
-    `*Priority:* ${PRIORITIES[task.priority]} ${task.priority}`,
-    `*Due:* ${task.dueDate || "_None_"}`,
-  ].join("  ·  ");
-  const people = Object.entries(ROLES)
-    .map(([role, label]) => {
-      const ids = task.people[role];
-      return `*${label}:* ${ids.length ? mentions(ids) : "_Unassigned_"}`;
-    })
+  // The title, then in small text its status, priority and due date; who
+  // works on it, its linked pull requests (when it has any) by whether
+  // they're approved, then who tracked it. All but the title sit in an
+  // attachment, whose strip down the side has the priority's colour.
+  // Roles with no one are left out.
+  const people = Object.entries(SHORT_ROLES)
+    .filter(([role]) => task.people[role].length)
+    .map(([role, label]) => `${label} ${mentions(task.people[role])}`)
     .join("  ·  ");
+  const card = [
+    { type: "context", elements: [metaLine(STATUSES[task.status], task.priority, task.dueDate)] },
+    { type: "section", text: mrkdwn(people || "_Unassigned_") },
+    // A section holds up to 3,000 characters.
+    ...(task.prs?.length ? [{ type: "section", text: mrkdwn(prLines(task).join("\n").slice(0, 3000)) }] : []),
+    { type: "context", elements: [mrkdwn(`Tracked by <@${task.createdBy}>${from}`)] },
+  ];
   return {
     text: `${task.priority} task: ${task.title}`,
-    blocks: [
-      { type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) },
-      { type: "section", text: mrkdwn(details) },
-      { type: "section", text: mrkdwn(people) },
-      ...(task.prs?.length
-        ? [{ type: "section", text: mrkdwn(`*PRs:* ${task.prs.map(prLink).join(", ")}`) }]
-        : []),
-      {
-        type: "context",
-        elements: [
-          mrkdwn(
-            `Tracked by <@${task.createdBy}>${from}`,
-          ),
-        ],
-      },
-    ],
+    blocks: [{ type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) }],
+    attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
 }
+
+// A card's line under its title, in small text: the status, priority and
+// due date, leaving out those not set. Shared by task and requirement
+// messages, so they read the same.
+export function metaLine(status, priority, dueDate) {
+  return mrkdwn([status, priority, dueDate && `Due ${dueDate}`].filter(Boolean).join("  ·  "));
+}
+
 
 // Pull request addresses on GitHub, GitLab and Bitbucket: the repository's
 // name and the request's number.

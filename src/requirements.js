@@ -1,7 +1,7 @@
 import { roleOf } from "./channels.js";
-import { getRequirement, putRequirement } from "./db.js";
+import { getRequirement, getTask, putRequirement } from "./db.js";
 import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
-import { PRIORITIES, STATUSES, loadTask, saveTask } from "./tasks.js";
+import { PRIORITY_COLORS, STATUSES, loadTask, metaLine, prLines, saveTask } from "./tasks.js";
 
 // A requirement is a root message Cade posts in an external channel for
 // `/cade requirement`; its thread is where the requirement is discussed. Like
@@ -33,33 +33,36 @@ export const INCIDENT_IS_FIXED =
 export const NOT_A_REQUIREMENT =
   "This thread is not a requirement. Use `/cade requirement` to start one, then change its priority and due date in its thread.";
 
-export function requirementMessage(requirement) {
-  // The requirement, then its status, priority and due date (from the
-  // requirement form, then from the task once one is tracked). Below them, in
-  // small text, who started it and who tracked it, linking to the task the
-  // way a task links to its requirement thread.
+export function requirementMessage(requirement, trackedTask) {
+  // The requirement, then in small text its status, priority and due date
+  // (from the requirement form, then from the task once one is tracked), as
+  // on a task's card; the tracked task's PRs, approved, pending approval
+  // and pending, as on its card.
+  // Below them, in small text, who started it and who tracked it, linking to
+  // the task the way a task links to its requirement thread. All but the
+  // title sit in an attachment, whose strip down the side has the
+  // priority's colour.
   const { priority, task } = requirement;
   // Requirements and incidents share the external channel, so each message
   // starts by saying which it is.
   const label = requirement.incident ? "Incident" : "Requirement";
-  const details = [
-    `*Status:* ${REQUIREMENT_STATUSES[requirement.status]}`,
-    `*Priority:* ${PRIORITIES[priority]} ${priority}`,
-    `*Due:* ${requirement.dueDate || "_None_"}`,
-  ].join("  ·  ");
   const people = [
     `${requirement.incident ? "Reported" : "Started"} by <@${requirement.createdBy}>`,
     task
-      ? `Tracked by <@${task.trackedBy}> in <${task.link}|the task thread>`
-      : "Not tracked yet. Discuss it in this thread, then send `@Cade track` here.",
+      ? `tracked by <@${task.trackedBy}> in <${task.link}|the task thread>`
+      : "not tracked yet. Discuss it in this thread, then send `@Cade track` here.",
+  ];
+  const lines = trackedTask ? prLines(trackedTask) : [];
+  const card = [
+    { type: "context", elements: [metaLine(REQUIREMENT_STATUSES[requirement.status], priority, requirement.dueDate)] },
+    // A section holds up to 3,000 characters.
+    ...(lines.length ? [{ type: "section", text: mrkdwn(lines.join("\n").slice(0, 3000)) }] : []),
+    { type: "context", elements: [mrkdwn(people.join("  ·  "))] },
   ];
   return {
     text: `${label}: ${requirement.title}`,
-    blocks: [
-      { type: "section", text: mrkdwn(`*${label}:* ${escapeSlack(requirement.title)}`) },
-      { type: "section", text: mrkdwn(details) },
-      { type: "context", elements: [mrkdwn(people.join("\n"))] },
-    ],
+    blocks: [{ type: "section", text: mrkdwn(`${label}  ·  *${escapeSlack(requirement.title)}*`) }],
+    attachments: [{ color: PRIORITY_COLORS[priority], blocks: card }],
   };
 }
 
@@ -68,10 +71,12 @@ export async function loadRequirement(env, channel, ts) {
   return getRequirement(env, channel, ts);
 }
 
-// Stores the requirement, then renders it to its root message.
+// Stores the requirement, then renders it to its root message, with its
+// task's releases.
 export async function saveRequirement(env, channel, ts, requirement) {
   await putRequirement(env, channel, ts, requirement);
-  await callSlack(env, "chat.update", { channel, ts, ...requirementMessage(requirement) });
+  const task = requirement.task && (await getTask(env, requirement.task.channel, requirement.task.ts));
+  await callSlack(env, "chat.update", { channel, ts, ...requirementMessage(requirement, task) });
   console.log("Requirement saved", { ts, status: requirement.status });
 }
 

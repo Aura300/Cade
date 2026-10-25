@@ -9,14 +9,59 @@
 export const POST_ATTEMPTS = 5;
 
 // Returns the task whose root message is `ts`, or null if there is none or
-// it was deleted.
+// it was deleted. It comes with its releases, which its message shows.
 export async function getTask(env, channel, ts) {
   const row = await env.DB.prepare(
     "SELECT * FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL",
   )
     .bind(channel, ts)
     .first();
-  return row ? taskFromRow(row) : null;
+  return row ? { ...taskFromRow(row), releases: await releasesOf(env, row.id) } : null;
+}
+
+// The task's releases that aren't NOT_APPROVED, oldest first, as
+// { id, prs, note, status, sentBy, sentAt, decidedBy, decidedAt }.
+async function releasesOf(env, taskId) {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM releases WHERE task_id = ? AND status != 'NOT_APPROVED' ORDER BY id",
+  )
+    .bind(taskId)
+    .all();
+  return results.map((row) => ({
+    id: row.id,
+    prs: JSON.parse(row.prs),
+    note: row.note,
+    status: row.status,
+    sentBy: row.sent_by,
+    sentAt: row.sent_at,
+    decidedBy: row.decided_by,
+    decidedAt: row.decided_at,
+  }));
+}
+
+// Stores a release of the task whose root message is `ts`, and returns its
+// id. `release` is { prs, note, status, sentBy, decidedBy? }.
+export async function insertRelease(env, channel, ts, release) {
+  const { id } = await env.DB.prepare(
+    `INSERT INTO releases (task_id, prs, note, status, sent_by, decided_by)
+     SELECT id, ?, ?, ?, ?, ? FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL
+     RETURNING id`,
+  )
+    .bind(JSON.stringify(release.prs), release.note, release.status, release.sentBy, release.decidedBy ?? null, channel, ts)
+    .first();
+  return id;
+}
+
+// Records the client's decision on a release waiting for one: APPROVED or
+// NOT_APPROVED. Returns false if it was decided already, by another click.
+export async function decideRelease(env, id, status, user) {
+  const row = await env.DB.prepare(
+    `UPDATE releases SET status = ?, decided_by = ?, decided_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'PENDING_APPROVAL' RETURNING id`,
+  )
+    .bind(status, user, id)
+    .first();
+  return Boolean(row);
 }
 
 // Stores a new task that is about to be posted in `channel`, with `origin`,

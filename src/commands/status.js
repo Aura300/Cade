@@ -1,6 +1,6 @@
 import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
 import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, STATUSES, loadTask, prLink, saveTask, setPinned } from "../tasks.js";
+import { NOT_A_TASK, STATUSES, loadTask, prLink, saveTask, setPinned, unsentPrs } from "../tasks.js";
 
 const SELECT_ACTION = "status:select";
 const APPROVE_ACTION = "status:approve";
@@ -149,11 +149,12 @@ async function applyStatus(env, channel, ts, task, status) {
 async function afterChange(env, channel, ts, task, status, user, reached) {
   const text = changedText(user, status);
   if (!reached || !task.source) return { text, told: null };
-  await announce(env, channel, ts, task, user);
+  const remaining = await announce(env, channel, ts, task, user);
   // The client isn't mentioned here, so they aren't notified twice.
   const thread = task.source.link ? `<${task.source.link}|the requirement thread>` : "the requirement thread";
+  const what = remaining ? `the remaining PRs, ${remaining.map(prLink).join(", ")},` : "it";
   const told = status === "CLIENT_REVIEW"
-    ? `Cade asked the client to review it in ${thread}.`
+    ? `Cade asked the client to review ${what} in ${thread}.`
     : `Cade told ${thread} it's ${STATUSES.DONE}.`;
   return { text, told };
 }
@@ -161,28 +162,37 @@ async function afterChange(env, channel, ts, task, status, user, reached) {
 // Tells the requirement thread the task reached Client review or Done. The
 // thread is the requirement, and the client has no use for the team's task,
 // so neither message links to it. Client review says the work is ready for
-// the client, with its PRs and their Approve and Not approve buttons.
+// the client, with its PRs and their Approve and Not approve buttons. When
+// some PRs were sent with `@Cade release` already, it lists only the
+// remaining ones, and returns them, so the task's thread can say so too.
 async function announce(env, channel, ts, task, user) {
   const done = task.status === "DONE";
   const text = done ? `<@${user}> marked this as ${STATUSES.DONE}.` : `<@${user}> marked this as ready to review.`;
+  const prompt = done ? { body: asMessage(text) } : await reviewPrompt(env, text, channel, ts, task);
   await callSlack(env, "chat.postMessage", {
     channel: task.source.channel,
     thread_ts: task.source.threadTs,
-    ...(done ? asMessage(text) : await reviewPrompt(env, text, channel, ts, task)),
+    ...prompt.body,
   });
+  return prompt.remaining ?? null;
 }
 
-// The announcement with the task's linked pull requests, for the client to
-// look at, and the client's Approve and Not approve buttons, mentioning
-// whoever started the requirement so they are notified. The buttons carry
-// the announcement, PRs included, to keep it when they are replaced.
+// The announcement with the task's linked pull requests (only those not sent
+// with `@Cade release`, if some were), for the client to look at, and the
+// client's Approve and Not approve buttons, mentioning whoever started the
+// requirement so they are notified. The buttons carry the announcement, PRs
+// included, to keep it when they are replaced. Returns { body, remaining },
+// `remaining` being the PRs not sent before, when some were.
 async function reviewPrompt(env, text, channel, ts, task) {
   const requirement = await loadRequirement(env, task.source.channel, task.source.threadTs);
   const who = requirement ? `<@${requirement.createdBy}>, please` : "Please";
   const request = `${who} review it and approve it, or say what needs to change.`;
-  const announced = task.prs.length ? `${text}\n*PRs:* ${task.prs.map(prLink).join(", ")}` : text;
+  const remaining = task.releases?.length ? unsentPrs(task) : null;
+  const prs = remaining ?? task.prs;
+  const label = remaining ? "Remaining PRs" : "PRs";
+  const announced = prs.length ? `${text}\n*${label}:* ${prs.map(prLink).join(", ")}` : text;
   const value = JSON.stringify({ channel, ts, text: announced });
-  return {
+  const body = {
     // The mention is in the notification text too.
     text: `${announced}\n${request}`,
     blocks: [
@@ -207,6 +217,7 @@ async function reviewPrompt(env, text, channel, ts, task) {
       },
     ],
   };
+  return { body, remaining: remaining?.length ? remaining : null };
 }
 
 // Applies the client's decision on a task in Client review, then replaces

@@ -99,7 +99,11 @@ in the dev channel (`taskMessage`) and to its row in the Google Sheet
 channel (`requirements.js`). Slack and the Sheet are only written to, never
 read back: `/cade tasks` is a query of open tasks. A task with
 `source_channel` set was tracked from a requirement or incident thread; the
-team's own tasks have none. Deleted tasks and requirements keep their rows,
+team's own tasks have none. A requirement task's PRs sent to the client
+with `@Cade release` are rows of `releases`, one per release, with its PRs
+and what it completes; a task is loaded with them (`getTask`), and its
+message and its requirement's show which PRs shipped with which release.
+Deleted tasks and requirements keep their rows,
 with `deleted_at` set. Open tasks and requirements are still pinned, for
 people to find in Slack.
 
@@ -116,7 +120,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `tasks`, `standup`, `delete` |
+| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `tasks`, `standup`, `delete` |
 | `src/db.js` | Reading and writing tasks and requirements in D1 |
 | `src/retry.js` | The cron's job: posting tasks and requirements Slack refused |
 | `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |

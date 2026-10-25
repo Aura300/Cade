@@ -242,7 +242,7 @@ again. Details, doing it by hand, and troubleshooting are in
 
 1. In any channel: `/cade help` → only you see the command list.
 2. In the external channel: `/cade requirement` → a form; submitting posts a
-   **Requirement:** message.
+   **Requirement** card.
 3. In its thread: `@Cade track` → a **Track task** button; tracking posts
    the task in the dev channel.
 4. In the task's thread: `@Cade status in progress` → ✅ on your message.
@@ -300,11 +300,19 @@ Each channel has one way to track a task:
   Medium, Low). The task has no external thread, so it shows only "Tracked
   by @you", and status changes and deletion are not shared anywhere else.
 
-Either way, Cade posts the task to `#acme-dev` and pins it. The task
-message shows the title; then the status, priority and due date; then the
-developer, reviewer and tester ("Unassigned" until someone is assigned);
-then who tracked it, with a link back to the requirement thread if there is
-one. From a requirement thread, Cade replies with a **Track task** button
+Either way, Cade posts the task to `#acme-dev` and pins it. Task and
+requirement cards look the same: the title, then, beside a strip in the
+priority's colour (red Urgent, orange High, yellow Medium, green Low, the
+same colours as the priority menus' emoji), a small line with the status,
+priority and due date (left out when there's none), then the card's own
+lines, then who made it in small text. On a task card those lines are who
+works on it ("Dev @a · Review @b · Test @c", only the roles with someone,
+or "Unassigned") and its PRs (see `@Cade release` below), and the small
+text says who tracked it, with a link back to the requirement thread if
+there is one. Statuses show as 📝 To do, ▶️ In progress, 👀 In review,
+🧪 In testing, 🙋 Client review and ✅ Done (💬 In discussion for a
+requirement not tracked yet), so no coloured circle but the strip stands
+for a priority. From a requirement thread, Cade replies with a **Track task** button
 (Slack only opens forms from a click) and, once the task is created, turns
 that message into "@you tracked this as a task: *title*", linking to it.
 
@@ -315,11 +323,12 @@ task: the requirement's **name**, an optional **due date** and the
 **priority**. Cade then posts it as a new message to discuss in its thread. The
 message shows:
 
-1. "**Requirement:**" and the requirement name, so it can be told apart from
-   incidents in the same channel,
-2. its status, priority and due date, and
+1. "Requirement" (or "Incident") and the name, so the two can be told apart
+   in the same channel,
+2. beside the priority strip, its status, priority and due date, as on a
+   task card, then its task's PRs once there are any, and
 3. in small text, who started it and who tracked it, linking to the task
-   thread ("Not tracked yet" until there is one), the same way a task
+   thread ("not tracked yet" until there is one), the same way a task
    links back to its requirement thread.
 
 The message always shows the current status, priority and due date. Who
@@ -333,7 +342,7 @@ changes what follows who knows it:
   requirement thread.
 - **Status is the team's.** It is changed only in `#acme-dev`, with
   `@Cade status`. The requirement shows it as the client sees it: **In
-  discussion** until a task is tracked, then 🔵 **In progress** while the
+  discussion** until a task is tracked, then ▶️ **In progress** while the
   task is To do, In progress, In review or In testing, then **Client
   review** and **Done**. When the task reaches Client review or Done, Cade
   also posts it in the requirement thread, without asking.
@@ -362,7 +371,7 @@ Asking a developer to start in the requirement thread works too: write
 only you see:
 
 - before the requirement is tracked, **Track and assign** opens the track
-  form; the task starts with @rex as developer and 🔵 In progress, and
+  form; the task starts with @rex as developer and ▶️ In progress, and
   Cade posts "@you tracked this as a task" with its link;
 - once it's tracked, **Assign as developer** (or **Assign and move to In
   progress**) assigns them to its task, as in the task's thread.
@@ -453,7 +462,7 @@ and need no discussion first, so on submit Cade:
 1. posts "**Incident:** *title*" in the external channel, like a
    requirement message but "Reported by" whoever reported it, and
 2. tracks it straight away as a task in the incidents channel, pinned, and
-   links the two, so the incident shows 🔵 In progress.
+   links the two, so the incident shows ▶️ In progress.
 
 From then on it works like a tracked requirement: the task commands below
 work in the incidents channel, the incident message always shows the
@@ -480,14 +489,14 @@ In a task's thread in `#acme-dev` or the incidents channel:
   If a message matches more than one, reviewer comes before tester, and
   tester before developer. People already in that role aren't asked about.
   A hand-off also moves the task on: to a developer, a task that's To do
-  moves to 🔵 In progress; to a tester, a task that's To do, In progress or
+  moves to ▶️ In progress; to a tester, a task that's To do, In progress or
   In review moves to 🟠 In testing (**Assign and move to …**). When the
   people were assigned ahead of time, Cade offers just **Move to …**.
   Reviews move with linked PRs instead. `@Cade assign` never changes the
   status, so people can be added in advance.
   Assigning posts nothing in the thread, since your message already asked
   them and the task card shows who it is; only a status change is posted,
-  as "@you moved the task to 🔵 In progress". A message with a PR link gets
+  as "@you moved the task to ▶️ In progress". A message with a PR link gets
   the PR question below instead.
 - `@Cade assign` without anyone mentioned replies with **Developer**,
   **Reviewer** and **Tester** buttons (`@Cade assign developer` shows just
@@ -521,6 +530,30 @@ In a task's thread in `#acme-dev` or the incidents channel:
   as ready to review." with the task's PRs and the client's Approve
   buttons. Neither links to the task, which is the team's. When the client
   approves, nothing more is posted there.
+- `@Cade release` (or `@Cade deliver`) sends some of a requirement task's
+  PRs to the client before the whole task is done, when the client asks for
+  what's ready so far. A PR goes from **Pending** to **Pending approval**
+  to **Approved**. Cade replies with a **Choose PRs** button; the form
+  lists the pending PRs, all ticked, and asks what they complete. Cade
+  then posts them in the requirement thread, mentioning whoever started the
+  requirement, with **Approve** and **Not approve** buttons, and says so in
+  the task's thread. **Approve** approves them; **Not approve** marks the
+  release not approved, so they're pending again and can be sent again. Either way
+  both threads hear it, the task's mentioning its developers. The task's
+  status doesn't change. Both cards show the PRs the same way, a line each,
+  leaving out empty ones, with releases named by what they complete:
+
+  ```
+  Approved: Login (cade/42, web/7)  |  Profile page (web/9)
+  Pending approval: Search (web/11)
+  Pending: web/12, web/13
+  ```
+
+  When the task then moves to Client review, the client is asked to review
+  only the remaining PRs, and the task's thread says which; once it's Done,
+  everything is approved, those PRs as "The rest of the requirement". Every
+  release, not approved ones included, is kept in the `releases` table with
+  its PRs, note, who sent and decided it, and when.
 - `@Cade priority high` changes the priority (Urgent, High, Medium, Low);
   `@Cade priority` replies with a menu. `@Cade due 30/11/2026` changes the
   due date (YYYY-MM-DD also works), `@Cade due none` removes it, and
@@ -534,7 +567,7 @@ In a task's thread in `#acme-dev` or the incidents channel:
   work too); `@Cade pr remove <link>` unlinks it. Linked PRs show on the
   task message on one line, as *reponame/number* linking to each PR, just
   above who tracked it. GitHub, GitLab and Bitbucket links are recognised.
-  Linking moves a task that's To do or In progress to 🟣 In review (tasks
+  Linking moves a task that's To do or In progress to 👀 In review (tasks
   further on stay where they are), and asks the task's reviewers to review
   it. With no reviewer yet,
   Cade asks who should review it, with a people picker; choosing people
@@ -547,7 +580,7 @@ In a task's thread in `#acme-dev` or the incidents channel:
   mentions people who aren't reviewers yet, Cade offers to add them as
   reviewers too (**Link and add reviewer** or **Just link**; or just **Add
   reviewer** when the PRs are already linked). Since you wrote the message,
-  Cade posts only what's new: the task moving to 🟣 In review, a review
+  Cade posts only what's new: the task moving to 👀 In review, a review
   request for reviewers your message didn't mention, or, with no reviewer
   at all, who should review.
 - `@Cade delete` (or `@Cade remove`) is for the team's own tasks, from
