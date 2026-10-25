@@ -106,8 +106,10 @@ export function noPeople() {
 }
 
 export function taskMessage(task) {
-  const thread = task.source?.incident ? "the incident thread" : "the requirement thread";
-  const from = task.source?.link ? ` from <${task.source.link}|${thread}>` : "";
+  // A detached task still shows where it was tracked from.
+  const tracked = task.source ?? task.trackedFrom;
+  const thread = tracked?.incident ? "the incident thread" : "the requirement thread";
+  const from = tracked?.link ? ` from <${tracked.link}|${thread}>` : "";
   // The title, then in small text its status, priority and due date, its
   // linked pull requests (when it has any) by whether they're approved, and
   // who works on it and who tracked it. All but the title sit in an
@@ -212,7 +214,7 @@ export async function syncTask(env, channel, ts, task, { deleted = false } = {})
       "Tracked at": formatTime(env, new Date(Number(ts) * 1000)),
       "Completed at": task.completedAt ? formatTime(env, new Date(task.completedAt)) : "",
       "Task link": deleted ? "" : task.link,
-      "Request link": task.source?.link ?? "",
+      "Request link": (task.source ?? task.trackedFrom)?.link ?? "",
     });
     console.log("Task synced to sheet", { ts, status: task.status, deleted });
   } catch (error) {

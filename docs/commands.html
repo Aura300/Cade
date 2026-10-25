@@ -204,11 +204,11 @@
       </article>
 
       <article class="entry">
-        <h3><code>@Cade detach</code></h3>
-        <div class="tags"><span class="where">Task thread</span></div>
-        <p>Unlinks a task from the requirement or incident it was tracked from, so the team owns it. Sent from the task's thread, never the client's; both threads are told.</p>
+        <h3><code>@Cade detach</code> <code>/cade detach &lt;link&gt;</code></h3>
+        <div class="tags"><span class="where">Task thread</span><span class="where">Anywhere, with a link</span></div>
+        <p>Unlinks a task from the requirement or incident it was tracked from, so the team owns it. <code>@Cade detach</code> is sent from the task's thread, never the client's, and both threads are told. <code>/cade detach</code> with the task thread's link (Copy link on the task's message) does it quietly: nothing is posted in either thread, so no one is notified, and only you see the reply. Handy for detaching many at once.</p>
         <ul>
-          <li><b>The task</b> stays where it is, without the link, and its priority and due date are changed from its own thread from then on, incidents' included.</li>
+          <li><b>The task</b> stays where it is and still links to the thread it was tracked from, but no longer follows it: its priority and due date are changed from its own thread from then on, incidents' included.</li>
           <li><b>The requirement's message</b> stays, unpinned, saying where the work went. Cade stops tracking it, so it leaves the summaries and <code>/cade exec</code>.</li>
         </ul>
       </article>

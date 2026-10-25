@@ -6792,11 +6792,12 @@ test("@Cade detach in a task thread hands it to the team and closes its requirem
   const calls = mockSlack(t, { stored: [requirementRoot({ task: true }), storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> detach"));
 
-  // The task, re-rendered with no link to the requirement.
+  // The task no longer follows the requirement, but still links to it.
   const task = await savedTask();
   assert.equal(task.source, undefined);
+  assert.deepEqual(task.trackedFrom, { link: "https://slack.example/source", incident: false });
   const card = calls.find((call) => call.method === "chat.update" && call.args.channel === "CDEV");
-  assert.doesNotMatch(JSON.stringify(card.args), /the requirement thread/);
+  assert.match(footerLines(card.args).at(-1), /from <https:\/\/slack\.example\/source\|the requirement thread>/);
 
   // The requirement's message says where the work went, and Cade stops
   // tracking it.
@@ -6951,5 +6952,40 @@ test("Client review on a task with no requirement thread asks the approver in it
     assert.equal(told.text, said);
     assert.equal(calls.at(-1).args.ts, "100.8");
     assert.ok(!calls.some((call) => call.method === "chat.getPermalink"));
+  }
+});
+
+test("/cade detach <link> detaches quietly, from anywhere, and tells only whoever sent it", async (t) => {
+  // A task and requirement at timestamps a Slack link can name.
+  const ts = "1700000000.000100";
+  const requirement = requirementRoot({ task: true });
+  requirement.requirement.task.ts = ts;
+  const task = { ...storedTask(), ts };
+  task.task.link = "https://slack.example/p100";
+  const calls = mockSlack(t, { stored: [requirement, task] });
+  const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
+  const { now, later } = await runTasksCommand(`detach <${link}>`, "COTHER");
+  assert.equal(now, "");
+  assert.equal(later.text, "Detached <https://slack.example/p100|Fix login> from its requirement. I didn't post in either thread.");
+
+  const saved = await savedTask("CDEV", ts);
+  assert.equal(saved.source, undefined);
+  assert.deepEqual(saved.trackedFrom, { link: "https://slack.example/source", incident: false });
+  assert.equal(await savedRequirement(), null);
+  // Messages are edited, which notifies no one; nothing is posted.
+  assert.ok(calls.some((call) => call.method === "chat.update" && call.args.channel === "CEXTERNAL"));
+  assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral"].includes(call.method)));
+});
+
+test("/cade detach needs a link to a linked task's thread", async (t) => {
+  mockSlack(t, { stored: [{ ...ownTask(), ts: "1700000000.000100" }] });
+  for (const [text, reply] of [
+    ["detach", /^Paste the link to the task's thread/],
+    ["detach <https://acme.slack.com/archives/CEXTERNAL/p1700000000000100>", /^Paste the link to the task's thread/],
+    ["detach <https://acme.slack.com/archives/CDEV/p1700000000000200>", /^That link isn't to a task's thread/],
+    ["detach <https://acme.slack.com/archives/CDEV/p1700000000000100>", /^This task isn't linked/],
+  ]) {
+    const { now, later } = await runTasksCommand(text, "CDEV");
+    assert.match(now ? JSON.parse(now).text : later.text, reply, text);
   }
 });

@@ -271,7 +271,7 @@ async function checkRoot(env, channel, ts) {
 
 // The channel and thread root of the first Slack message link in `text`, or
 // null if there is none. A link to a reply stands for its thread.
-function linkedThread(text) {
+export function linkedThread(text) {
   const match = MESSAGE_LINK.exec(text.replace(/&amp;/g, "&"));
   if (!match) return null;
   const threadTs = new URLSearchParams(match[4] ?? "").get("thread_ts");

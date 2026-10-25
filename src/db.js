@@ -424,8 +424,9 @@ function taskToRow(task) {
     completed_at: task.completedAt ?? "",
     source_channel: task.source?.channel ?? null,
     source_thread_ts: task.source?.threadTs ?? null,
-    source_link: task.source?.link ?? null,
-    source_incident: task.source?.incident ? 1 : 0,
+    // A detached task keeps the link to where it was tracked from.
+    source_link: (task.source ?? task.trackedFrom)?.link ?? null,
+    source_incident: (task.source ?? task.trackedFrom)?.incident ? 1 : 0,
     link: task.link ?? null,
   };
 }
@@ -452,6 +453,10 @@ function taskFromRow(row) {
           incident: Boolean(row.source_incident),
         }
       : undefined,
+    // Where a task detached from its requirement or incident was tracked
+    // from, as { link, incident }; only shown, as it no longer follows it.
+    ...(!row.source_channel &&
+      row.source_link && { trackedFrom: { link: row.source_link, incident: Boolean(row.source_incident) } }),
     link: row.link || undefined,
   };
 }
