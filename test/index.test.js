@@ -6494,14 +6494,16 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
     "*Completed (1)*",
     `• <${execLink("CEXTERNAL", "200.1")}|Export reports>`,
     "",
-    "*Active (2)*",
-    "*:no_entry: Blocked (1)*",
-    `• *Incident:* <${execLink("CEXTERNAL", "200.4")}|Checkout is down>  ·  To do`,
+    "*Incidents (1)*",
+    `• <${execLink("CEXTERNAL", "200.4")}|Checkout is down>  ·  Blocked  ·  To do`,
     "      _Waiting on the payment provider_",
     "      _ETA Monday_",
-    "*:warning: At risk (1)*",
+    "",
+    "*At risk (1)*",
     `• <${execLink("CDEV", "100.3")}|Upgrade Node>  ·  In review  ·  3/5`,
   ].join("\n");
+  // Sections with nothing in them are left out, and headings have no emoji.
+  assert.ok(!/Blocked \(|On track \(|Delayed \(|:no_entry:|:warning:/.test(messageText(review)));
   assert.ok(messageText(review).includes(expected));
 
   calls.length = 0;

@@ -442,34 +442,38 @@ function stepName(step) {
   return "Review";
 }
 
-// The summary as posted: what was completed, then the active work by how
-// it's going, worst first, each with its status, progress and notes.
+// The summary as posted, in sections: Completed, then the active
+// incidents, each saying how it's going, then the rest of the active work
+// by how it's going, worst first. Each active line has its status, progress
+// and notes. Sections with nothing in them are left out, and headings are
+// plain words.
 export function summaryText(env, summary, done, active, chosen) {
-  const completed = done.filter((entry) => chosen(entry).included);
+  const health = (entry) => (HEALTH[chosen(entry).health] ? chosen(entry).health : "ON_TRACK");
   const going = active.filter((entry) => chosen(entry).included);
   const lines = [
     `*${summary.group} executive summary*  ·  ${formatTime(env, new Date()).slice(0, 10)}`,
     `_Since ${formatTime(env, new Date(summary.since))}_`,
-    "",
-    `*Completed (${completed.length})*`,
-    ...(completed.length ? completed.map((entry) => `• ${title(entry)}`) : ["_Nothing completed._"]),
-    "",
-    `*Active (${going.length})*`,
   ];
-  if (!going.length) lines.push("_Nothing active._");
-  for (const [health, heading] of Object.entries(HEALTH)) {
-    const these = going.filter((entry) => (HEALTH[chosen(entry).health] ? chosen(entry).health : "ON_TRACK") === health);
-    if (!these.length) continue;
-    lines.push(`*${heading} (${these.length})*`);
-    for (const entry of these) {
-      const { progress, notes } = chosen(entry);
-      const parts = [title(entry), entry.status, progress && escapeSlack(progress)].filter(Boolean);
-      lines.push(`• ${parts.join("  ·  ")}`);
-      for (const note of (notes ?? "").split("\n").filter((text) => text.trim())) {
-        lines.push(`      _${escapeSlack(note.trim())}_`);
-      }
-    }
+  const section = (heading, entries, line) => {
+    if (!entries.length) return;
+    lines.push("", `*${heading} (${entries.length})*`, ...entries.flatMap(line));
+  };
+  const activeLine = (entry, label) => {
+    const { progress, notes } = chosen(entry);
+    const parts = [`<${entry.link}|${escapeSlack(entry.title)}>`, label, entry.status, progress && escapeSlack(progress)];
+    return [
+      `• ${parts.filter(Boolean).join("  ·  ")}`,
+      ...(notes ?? "").split("\n").filter((text) => text.trim()).map((note) => `      _${escapeSlack(note.trim())}_`),
+    ];
+  };
+
+  section("Completed", done.filter((entry) => chosen(entry).included), (entry) => [`• ${title(entry)}`]);
+  section("Incidents", going.filter((entry) => entry.incident), (entry) => activeLine(entry, label(HEALTH[health(entry)])));
+  for (const [key, heading] of Object.entries(HEALTH)) {
+    const these = going.filter((entry) => !entry.incident && health(entry) === key);
+    section(label(heading), these, (entry) => activeLine(entry));
   }
+  if (lines.length === 2) lines.push("", "_Nothing completed or active._");
   return lines.join("\n");
 }
 
