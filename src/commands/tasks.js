@@ -360,6 +360,12 @@ function formatDate(iso) {
   return `${day}/${month}/${year}`;
 }
 
+// A link to the message `ts` that opens its thread, not just the message,
+// from the workspace's address, `url`.
+export function threadLink(url, channel, ts) {
+  return `${url}archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
+}
+
 // The group's tasks with one of `statuses`, as { channel, ts, task, link,
 // incident }, from its tasks and incidents channels. Links are built from
 // the workspace's address, `url`, rather than looked up one by one, which
@@ -376,8 +382,7 @@ export async function groupTasks(env, group, statuses, url) {
         ts,
         task,
         incident,
-        // Opens the task's thread, not just its message.
-        link: `${url}archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`,
+        link: threadLink(url, channel, ts),
       })),
     ),
   );

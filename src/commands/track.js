@@ -9,6 +9,7 @@ import {
   STARTED_NOTE,
   noPeople,
   readTaskForm,
+  refreshSummary,
   setPinned,
   syncTask,
   taskFormBlocks,
@@ -329,6 +330,7 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
     });
   }
   await syncTask(env, message.channel, message.ts, task);
+  await refreshSummary(env, message.channel);
   // Tracked from a message in the tasks channel: the message moves into the
   // task's thread.
   if (origin.moveTs) {

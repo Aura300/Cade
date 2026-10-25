@@ -219,6 +219,38 @@ export async function activeRequirements(env, channel) {
   return results.map((row) => ({ ts: row.ts, title: row.title, incident: Boolean(row.incident) }));
 }
 
+// The posted requirements and incidents in `channel` that aren't done or
+// deleted, as { ts, requirement }, oldest first.
+export async function openRequirements(env, channel) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM requirements
+     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND status != 'DONE'
+     ORDER BY ts`,
+  )
+    .bind(channel)
+    .all();
+  return results.map((row) => ({ ts: row.ts, requirement: requirementFromRow(row) }));
+}
+
+// The id of the canvas Cade keeps the channel's summary in, or null.
+export async function getCanvas(env, channel) {
+  const row = await env.DB.prepare("SELECT canvas_id FROM canvases WHERE channel = ?").bind(channel).first();
+  return row?.canvas_id ?? null;
+}
+
+export async function putCanvas(env, channel, canvasId, user) {
+  await env.DB.prepare(
+    `INSERT INTO canvases (channel, canvas_id, created_by) VALUES (?, ?, ?)
+     ON CONFLICT (channel) DO UPDATE SET canvas_id = excluded.canvas_id, created_by = excluded.created_by`,
+  )
+    .bind(channel, canvasId, user)
+    .run();
+}
+
+export async function deleteCanvas(env, channel) {
+  await env.DB.prepare("DELETE FROM canvases WHERE channel = ?").bind(channel).run();
+}
+
 // The requirements whose root message Slack hasn't taken yet, as { id,
 // channel, requirement, attempts }, as for unpostedTasks.
 export async function unpostedRequirements(env) {

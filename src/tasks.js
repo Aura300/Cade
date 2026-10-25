@@ -165,12 +165,22 @@ export async function loadTask(env, channel, ts) {
   return getTask(env, channel, ts);
 }
 
-// Stores the task, then renders it to its root message and the Sheet.
+// Stores the task, then renders it to its root message, the Sheet and the
+// summaries.
 export async function saveTask(env, channel, ts, task) {
   await putTask(env, channel, ts, task);
   console.log("Task saved", { ts, people: task.people });
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
   await syncTask(env, channel, ts, task);
+  await refreshSummary(env, channel);
+}
+
+// Rewrites the summary a change in `channel` touches (see summary.js). It
+// is imported when needed, as summary.js uses this module's exports when it
+// loads.
+export async function refreshSummary(env, channel) {
+  const summary = await import("./summary.js");
+  await summary.refreshSummary(env, channel);
 }
 
 // Records the task's current state in the Google Sheet. The sheet is a

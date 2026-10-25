@@ -1,7 +1,7 @@
 import { pairFor, roleOf } from "./channels.js";
 import { getRequirement, getTask, putRequirement } from "./db.js";
 import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
-import { PRIORITY_COLORS, STATUSES, loadTask, metaLine, prLines, saveTask, smallText } from "./tasks.js";
+import { PRIORITY_COLORS, STATUSES, loadTask, metaLine, prLines, refreshSummary, saveTask, smallText } from "./tasks.js";
 
 // A requirement is a root message Cade posts in an external channel for
 // `/cade requirement`; its thread is where the requirement is discussed. Like
@@ -95,12 +95,13 @@ export async function loadRequirement(env, channel, ts) {
 }
 
 // Stores the requirement, then renders it to its root message, with its
-// task's releases.
+// task's releases, and to the summary.
 export async function saveRequirement(env, channel, ts, requirement) {
   await putRequirement(env, channel, ts, requirement);
   const task = requirement.task && (await getTask(env, requirement.task.channel, requirement.task.ts));
   await callSlack(env, "chat.update", { channel, ts, ...requirementMessage(requirement, task) });
   console.log("Requirement saved", { ts, status: requirement.status });
+  await refreshSummary(env, channel);
 }
 
 // Updates the requirement (or incident) a task was tracked from, if it was. `change` gets

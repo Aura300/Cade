@@ -2,7 +2,7 @@ import { pairFor } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, insertRequirement, markRequirementPosted } from "../db.js";
 import { INCIDENT, requirementMessage } from "../requirements.js";
 import { callSlack, escapeSlack, plainText } from "../slack.js";
-import { noPeople, readTaskForm, setPinned, taskFormBlocks } from "../tasks.js";
+import { noPeople, readTaskForm, refreshSummary, setPinned, taskFormBlocks } from "../tasks.js";
 import { moveMessage, offerStart } from "./move.js";
 import { createTask } from "./track.js";
 
@@ -194,6 +194,7 @@ export async function publishRequirement(env, { id, channel, requirement, attemp
   // Open requirements are pinned in the external channel, as open tasks
   // are in the dev channel, until their task is Done.
   await setPinned(env, channel, message.ts, true);
+  await refreshSummary(env, channel);
 
   if (requirement.incident) {
     const { title, createdBy } = requirement;

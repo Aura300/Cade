@@ -9,7 +9,7 @@ import {
 } from "../db.js";
 import { NOT_A_REQUIREMENT, loadRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, syncTask } from "../tasks.js";
+import { NOT_A_TASK, refreshSummary, syncTask } from "../tasks.js";
 
 const DELETE_ACTION = "delete:confirm";
 const CANCEL_ACTION = "delete:cancel";
@@ -202,7 +202,10 @@ async function deleteTaskOnly(env, channel, ts, user) {
   if (task.source) {
     const { alive, requirement } = await sourceState(env, task.source);
     if (alive) return;
-    if (requirement) await markRequirementDeleted(env, task.source.channel, task.source.threadTs);
+    if (requirement) {
+      await markRequirementDeleted(env, task.source.channel, task.source.threadTs);
+      await refreshSummary(env, task.source.channel);
+    }
   }
   await deleteTask(env, channel, ts, user);
 }
@@ -217,6 +220,7 @@ async function deleteTask(env, channel, ts, user) {
   // Deleting a message also removes its pin.
   await deleteMessage(env, channel, ts);
   if (!task.deleted) await markTaskDeleted(env, channel, ts);
+  await refreshSummary(env, channel);
   console.log("Task deleted", { ts, user });
 }
 
@@ -237,6 +241,7 @@ async function deleteRequirement(env, channel, ts, user) {
   await deleteReplies(env, channel, ts);
   await deleteMessage(env, channel, ts);
   await markRequirementDeleted(env, channel, ts);
+  await refreshSummary(env, channel);
   console.log("Requirement deleted", { ts, user });
 }
 

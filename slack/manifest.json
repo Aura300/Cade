@@ -14,8 +14,8 @@
       {
         "command": "{{COMMAND}}",
         "url": "{{WORKER_URL}}/slack/commands",
-        "description": "Start a requirement, report an incident, track a task or list your tasks",
-        "usage_hint": "requirement | incident | track | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned]",
+        "description": "Start a requirement, report an incident, track a task, list your tasks or summarise them",
+        "usage_hint": "requirement | incident | track | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | summary",
         "should_escape": true
       }
     ]
@@ -23,6 +23,7 @@
   "oauth_config": {
     "scopes": {
       "bot": [
+        "canvases:write",
         "channels:history",
         "channels:read",
         "chat:write",

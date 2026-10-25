@@ -1002,7 +1002,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
       assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup`");
+    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary`");
   }
 });
 
@@ -3981,6 +3981,7 @@ test("the manifest asks for the scopes Cade uses", async () => {
   const { readFile } = await import("node:fs/promises");
   const template = JSON.parse(await readFile(new URL("../slack/manifest.json", import.meta.url), "utf8"));
   assert.deepEqual(template.oauth_config.scopes.bot, [
+    "canvases:write",
     "channels:history",
     "channels:read",
     "chat:write",
@@ -6166,4 +6167,150 @@ test("Move unpins a pinned message it moves", async (t) => {
     calls.filter((call) => call.method === "pins.remove").map((call) => call.args),
     [{ channel: "CEXTERNAL", timestamp: "400.1" }],
   );
+});
+
+// A canvas's markdown, from conversations.canvases.create or canvases.edit.
+const canvasMarkdown = (call) =>
+  call.method === "canvases.edit"
+    ? JSON.parse(call.args.changes)[0].document_content.markdown
+    : JSON.parse(call.args.document_content).markdown;
+
+// A summary's table rows, without its header and divider.
+const summaryRows = (markdown) =>
+  markdown.split("\n").filter((line) => line.startsWith("| ") && !/^\| (Title|---) /.test(line));
+
+const canvasResponses = {
+  "auth.test": { url: "https://acme.slack.com/" },
+  "conversations.canvases.create": { canvas_id: "F0CANVAS" },
+};
+
+test("/cade summary in the dev channel puts the group's open tasks in its canvas, most urgent first", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  for (const [channel, record] of [
+    ["CDEV", historyTask("100.1", { title: "Low task", priority: "Low", developers: ["UALICE"] })],
+    ["CDEV", historyTask("100.2", { title: "High | later", priority: "High", dueDate: "05/11/2026", reviewers: ["UBOB"] })],
+    ["CDEV", historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", status: "IN_PROGRESS" })],
+    ["CDEV", historyTask("100.4", { title: "Done task", status: "DONE" })],
+    ["CINC", historyTask("100.8", { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", testers: ["UALICE", "UBOB"] })],
+  ]) await putTask(env, channel, record.ts, record.task);
+  const { now, later } = await runTasksCommand("summary", "CDEV", incidentEnv);
+
+  assert.equal(now, "");
+  assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
+  const create = calls.find((call) => call.method === "conversations.canvases.create");
+  assert.equal(create.args.channel_id, "CDEV");
+  const markdown = canvasMarkdown(create);
+  assert.match(markdown, /^# Open acme tasks\n\n4 open, most urgent first\. _Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\./);
+  assert.ok(markdown.includes("| Title | Status | Priority | Dev | Reviewer | Tester | Due date | Thread |"));
+  const thread = (channel, ts) =>
+    `[Go to thread](https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
+  assert.deepEqual(summaryRows(markdown), [
+    `| **Incident:** Checkout is down | :memo: To do | :red_circle: Urgent | — | — | ![](@UALICE), ![](@UBOB) | Immediate | ${thread("CINC", "100.8")} |`,
+    `| High, sooner | :arrow_forward: In progress | :large_orange_circle: High | — | — | — | 01/11/2026 | ${thread("CDEV", "100.3")} |`,
+    `| High \\| later | :memo: To do | :large_orange_circle: High | — | ![](@UBOB) | — | 05/11/2026 | ${thread("CDEV", "100.2")} |`,
+    `| Low task | :memo: To do | :large_green_circle: Low | ![](@UALICE) | — | — | 31/10/2026 | ${thread("CDEV", "100.1")} |`,
+  ]);
+
+  // Sent again, the same canvas is rewritten.
+  calls.length = 0;
+  const again = await runTasksCommand("summary", "CDEV", incidentEnv);
+  assert.equal(again.later.text, "Updated the summary in this channel's canvas.");
+  const edit = calls.find((call) => call.method === "canvases.edit");
+  assert.equal(edit.args.canvas_id, "F0CANVAS");
+  assert.equal(JSON.parse(edit.args.changes)[0].operation, "replace");
+  assert.ok(!calls.some((call) => call.method === "conversations.canvases.create"));
+});
+
+test("/cade summary in the external channel lists open requirements and incidents", async (t) => {
+  const calls = mockSlack(t, { ...canvasResponses, stored: [requirementRoot({ task: true })] });
+  await putRequirement(env, "CEXTERNAL", "200.2", {
+    title: "Dark mode",
+    status: "DISCUSSION",
+    priority: "Low",
+    dueDate: "",
+    createdBy: "UCLIENT",
+  });
+  await putRequirement(env, "CEXTERNAL", "200.3", { title: "Old one", status: "DONE", priority: "Urgent", dueDate: "", createdBy: "UCLIENT" });
+  await putRequirement(env, "CEXTERNAL", "200.4", {
+    title: "Checkout is down",
+    status: "IN_PROGRESS",
+    priority: "Urgent",
+    dueDate: "Immediate",
+    createdBy: "UCLIENT",
+    incident: true,
+  });
+  const { later } = await runTasksCommand("summary", "CEXTERNAL");
+
+  assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
+  const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
+  assert.match(markdown, /^# Open acme requirements\n\n3 open, most urgent first\./);
+  assert.ok(markdown.includes("| Title | Priority | Due date | Status | Tracked | Thread |"));
+  const thread = (ts) => `[Go to thread](https://acme.slack.com/archives/CEXTERNAL/p${ts.replace(".", "")}?thread_ts=${ts}&cid=CEXTERNAL)`;
+  assert.deepEqual(summaryRows(markdown), [
+    `| **Incident:** Checkout is down | :red_circle: Urgent | Immediate | :arrow_forward: In progress | Not yet | ${thread("200.4")} |`,
+    `| Export reports | :large_orange_circle: High | 31/10/2026 | :arrow_forward: In progress | :white_check_mark: Yes | ${thread("200.1")} |`,
+    `| Dark mode | :large_green_circle: Low | — | :speech_balloon: In discussion | Not yet | ${thread("200.2")} |`,
+  ]);
+});
+
+test("/cade summary uses the canvas the channel already has", async (t) => {
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    "conversations.info": { channel: { id: "CDEV", properties: { canvas: { file_id: "F0THEIRS" } } } },
+  });
+  const fakeFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) =>
+    url.endsWith("/conversations.canvases.create")
+      ? (await fakeFetch(url, init), Response.json({ ok: false, error: "channel_canvas_already_exists" }))
+      : fakeFetch(url, init);
+
+  const { later } = await runTasksCommand("summary", "CDEV");
+  assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
+  const edit = calls.find((call) => call.method === "canvases.edit");
+  assert.equal(edit.args.canvas_id, "F0THEIRS");
+  assert.match(canvasMarkdown(edit), /No open tasks\./);
+
+  // Saved, so it is used from now on.
+  calls.length = 0;
+  await runTasksCommand("summary", "CDEV");
+  assert.equal(calls.find((call) => call.method === "canvases.edit").args.canvas_id, "F0THEIRS");
+  assert.ok(!calls.some((call) => call.method === "conversations.canvases.create"));
+});
+
+test("/cade summary only works in a group's external and dev channels", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  for (const channel of ["CRANDOM", "CINC"]) {
+    const { now } = await runTasksCommand("summary", channel, incidentEnv);
+    assert.match(now, /summary/);
+  }
+  assert.ok(!calls.some((call) => /canvas/.test(call.method)));
+});
+
+test("a task change rewrites the summaries of its group that have one", async (t) => {
+  const calls = mockSlack(t, { ...canvasResponses, stored: [storedTask()] });
+  await runTasksCommand("summary", "CDEV");
+  calls.length = 0;
+
+  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  const edit = calls.find((call) => call.method === "canvases.edit");
+  assert.equal(edit.args.canvas_id, "F0CANVAS");
+  assert.match(summaryRows(canvasMarkdown(edit))[0], /^\| Fix login \| :memo: To do \| :large_orange_circle: High \| !\[\]\(@UBOB\) \|/);
+});
+
+test("a task change touches no canvas until /cade summary has made one", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  assert.ok(!calls.some((call) => /canvas|auth\.test/.test(call.method)));
+});
+
+test("a long summary continues in another table, as a canvas table holds 300 cells", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  for (let i = 0; i < 40; i++) {
+    const record = historyTask(`100.${String(i).padStart(2, "0")}`, { title: `Task ${i}` });
+    await putTask(env, "CDEV", record.ts, record.task);
+  }
+  await runTasksCommand("summary", "CDEV");
+  const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
+  const tables = markdown.split("\n\n").filter((part) => part.startsWith("| Title"));
+  assert.deepEqual(tables.map((part) => part.split("\n").length - 2), [36, 4]);
 });
