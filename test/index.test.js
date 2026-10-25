@@ -4697,3 +4697,130 @@ test("a Done requirement after a release lists the rest as its last release", as
   assert.equal(rootPrs(calls), shown);
   assert.equal(shownPrs(calls, "100.1"), shown);
 });
+
+// A message about a requirement posted on its own in the external channel,
+// at 400.1, and `@Cade move` replied in its thread.
+const strayMessage = { ts: "400.1", user: "UCLIENT", text: "Also add a CSV export\nwith totals" };
+const moveEvent = (overrides = {}) =>
+  threadEvent("<@UBOT> move", { channel: "CEXTERNAL", user: "UCLIENT", ts: "400.2", thread_ts: "400.1", ...overrides });
+
+// A Slack API where conversations.replies gives `root` as the thread's root,
+// posts get a ts in their thread, and permalinks end with the message's ts.
+const moveSlack = (root = strayMessage) => ({
+  "conversations.replies": { messages: root ? [root] : [] },
+  "chat.postMessage": (args) => ({ ts: `${args.thread_ts.split(".")[0]}.9` }),
+  "chat.getPermalink": (args) => ({ permalink: `https://slack.example/${args.message_ts}` }),
+});
+
+// A requirement in the external channel at `ts`.
+const otherRequirement = (ts, fields) => {
+  const record = requirementRoot();
+  record.ts = ts;
+  Object.assign(record.requirement, fields);
+  return record;
+};
+
+// Clicks Move on the picker, with `picked` (a requirement's ts) chosen.
+const moveClick = (picked, actionId = "move:confirm") =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UCLIENT" },
+    channel: { id: "CEXTERNAL" },
+    container: { is_ephemeral: true },
+    response_url: RESPONSE_URL,
+    state: { values: { "move:requirement": { "move:pick": { selected_option: picked ? { value: picked } : null } } } },
+    actions: [{ action_id: actionId, value: JSON.stringify({ channel: "CEXTERNAL", ts: "400.1" }) }],
+  });
+
+test("@Cade move privately offers the channel's open requirements and incidents", async (t) => {
+  const calls = mockSlack(t, {
+    ...moveSlack(),
+    stored: [
+      requirementRoot(),
+      otherRequirement("200.7", { title: "Old report", status: "DONE" }),
+      otherRequirement("200.8", { title: "Checkout is down", incident: true }),
+    ],
+  });
+  await send("/slack/events", moveEvent());
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postEphemeral"]);
+  const picker = calls[1].args;
+  assert.equal(picker.user, "UCLIENT");
+  assert.equal(picker.thread_ts, "400.1");
+  const options = picker.blocks[1].elements[0].options;
+  assert.deepEqual(
+    options.map((option) => [option.text.text, option.value]).sort(),
+    [["Incident · Checkout is down", "200.8"], ["Requirement · Export reports", "200.1"]],
+  );
+  assert.deepEqual(picker.blocks[2].elements.map((button) => button.action_id), ["move:confirm", "move:cancel"]);
+});
+
+test("@Cade move says why it can't move a message", async (t) => {
+  for (const [event, stored, root, text] of [
+    [moveEvent({ ts: "400.1", thread_ts: undefined }), [requirementRoot()], strayMessage, "Reply `@Cade move` in the thread of the message you want to move."],
+    [moveEvent({ thread_ts: "200.1" }), [requirementRoot()], strayMessage, "This is already a requirement thread."],
+    [moveEvent(), [requirementRoot()], { ts: "400.1", bot_id: "BOTHER", text: "Deploy done" }, "I can only move people's messages."],
+    [moveEvent(), [otherRequirement("200.1", { status: "DONE" })], strayMessage, "There are no open requirements here. Start one with `/cade requirement`."],
+  ]) {
+    const calls = mockSlack(t, { ...moveSlack(root), stored });
+    await send("/slack/events", event);
+    const reply = calls.at(-1);
+    assert.equal(reply.method, "chat.postMessage", text);
+    assert.equal(reply.args.text, text);
+  }
+});
+
+test("Move copies the message into the requirement thread and points the original there", async (t) => {
+  const calls = mockSlack(t, { ...moveSlack(), stored: [requirementRoot()] });
+  const responses = recordResponses(t);
+  await send("/slack/interactions", moveClick("200.1"));
+
+  const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args);
+  assert.deepEqual(
+    posts.map((post) => [post.thread_ts, post.text]),
+    [
+      ["200.1", "Moved from <@UCLIENT>'s <https://slack.example/400.1|message>:\n> Also add a CSV export\n> with totals"],
+      ["400.1", "<@UCLIENT> moved this message to the requirement thread <https://slack.example/200.9|Export reports>. Please carry on the conversation there."],
+    ],
+  );
+  assert.deepEqual(responses, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("Move says an incident thread, and that a message's attachments stay behind", async (t) => {
+  const calls = mockSlack(t, {
+    ...moveSlack({ ...strayMessage, files: [{ id: "F1" }] }),
+    stored: [otherRequirement("200.8", { title: "Checkout is down", incident: true })],
+  });
+  recordResponses(t);
+  await send("/slack/interactions", moveClick("200.8"));
+  const [copy, note] = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.text);
+  assert.match(copy, /\n_It has attachments: see the original\._$/);
+  assert.match(note, /moved this message to the incident thread <https:\/\/slack\.example\/200\.9\|Checkout is down>\./);
+});
+
+test("Move moves nothing if the requirement was closed or the message deleted since", async (t) => {
+  for (const [stored, root, text] of [
+    [[otherRequirement("200.1", { status: "DONE" })], strayMessage, "That requirement has been closed or deleted since, so I didn't move anything."],
+    [[], strayMessage, "That requirement has been closed or deleted since, so I didn't move anything."],
+    [[requirementRoot()], null, "That message has been deleted since, so there's nothing to move."],
+  ]) {
+    const calls = mockSlack(t, { ...moveSlack(root), stored });
+    const responses = recordResponses(t);
+    await send("/slack/interactions", moveClick("200.1"));
+    assert.ok(!calls.some((call) => call.method === "chat.postMessage"), text);
+    assert.deepEqual(responses, [{ response_type: "ephemeral", replace_original: true, text }]);
+  }
+});
+
+test("Move without a pick asks for one, and Cancel removes the picker", async (t) => {
+  const calls = mockSlack(t, { ...moveSlack(), stored: [requirementRoot()] });
+  const responses = recordResponses(t);
+  await send("/slack/interactions", moveClick(null));
+  assert.deepEqual(calls.map((call) => [call.method, call.args.text]), [
+    ["chat.postEphemeral", "Pick a requirement first, then press Move."],
+  ]);
+  await send("/slack/interactions", moveClick(null, "move:cancel"));
+  assert.deepEqual(responses, [{ response_type: "ephemeral", delete_original: true }]);
+  // Choosing from the menu does nothing by itself.
+  await send("/slack/interactions", moveClick("200.1", "move:pick"));
+  assert.equal(calls.length, 1);
+});

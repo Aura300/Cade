@@ -205,6 +205,20 @@ export async function markRequirementDeleted(env, channel, ts) {
     .run();
 }
 
+// The posted requirements and incidents in `channel` that aren't done or
+// deleted, as { ts, title, incident }, newest first: at most 100, as many as
+// a Slack menu takes.
+export async function activeRequirements(env, channel) {
+  const { results } = await env.DB.prepare(
+    `SELECT ts, title, incident FROM requirements
+     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND status != 'DONE'
+     ORDER BY id DESC LIMIT 100`,
+  )
+    .bind(channel)
+    .all();
+  return results.map((row) => ({ ts: row.ts, title: row.title, incident: Boolean(row.incident) }));
+}
+
 // The requirements whose root message Slack hasn't taken yet, as { id,
 // channel, requirement, attempts }, as for unpostedTasks.
 export async function unpostedRequirements(env) {
