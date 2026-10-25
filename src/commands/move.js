@@ -2,7 +2,7 @@ import { pairFor, roleOf } from "../channels.js";
 import { activeRequirements, tasksWithStatus } from "../db.js";
 import { intent } from "../intents.js";
 import { loadRequirement } from "../requirements.js";
-import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
+import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
 import { STATUSES, loadTask, setPinned, statusName } from "../tasks.js";
 import { incidentView, requirementView } from "./requirement.js";
 import { trackView } from "./track.js";
@@ -21,6 +21,10 @@ const DISMISS_ACTION = "move:dismiss";
 const MOVED_REACTION = "outbox_tray";
 
 const NOT_IN_THREAD = "Reply `@Cade move` in the thread of the message you want to move.";
+
+// A message's link, from Copy link: …/archives/<channel>/p<ts without its
+// dot>, with ?thread_ts=… when the message is a reply.
+const MESSAGE_LINK = /https?:\/\/[^/\s<>|]+\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})(\?[^\s<>|]*)?/;
 
 // What a message can be moved to: requirements and incidents in the external
 // channel, tasks in a tasks or incidents channel. Each lists the open ones,
@@ -67,6 +71,11 @@ const targetsIn = (env, channel) => (roleOf(env, channel) === "external" ? REQUI
 // link back still reaches. A bot token can't delete people's messages, so
 // the original stays, unpinned if it was pinned.
 //
+// `@Cade move <link>`, with a link to a requirement's, incident's or task's
+// message or any reply in its thread, moves it there straight away, with a
+// ✅ on the command, so it can be pasted into old threads one after another.
+// Without a link, it asks as above.
+//
 // A message posted on its own in the external channel, not in a thread, gets
 // a private question for whoever posted it: start a requirement or report
 // an incident from it, with its first line as the name, or move it to an
@@ -78,7 +87,7 @@ const targetsIn = (env, channel) => (roleOf(env, channel) === "external" ? REQUI
 export default {
   name: "move",
   description: "Move a message into a requirement's or task's thread",
-  usage: "@Cade move",
+  usage: "@Cade move [message link]",
   section: "thread",
   channel: ["external", "tasks", "incidents"],
   async run(command, { env }) {
@@ -88,6 +97,8 @@ export default {
     if (moved) return privately(env, command, { text: moved });
     if (problem) return problem;
     const targets = targetsIn(env, command.channel);
+    const link = linkedThread(command.text);
+    if (link) return moveToLinked(env, command, link, targets);
     const open = await targets.list(env, command.channel);
     if (!open.length) return `${targets.none} ${targets.start}`;
     await privately(env, command, picker(command.channel, command.threadTs, open, targets));
@@ -258,6 +269,29 @@ async function checkRoot(env, channel, ts) {
   return { root: thread.root };
 }
 
+// The channel and thread root of the first Slack message link in `text`, or
+// null if there is none. A link to a reply stands for its thread.
+function linkedThread(text) {
+  const match = MESSAGE_LINK.exec(text.replace(/&amp;/g, "&"));
+  if (!match) return null;
+  const threadTs = new URLSearchParams(match[4] ?? "").get("thread_ts");
+  return { channel: match[1], ts: threadTs ?? `${match[2]}.${match[3]}` };
+}
+
+// Moves the command's thread into the one `link` points to, acknowledging
+// the command, or returns why it can't.
+async function moveToLinked(env, command, link, targets) {
+  const noun = targets === TASKS ? "a task" : "a requirement or incident";
+  if (link.channel !== command.channel) {
+    return `That link is to another channel. Messages only move within their own channel, so paste a link to ${noun} here.`;
+  }
+  const target = await targets.load(env, link.channel, link.ts);
+  if (!target) return `That link isn't to ${noun} here. Use Copy link on its message.`;
+  if (!targets.open(target)) return `That ${targets.noun(target)} is done, so I didn't move anything.`;
+  const problem = await moveMessage(env, { channel: command.channel, ts: command.threadTs, targetTs: link.ts, user: command.user });
+  return problem ?? acknowledge();
+}
+
 // Shows `body` in the command's thread to whoever sent it.
 async function privately(env, command, body) {
   await callSlack(env, "chat.postEphemeral", {
@@ -270,7 +304,7 @@ async function privately(env, command, body) {
 
 // The message's first line, without formatting marks, as a name to start
 // the form with.
-export function firstLine(text) {
+function firstLine(text) {
   return text.split("\n").find((line) => line.trim())?.replace(/[*_~`>]/g, "").trim().slice(0, 150) ?? "";
 }
 

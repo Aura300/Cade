@@ -102,18 +102,6 @@
         <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
       </article>
 
-      <article class="entry">
-        <h3><code>/cade migrate</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Top level</span></div>
-        <p>Brings work discussed before Cade into it. A form asks for links to the old threads (Copy link on each message), then for the name, priority and due date, named from the oldest thread's first line.</p>
-        <ul>
-          <li><b>In the client channel:</b> paste the old requirement threads from that channel and the dev threads for them. Cade starts the requirement and moves the old requirement threads into it, oldest first, then tracks its task with the same name and moves the dev threads into the task's thread. With only dev threads, it tracks the task as <code>/cade track</code> would.</li>
-          <li><b>In the dev channel:</b> paste the old dev threads, and Cade tracks the team's own task with them moved into its thread.</li>
-          <li>The pull requests found anywhere in the old threads are linked to the task, as <code>@Cade pr add</code> would. Untick <b>Link the PRs</b> on the first form to leave them out.</li>
-          <li>Afterwards, Cade privately lists what moved and what didn't, then asks where the task is at and who's on it: a status menu, and developers, reviewers and testers, any of which can be left empty. Saving sets the status and asks the people chosen, as <code>@Cade status</code> and <code>@Cade assign</code> would.</li>
-        </ul>
-      </article>
-
     </div>
   </div>
 </section>
@@ -203,10 +191,11 @@
     <div class="entries">
 
       <article class="entry">
-        <h3><code>@Cade move</code></h3>
+        <h3><code>@Cade move</code> <code>@Cade move &lt;message link&gt;</code></h3>
         <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Incidents channel</span><span class="where">In a message's thread</span></div>
         <p>Moves a message into the right thread. Cade privately shows the open requirements and incidents (in the client channel) or open tasks (in the dev and incidents channels) to pick from. Messages only move within their own channel.</p>
         <ul>
+          <li><b>With a link:</b> paste the link to a requirement's, incident's or task's message (Copy link on it, or on any reply in its thread) and Cade moves the message there straight away, with a ✅ on your command. Handy for bringing old threads in from before Cade, one after another: start with the oldest, so they land in order.</li>
           <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>
           <li>Only the message is copied, not its replies or attachments, and a message is never moved twice.</li>
           <li>If the original was pinned, it's unpinned: its new thread is where it's followed now.</li>
