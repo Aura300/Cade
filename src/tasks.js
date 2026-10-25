@@ -56,7 +56,7 @@ export function unsentPrs(task) {
 
 // The task's PRs for its card and its requirement's, a line each for those
 // approved, pending approval and pending, leaving out the empty ones:
-//   Approved: Login (cade/42, web/7) | Profile page (web/9)
+//   Approved: Login (cade/42, web/7) · Profile page (web/9)
 //   Pending approval: Search (web/11)
 //   Pending: web/12, web/13
 // A PR goes from pending to pending approval, once sent with `@Cade
@@ -77,8 +77,8 @@ export function prLines(task) {
   const awaiting = done ? [] : groups("PENDING_APPROVAL");
   const pending = done ? [] : unsent;
   return [
-    approved.length && `*Approved:* ${approved.join("  |  ")}`,
-    awaiting.length && `*Pending approval:* ${awaiting.join("  |  ")}`,
+    approved.length && `*Approved:* ${approved.join("  ·  ")}`,
+    awaiting.length && `*Pending approval:* ${awaiting.join("  ·  ")}`,
     pending.length && `*Pending:* ${pending.map(prLink).join(", ")}`,
   ].filter(Boolean);
 }
@@ -103,27 +103,31 @@ export function noPeople() {
 export function taskMessage(task) {
   const thread = task.source?.incident ? "the incident thread" : "the requirement thread";
   const from = task.source?.link ? ` from <${task.source.link}|${thread}>` : "";
-  // The title, then in small text its status, priority and due date; who
-  // works on it, its linked pull requests (when it has any) by whether
-  // they're approved, then who tracked it. All but the title sit in an
-  // attachment, whose strip down the side has the priority's colour.
-  // Roles with no one are left out.
+  // The title, then in small text its status, priority and due date, its
+  // linked pull requests (when it has any) by whether they're approved, and
+  // who works on it and who tracked it. All but the title sit in an
+  // attachment, whose strip down the side has the priority's colour. Roles
+  // with no one are left out.
   const people = Object.entries(SHORT_ROLES)
     .filter(([role]) => task.people[role].length)
     .map(([role, label]) => `${label} ${mentions(task.people[role])}`)
     .join("  ·  ");
   const card = [
     { type: "context", elements: [metaLine(STATUSES[task.status], task.priority, task.dueDate)] },
-    { type: "section", text: mrkdwn(people || "_Unassigned_") },
-    // A section holds up to 3,000 characters.
-    ...(task.prs?.length ? [{ type: "section", text: mrkdwn(prLines(task).join("\n").slice(0, 3000)) }] : []),
-    { type: "context", elements: [mrkdwn(`Tracked by <@${task.createdBy}>${from}`)] },
+    ...(task.prs?.length ? [smallText(prLines(task))] : []),
+    smallText([people || "_Unassigned_", `Tracked by <@${task.createdBy}>${from}`]),
   ];
   return {
     text: `${task.priority} task: ${task.title}`,
     blocks: [{ type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) }],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
+}
+
+// Lines of a card in small text, as its status line is. A context element
+// holds up to 3,000 characters.
+export function smallText(lines) {
+  return { type: "context", elements: [mrkdwn(lines.join("\n").slice(0, 3000))] };
 }
 
 // A card's line under its title, in small text: the status, priority and

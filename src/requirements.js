@@ -1,7 +1,7 @@
 import { roleOf } from "./channels.js";
 import { getRequirement, getTask, putRequirement } from "./db.js";
 import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
-import { PRIORITY_COLORS, STATUSES, loadTask, metaLine, prLines, saveTask } from "./tasks.js";
+import { PRIORITY_COLORS, STATUSES, loadTask, metaLine, prLines, saveTask, smallText } from "./tasks.js";
 
 // A requirement is a root message Cade posts in an external channel for
 // `/cade requirement`; its thread is where the requirement is discussed. Like
@@ -55,9 +55,8 @@ export function requirementMessage(requirement, trackedTask) {
   const lines = trackedTask ? prLines(trackedTask) : [];
   const card = [
     { type: "context", elements: [metaLine(REQUIREMENT_STATUSES[requirement.status], priority, requirement.dueDate)] },
-    // A section holds up to 3,000 characters.
-    ...(lines.length ? [{ type: "section", text: mrkdwn(lines.join("\n").slice(0, 3000)) }] : []),
-    { type: "context", elements: [mrkdwn(people.join("  ·  "))] },
+    ...(lines.length ? [smallText(lines)] : []),
+    smallText([people.join("  ·  ")]),
   ];
   return {
     text: `${label}: ${requirement.title}`,

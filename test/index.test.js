@@ -81,6 +81,10 @@ const allBlocks = (args) => [...(args.blocks ?? []), ...(args.attachments?.[0]?.
 // A section's text, or a context block's first element's.
 const blockText = (block) => block.text?.text ?? block.elements?.[0]?.text;
 
+// A task card's small-text footer, a line each: who works on it, then who
+// tracked it.
+const footerLines = (args) => blockText(allBlocks(args).at(-1)).split("\n");
+
 // The action_ids used more than once in a message's blocks.
 function duplicateActionIds(blocks) {
   const ids = blocks.flatMap((block) => [
@@ -317,15 +321,13 @@ test("modal submission posts the task and turns the button into a link to it", a
   // The priority is the colour of the strip beside everything but the title.
   assert.equal(post.blocks.length, 1);
   assert.equal(post.attachments[0].color, "#E01E5A");
-  assert.equal(
-    allBlocks(post)[2].text.text,
+  // No PRs yet; who works on it and who tracked it share the small footer.
+  assert.equal(allBlocks(post).length, 3);
+  assert.equal(allBlocks(post)[2].type, "context");
+  assert.deepEqual(footerLines(post), [
     "_Unassigned_",
-  );
-  assert.equal(allBlocks(post)[3].type, "context");
-  assert.match(
-    allBlocks(post)[3].elements[0].text,
-    /^Tracked by <@UCREATOR> from <https:\/\/slack\.example\/source\|the requirement thread>$/,
-  );
+    "Tracked by <@UCREATOR> from <https://slack.example/source|the requirement thread>",
+  ]);
   // The message is only the task's picture; it lives in the database.
   assert.equal(post.metadata, undefined);
 
@@ -493,7 +495,7 @@ test("@Cade assign adds people to a role on the root message", async (t) => {
   const update = calls[0].args;
   assert.equal(update.ts, "100.1");
   assert.equal(
-    allBlocks(update)[2].text.text,
+    footerLines(update)[0],
     "Dev <@UALICE>, <@UBOB>  ·  Test <@UTESS>",
   );
   const task = await savedTask();
@@ -566,7 +568,7 @@ test("@Cade unassign without a role removes people from every role", async (t) =
   await send("/slack/events", threadEvent("<@UBOT> unassign <@UALICE>"));
   assert.deepEqual((await savedTask()).people, { developer: ["UBOB"], reviewer: [], tester: [] });
   assert.equal(
-    allBlocks(calls[0].args)[2].text.text,
+    footerLines(calls[0].args)[0],
     "Dev <@UBOB>",
   );
   assert.equal(calls[1].args.text, "<@UALICE>, you no longer need to work on this.");
@@ -874,10 +876,7 @@ test("assigning keeps the task's source thread", async (t) => {
     link: "https://slack.example/source",
     incident: false,
   });
-  assert.match(
-    allBlocks(calls[0].args)[3].elements[0].text,
-    /from <https:\/\/slack\.example\/source\|the requirement thread>/,
-  );
+  assert.match(footerLines(calls[0].args)[1], /from <https:\/\/slack\.example\/source\|the requirement thread>/);
 });
 
 test("@Cade delete in a thread that is not a task says so", async (t) => {
@@ -1438,10 +1437,7 @@ test("tracking from a requirement thread moves the requirement to In progress", 
     ],
   });
   assert.equal(card.length, 3);
-  assert.equal(
-    allBlocks(post.args)[3].elements[0].text,
-    "Tracked by <@UCREATOR> from <https://slack.example/source|the requirement thread>",
-  );
+  assert.equal(footerLines(post.args)[1], "Tracked by <@UCREATOR> from <https://slack.example/source|the requirement thread>");
   assert.deepEqual((await savedRequirement()).task.ts, "100.1");
   // The button is still replaced by the announcement.
   assert.equal(calls.at(-1).args.ts, "300.1");
@@ -2021,10 +2017,7 @@ test("reporting an incident posts it and tracks it straight away in the incident
   const stored = await savedTask("CINC");
   assert.equal(stored.source.threadTs, "200.1");
   assert.equal(stored.source.incident, true);
-  assert.equal(
-    allBlocks(task.args)[3].elements[0].text,
-    "Tracked by <@UCLIENT> from <https://slack.example/source|the incident thread>",
-  );
+  assert.equal(footerLines(task.args)[1], "Tracked by <@UCLIENT> from <https://slack.example/source|the incident thread>");
   assert.ok(calls.some((call) => call.method === "pins.add" && call.args.channel === "CINC"));
   assert.ok(!calls.some((call) => call.args.channel === "CDEV"), "nothing goes to the dev channel");
 
@@ -2373,17 +2366,17 @@ test("@Cade pr add links pull requests on one line above who tracked it", async 
   // Stored without the /files tab, and only once.
   assert.deepEqual((await savedTask()).prs, [PR, MR]);
   // Not sent to the client yet, so pending.
-  assert.equal(blocks[3].text.text, `*Pending:* <${PR}|cade/42>, <${MR}|web-app/118>`);
-  assert.equal(blocks[4].type, "context");
-  assert.match(blocks[4].elements[0].text, /^Tracked by/);
+  assert.equal(blocks[2].type, "context");
+  assert.equal(blockText(blocks[2]), `*Pending:* <${PR}|cade/42>, <${MR}|web-app/118>`);
+  assert.match(footerLines(calls[0].args)[1], /^Tracked by/);
   assert.match(calls[1].args.text, new RegExp(`^<@UACTOR> linked <${PR}\\|cade/42>, <${MR}\\|web-app/118> and moved the task to :eyes: In review\\.\\n`));
 });
 
 test("tasks without pull requests show no PRs line", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> status in progress"));
-  assert.equal(allBlocks(calls[0].args).length, 4);
-  assert.equal(allBlocks(calls[0].args)[3].type, "context");
+  assert.equal(allBlocks(calls[0].args).length, 3);
+  assert.match(footerLines(calls[0].args)[1], /^Tracked by/);
 });
 
 test("@Cade pr add skips pull requests already linked", async (t) => {
@@ -2406,7 +2399,7 @@ test("@Cade pr remove unlinks pull requests", async (t) => {
   let calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
   assert.deepEqual((await savedTask()).prs, [MR]);
-  assert.equal(allBlocks(calls[0].args)[3].text.text, `*Pending:* <${MR}|web-app/118>`);
+  assert.equal(blockText(allBlocks(calls[0].args)[2]), `*Pending:* <${MR}|web-app/118>`);
   assert.equal(calls[1].args.text, `<@UACTOR> unlinked <${PR}|cade/42>.`);
 
   // Removing the last one removes the PRs line.
@@ -2414,7 +2407,7 @@ test("@Cade pr remove unlinks pull requests", async (t) => {
   calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
   assert.deepEqual((await savedTask()).prs, []);
-  assert.equal(allBlocks(calls[0].args)[3].type, "context");
+  assert.equal(allBlocks(calls[0].args).length, 3);
 
   calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
@@ -3788,7 +3781,7 @@ test("each change is stored, and the root message is rendered from the stored ta
   ]);
   assert.deepEqual((await savedTask()).people, { developer: ["UALICE", "UBOB"], reviewer: [], tester: ["UTESS"] });
   assert.equal(
-    allBlocks(calls[2].args)[2].text.text,
+    footerLines(calls[2].args)[0],
     "Dev <@UALICE>, <@UBOB>  ·  Test <@UTESS>",
   );
 });
@@ -4372,7 +4365,8 @@ const releasesOf = async () =>
 const shownPrs = (calls, ts = "200.1") => {
   const { args } = calls.findLast((call) => call.method === "chat.update" && call.args.ts === ts);
   return allBlocks(args)
-    .map((block) => block.text?.text ?? "")
+    .map((block) => blockText(block) ?? "")
+    .flatMap((text) => text.split("\n"))
     .filter((text) => /^\*(Approved|Pending approval|Pending):\*/.test(text))
     .join("\n");
 };
@@ -4541,7 +4535,7 @@ test("a Done requirement shows every release as approved", async (t) => {
   // The release in review was approved with the rest.
   assert.equal(
     rootPrs(calls),
-    `*Approved:* Login and sign-up (<${PR}|cade/42>)  |  The rest of the requirement (<${MR}|web-app/118>)`,
+    `*Approved:* Login and sign-up (<${PR}|cade/42>)  ·  The rest of the requirement (<${MR}|web-app/118>)`,
   );
 });
 
@@ -4551,7 +4545,7 @@ test("a Done requirement after a release lists the rest as its last release", as
     "chat.getPermalink": { permalink: "https://slack.example/review" },
   });
   await send("/slack/interactions", reviewClick("status:approve"));
-  const shown = `*Approved:* Login and sign-up (<${PR}|cade/42>)  |  The rest of the requirement (<${MR}|web-app/118>)`;
+  const shown = `*Approved:* Login and sign-up (<${PR}|cade/42>)  ·  The rest of the requirement (<${MR}|web-app/118>)`;
   assert.equal(rootPrs(calls), shown);
   assert.equal(shownPrs(calls, "100.1"), shown);
 });
