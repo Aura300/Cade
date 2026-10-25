@@ -99,9 +99,18 @@ In the **Deposit payments** thread, **You**:
 
 - Cade privately offers **Track and assign** → keep the title → **Create**.
 - **Show:** task posted and pinned in `#acme-dev` with Rex as developer,
-  ▶️ In progress, priority/due from the requirement, "from the requirement
+  📝 To do, priority/due from the requirement, "from the requirement
   thread" link; the requirement card now says "tracked by You in the task
   thread"; Rex is asked in the task thread to pick it up.
+
+### 6b. The developer says they've started
+In the **Deposit payments** task thread, **Rex**:
+> Okay, started working on this
+
+- Cade privately offers **Move to In progress** → click → ▶️ In progress.
+- *Assigning never starts the work; the developer saying so does. Someone
+  who isn't a developer gets **Assign me and move** or **Choose developers
+  and move** instead.*
 
 ### 7. Classic tracking with `@Cade track`
 In the **Monthly owner occupancy report** thread, **You**:
@@ -126,8 +135,14 @@ In the **Deposit payments** *task* thread in `#acme-dev`, **Rex**:
 In the **Occupancy report** requirement thread, **You**:
 > @Rex can you pick this up after the deposits work?
 
-- Cade privately offers **Assign as developer / Assign and move to In
-  progress** → pick one. Rex is asked in the task thread.
+- Cade privately offers **Assign as developer** → Rex is asked in the task
+  thread; the task stays 📝 To do.
+- *(Optional)* **Rex**, in the same requirement thread:
+  > I've started working on this
+
+  → **Move to In progress** for its task. Said in a requirement thread that
+  isn't tracked yet, it offers **Track and assign me** or **Track and choose
+  developers**, and the task starts ▶️ In progress.
 
 ---
 
@@ -153,6 +168,15 @@ In the **Occupancy report** requirement thread, **You**:
 > Approved ✅ small nit on rounding, fixed in a follow-up. @Tom please test this on staging
 
 - Accept the suggestion → 🧪 In testing, Tom as tester.
+
+### 12b. Handing work on
+**Tom**, who was asked to test:
+> I'm out tomorrow — @Mia can you test this instead?
+
+- Cade privately offers **Assign as tester** or **Hand it over**. **Hand it
+  over** → Mia is the tester, Tom isn't.
+- *(Optional: undo with `@Cade assign tester @Tom` and `@Cade unassign tester
+  @Mia`.)*
 
 ### 13. Explicit assign / unassign / role picker
 **You**:
@@ -186,6 +210,18 @@ In the **Occupancy report** requirement thread, **You**:
 - Cade reacts ✅; the requirement thread mentions Sarah with the remaining
   PRs and **Approve / Not approve**.
 
+### 15b. Progress in plain words
+In a task that's 👀 In review, the reviewer (**Mia**):
+> LGTM
+
+→ **Move to In testing**, and the testers are asked. In testing, the tester
+(**Tom**):
+> QA passed on staging
+
+→ **Move to Client review** or **Move to Done**. Anyone on the task saying
+"done", "merged" or "deployed" gets the same. Questions ("done?") and
+"not done yet" ask nothing.
+
 ### 16. The client decides
 **Sarah** clicks **Not approve** once → the task goes back to ▶️ In progress
 and the task thread is told. **Tom** sends `@Cade status client review`
@@ -209,8 +245,8 @@ unpinned, and the requirement card shows Done.
 In the `#acme-incidents` task thread, **You**:
 > @Rex please look into this ASAP, Stripe dashboard shows 3DS failures.
 
-- Accept → Rex assigned. **Rex**: `@Cade status done` → the incident thread
-  hears it.
+- Accept → Rex assigned (still 📝 To do). **Rex**: `on it` → **Move to In
+  progress**. Then `@Cade status done` → the incident thread hears it.
 
 ---
 
@@ -298,6 +334,12 @@ completed times, task and request links, including the deleted one marked
 | `/cade track` | seed |
 | Assign suggestion after tracking (from the client thread) | 9 |
 | Hand-offs in plain words (develop / review / test) | 6, 10, 12, 18 |
+| "Started working on this" → In progress (task and requirement threads) | 6b, 9, 18 |
+| "@Rex has started on this" → assign and move | 9 (say it instead) |
+| Handing work on ("@Mia can you take over?") | 12b |
+| "LGTM" / "QA passed" / "done" → next status | 15b |
+| PR pasted in the requirement thread → link to its task | 10 (paste it there instead) |
+| Suggestions in the requirement thread go only to the team | voice-over |
 | `@Cade assign` / `unassign` / role picker form | 13 |
 | PR paste suggestion, `pr add`, `pr remove`, → In review | 10, 11 |
 | Partial release, approve / not approve, `deliver` alias | 14 |

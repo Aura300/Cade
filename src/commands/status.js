@@ -1,10 +1,24 @@
+import { roleOf } from "../channels.js";
+import { intent, isQuestion, phraseTest } from "../intents.js";
 import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
-import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, STATUSES, loadTask, prLink, saveTask, setPinned, unsentPrs } from "../tasks.js";
+import { acknowledge, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import {
+  NOT_A_TASK,
+  REQUESTS,
+  STATUSES,
+  loadTask,
+  prLink,
+  saveTask,
+  setPinned,
+  statusName,
+  unsentPrs,
+} from "../tasks.js";
 
 const SELECT_ACTION = "status:select";
 const APPROVE_ACTION = "status:approve";
 const REJECT_ACTION = "status:reject";
+const SUGGEST_ACTION = "status:suggest";
+const SUGGEST_SKIP_ACTION = "status:suggest-skip";
 // The external thread only needs to hear when a task reaches one of these.
 const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 
@@ -28,6 +42,37 @@ const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 // and nothing more is posted in the requirement thread, where the client just
 // decided. Slack cannot tell the team
 // from the client, so anyone in the external channel can click them.
+// The words that say how the work is going, for the progress intent: a
+// reviewer approving, a tester passing it, or anyone on the task finishing it.
+// See intents.js for how phrases match.
+const APPROVED = phraseTest(["lgtm", "approv(ed|ing)", "looks good", "review(ed)? (is )?done", "done review*", "ship it"]);
+const PASSED = phraseTest([
+  "qa (passed|done|ok)",
+  "passed qa",
+  "test(s|ing)? (passed|done)",
+  "tested",
+  "verified",
+  "works (fine|well|as expected)",
+  "all good",
+  "no (issues|bugs) found",
+]);
+const FINISHED = phraseTest(["done", "finished", "complete(d)?", "merged", "deployed", "released", "shipped", "fixed"]);
+// Words that put the progress off or in doubt: "not done yet", "almost
+// finished", "once it's merged".
+const HEDGED = /\b(not|almost|nearly|once|when|after|until|before|if)\b|n['’]t\b/i;
+
+// Status changes people make in their own words, in a task's thread: Cade
+// asks whoever wrote it, privately, whether to move the task on (see
+// suggestProgress).
+const progressIntent = intent({
+  name: "progress",
+  order: 46,
+  needs: { thread: true },
+  match: (message) =>
+    !isQuestion(message) && !HEDGED.test(message.text) && [APPROVED, PASSED, FINISHED].some((test) => test(message)),
+  handle: (message, { env }) => suggestProgress(message, env),
+});
+
 export default {
   name: "status",
   description: "Update the task's status (in its thread)",
@@ -62,9 +107,23 @@ export default {
     );
     return acknowledge(told);
   },
+  intents: [progressIntent],
   actions: {
     [SELECT_ACTION]: async (payload, context) => {
       context.waitUntil(selectStatus(payload, context.env));
+    },
+    // A button per status a message can move a task to: Slack needs each
+    // button in a row to have its own action_id.
+    ...Object.fromEntries(
+      ["IN_TESTING", "CLIENT_REVIEW", "DONE"].map((status) => [
+        `${SUGGEST_ACTION}:${status}`,
+        async (payload, context) => {
+          context.waitUntil(acceptProgress(payload, context.env));
+        },
+      ]),
+    ),
+    [SUGGEST_SKIP_ACTION]: async (payload) => {
+      await respondLater(payload.response_url, { delete_original: true });
     },
     [APPROVE_ACTION]: async (payload, context) => {
       context.waitUntil(review(payload, context.env, true));
@@ -74,6 +133,77 @@ export default {
     },
   },
 };
+
+// The statuses a message about how the work is going could move a task in
+// `status` to, given what `user` does on it and what they wrote, or []:
+//   - a reviewer approving a task In review: In testing;
+//   - a tester passing a task In testing, or anyone on the task (or whoever
+//     tracked it) saying it's finished: Client review, for a requirement's
+//     task, and Done.
+// A task in Client review waits for the client, and a Done one is done.
+export function progressOptions(task, user, message) {
+  const { developer, reviewer, tester } = task.people;
+  if (task.status === "IN_REVIEW" && reviewer.includes(user) && APPROVED(message)) return ["IN_TESTING"];
+  const finishing =
+    (task.status === "IN_TESTING" && tester.includes(user) && (PASSED(message) || APPROVED(message))) ||
+    ([...developer, ...reviewer, ...tester, task.createdBy].includes(user) && FINISHED(message));
+  if (!finishing || ["CLIENT_REVIEW", "DONE"].includes(task.status)) return [];
+  const forClient = task.source && !task.source.incident;
+  return forClient ? ["CLIENT_REVIEW", "DONE"] : ["DONE"];
+}
+
+// The progress intent's handler: asks whoever wrote it, privately, which
+// status to move the task to, from progressOptions.
+async function suggestProgress(message, env) {
+  if (!["tasks", "incidents"].includes(roleOf(env, message.channel))) return;
+  const task = await loadTask(env, message.channel, message.threadTs);
+  if (!task) return;
+  const options = progressOptions(task, message.user, message);
+  if (!options.length) return;
+  const names = options.map((status) => STATUSES[status]).join(" or ");
+  const question = `Sounds like this has moved on. Should I move the task to ${names}?`;
+  const value = (status) =>
+    JSON.stringify({ channel: message.channel, ts: message.threadTs, status, from: task.status });
+  await callSlack(env, "chat.postEphemeral", {
+    channel: message.channel,
+    thread_ts: message.threadTs,
+    user: message.user,
+    text: question,
+    blocks: [
+      { type: "section", text: mrkdwn(question) },
+      {
+        type: "actions",
+        elements: [
+          ...options.map((status, i) => ({
+            type: "button",
+            action_id: `${SUGGEST_ACTION}:${status}`,
+            text: { ...plainText(`Move to ${statusName(status)}`), emoji: true },
+            ...(i === 0 && { style: "primary" }),
+            value: value(status),
+          })),
+          { type: "button", action_id: SUGGEST_SKIP_ACTION, text: plainText("Not now"), value: value(options[0]) },
+        ],
+      },
+    ],
+  });
+}
+
+// Moves the task as the question said, if it hasn't moved since, and tells
+// its thread as the status menu would. Testers are asked to test a task moved
+// to In testing. The private question goes either way.
+async function acceptProgress(payload, env) {
+  const { channel, ts, status, from } = JSON.parse(payload.actions[0].value);
+  const user = payload.user.id;
+  const task = await loadTask(env, channel, ts);
+  if (task?.status === from) {
+    const text = await setStatus(env, channel, ts, status, user);
+    const ask = status === "IN_TESTING" && task.people.tester.length
+      ? `\n${mentions(task.people.tester)} ${REQUESTS.tester}`
+      : "";
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(`${text}${ask}`) });
+  }
+  await respondLater(payload.response_url, { delete_original: true });
+}
 
 // A status menu's option.
 export function statusOption(status) {

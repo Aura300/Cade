@@ -76,15 +76,28 @@ flowchart LR
 ```
 
 Plain messages aren't commands, but some still mean something: a pasted PR
-link, or a hand-off such as "@rex please look into this". These are
-**intents**. A handler declares its intents next to its commands, each with
-the phrases (or a test) that signal it, what it needs (a thread, a
-mention), an `order`, and what to do; `src/intents.js` picks the first that
-matches. Today there are four: `pr-link` in `pr.js`, then
-`hand-off:reviewer`, `hand-off:tester` and `hand-off:developer` in
-`assign.js`, whose phrases are in `HANDOFFS`. Each only asks the writer,
-privately, before changing anything, since a phrase can match a message
-that didn't mean it.
+link, a hand-off such as "@rex please look into this", "okay, started
+working on this", or "LGTM". These are **intents**. A handler declares its
+intents next to its commands, each with the phrases (or a test) that signal
+it, what it needs (a thread, a mention), an `order`, and what to do;
+`src/intents.js` picks the first that matches. Today there are:
+
+| Order | Intent | In | Signals |
+| --- | --- | --- | --- |
+| 10 | `pr-link` | `pr.js` | a pull request link, in a task's thread or a tracked requirement's |
+| 20, 30 | `hand-off:reviewer`, `hand-off:tester` | `assign.js` (`HANDOFFS`) | someone mentioned, asked to review or test |
+| 38 | `started:reported` | `assign.js` (`REPORTED`) | someone mentioned, said to have started |
+| 40 | `hand-off:developer` | `assign.js` (`HANDOFFS`) | someone mentioned, asked to work on it, or to take it over |
+| 45 | `started` | `assign.js` (`STARTED`) | the writer saying they, or the team, have started |
+| 46 | `progress` | `status.js` | "LGTM", "QA passed", "done", "merged" |
+| 50 | `new-thread` | `move.js` | a message posted on its own, not in a thread |
+
+Each only asks the writer, privately, before changing anything, since a
+phrase can match a message that didn't mean it. Questions ("done?") and
+hedged messages ("not done yet") don't count as progress. In a requirement's
+thread, the team's suggestions only go to members of the pair's tasks or
+incidents channel, since Slack can't otherwise tell the team from the
+client.
 
 ### Where things are kept
 

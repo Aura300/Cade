@@ -1,6 +1,6 @@
 import { roleOf } from "../channels.js";
 import { intent } from "../intents.js";
-import { reflectOnRequirement } from "../requirements.js";
+import { loadRequirement, onTheTeam, reflectOnRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 
@@ -134,24 +134,38 @@ export function pullRequestsIn(text) {
 // linked yet, and whether to add the people it mentions who aren't reviewers
 // yet as reviewers. Mentions in a message only one person sees notify no one.
 //
+// Pasted in the thread of a tracked requirement or incident, the links are
+// for its task, and only the team is asked (see onTheTeam); people mentioned
+// there aren't offered as reviewers, since the client may be among them.
+//
 // The person clicking wrote the message, so accepting adds little to the
 // thread: only a status change, and a review request for reviewers the
 // message didn't mention.
 async function suggestPullRequests(message, env) {
   const { text, botUserId } = message;
   const urls = pullRequestsIn(text);
-  if (!["tasks", "incidents"].includes(roleOf(env, message.channel))) return;
+  const place = roleOf(env, message.channel);
+  let target = { channel: message.channel, ts: message.threadTs };
+  if (place === "external") {
+    const requirement = await loadRequirement(env, message.channel, message.threadTs);
+    if (!requirement?.task || !(await onTheTeam(env, message.channel, message.user))) return;
+    target = { channel: requirement.task.channel, ts: requirement.task.ts };
+  } else if (!["tasks", "incidents"].includes(place)) {
+    return;
+  }
 
-  const task = await loadTask(env, message.channel, message.threadTs);
+  const task = await loadTask(env, target.channel, target.ts);
   if (!task) return;
   const unlinked = urls.filter((url) => !task.prs.includes(url));
-  const mentioned = [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))];
+  // Those mentioned in the task's own thread; the requirement thread's
+  // mentions notified people there, not in the task's thread.
+  const mentioned = place === "external" ? [] : [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))];
   const reviewers = mentioned.filter((id) => id !== botUserId && !task.people.reviewer.includes(id));
   if (!unlinked.length && !reviewers.length) return;
 
   const question = suggestion(unlinked, urls, reviewers);
   // Who the message mentioned, so they aren't asked again.
-  const base = { channel: message.channel, ts: message.threadTs, mentioned };
+  const base = { ...target, mentioned };
   const button = (label, fields, style, actionId = SUGGEST_LINK_ACTION) => ({
     type: "button",
     action_id: actionId,

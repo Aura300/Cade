@@ -26,12 +26,18 @@ export function intent({ phrases, match, needs = {}, ...rest }) {
   return { ...rest, needs, test };
 }
 
-function phraseTest(phrases) {
+export function phraseTest(phrases) {
   const pattern = new RegExp(
     phrases.map((phrase) => (phrase.endsWith("*") ? `\\b(?:${phrase.slice(0, -1)})` : `\\b(?:${phrase})\\b`)).join("|"),
     "i",
   );
   return (message) => pattern.test(message.text);
+}
+
+// Whether a message asks rather than tells, such as "have you started on
+// this?" or "is it done?": intents that report progress leave those alone.
+export function isQuestion(message) {
+  return /\?\s*$/.test(message.text);
 }
 
 // A message as intents see it, or null for messages Cade never acts on:

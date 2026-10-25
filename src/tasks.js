@@ -91,6 +91,10 @@ export const REQUESTS = {
   tester: "could you give this a test when you get a chance? Thanks!",
 };
 
+// What Cade tells developers added to a task whose work has started, after
+// their names: there's nothing to ask, only to let them know.
+export const STARTED_NOTE = `you're down as developer on this, and it's ${STATUSES.IN_PROGRESS}.`;
+
 // Returns the first role named in `text` ("developers" works too), or null.
 export function parseRole(text) {
   const words = text.toLowerCase().split(/\s+/).filter((word) => !word.startsWith("<@"));

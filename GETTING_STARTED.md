@@ -274,6 +274,11 @@ npm run sheet:update                        # only if google-sheet/Code.gs chang
 If Slack says the app needs reinstalling after an update, reinstall it from
 the app's page (step 6); the bot token usually stays the same.
 
+Cade now reads who's in the team's channels (`channels:read` and
+`groups:read`), so that suggestions in a requirement thread only go to the
+team. After updating, run `npm run slack:update` and reinstall the app.
+Until then, everyone in the requirement thread gets them, as before.
+
 ## Limits to know
 
 - Slack's free plan hides messages older than 90 days, including old tasks'

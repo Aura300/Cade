@@ -6,6 +6,7 @@ import { moveMessage, offerStart } from "./move.js";
 import {
   PRIORITIES,
   REQUESTS,
+  STARTED_NOTE,
   noPeople,
   readTaskForm,
   setPinned,
@@ -125,7 +126,10 @@ export default {
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
 // From a requirement thread it also has `requirement: true` and the
 // requirement's title, priority and due date, to show in the form, and from
-// "Track and assign" the `developers` to start the task with. From `/cade track` it has only the channel,
+// "Track and assign" the `developers` to start the task with. From someone
+// saying they've started (see suggestStart in assign.js) it also has
+// `started: true`, so the task starts In progress, and `chooseDevelopers:
+// true` when the form should ask who the developers are. From `/cade track` it has only the channel,
 // and for a message in a tasks channel (see move.js) the message's `moveTs`
 // and its first line as the `title`, to start with.
 async function openModal(env, triggerId, origin) {
@@ -146,6 +150,7 @@ export function trackView(origin) {
     blocks: origin.requirement
       ? [
           ...taskFormBlocks("Task title", origin, { details: false }),
+          ...(origin.chooseDevelopers ? [developersBlock(origin.developers)] : []),
           {
             type: "context",
             elements: [
@@ -163,14 +168,29 @@ export function trackView(origin) {
   };
 }
 
+// Who's developing the task, for a task tracked from someone saying the work
+// has started.
+function developersBlock(developers = []) {
+  return {
+    type: "input",
+    block_id: "developers",
+    label: plainText("Developers"),
+    element: {
+      type: "multi_users_select",
+      action_id: "value",
+      placeholder: plainText("Choose developers"),
+      ...(developers.length && { initial_users: developers }),
+    },
+  };
+}
+
 async function submit(payload, context) {
-  const { title, dueDate, priority, errors } = readTaskForm(
-    payload.view.state.values,
-    "Please give the task a title.",
-  );
+  const { values } = payload.view.state;
+  const { title, dueDate, priority, errors } = readTaskForm(values, "Please give the task a title.");
   if (errors) return { response_action: "errors", errors };
 
   const origin = JSON.parse(payload.view.private_metadata || "{}");
+  if (values.developers) origin.developers = values.developers.value.selected_users ?? [];
   const task = {
     title,
     priority,
@@ -211,11 +231,11 @@ export async function createTask(env, task, origin) {
     task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
   }
   // Tracked because someone was asked to start working on it: they are its
-  // developers, and the work is under way.
-  if (origin.developers?.length) {
-    task.people.developer = origin.developers;
-    task.status = "IN_PROGRESS";
-  }
+  // developers. It stays To do until one of them says they've started (see
+  // the started intent in assign.js), unless it was tracked because someone
+  // said so already.
+  if (origin.developers?.length) task.people.developer = origin.developers;
+  if (origin.started) task.status = "IN_PROGRESS";
   const tasksChannel = origin.incident
     ? pairFor(env, origin.channel).incidents
     : tasksChannelFor(env, origin.channel);
@@ -245,6 +265,7 @@ export async function createTask(env, task, origin) {
     threadTs: origin.threadTs,
     promptTs: origin.promptTs,
     developers: origin.developers,
+    started: origin.started,
     reported: origin.reported,
     moveTs: origin.moveTs,
   };
@@ -297,12 +318,14 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
   await setPinned(env, message.channel, message.ts, true);
   // Tracked with "Track and assign": the developers may not be in the
   // requirement thread, so the task's thread asks them, as `@Cade assign`
-  // would.
-  if (origin.developers?.length) {
+  // would. Tracked as started, the work is under way, so the developers
+  // other than whoever tracked it are only told.
+  const others = (origin.developers ?? []).filter((id) => !origin.started || id !== task.createdBy);
+  if (others.length) {
     await callSlack(env, "chat.postMessage", {
       channel: message.channel,
       thread_ts: message.ts,
-      text: `${mentions(origin.developers)} ${REQUESTS.developer}`,
+      text: `${mentions(others)} ${origin.started ? STARTED_NOTE : REQUESTS.developer}`,
     });
   }
   await syncTask(env, message.channel, message.ts, task);

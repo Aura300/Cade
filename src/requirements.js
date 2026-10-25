@@ -1,4 +1,4 @@
-import { roleOf } from "./channels.js";
+import { pairFor, roleOf } from "./channels.js";
 import { getRequirement, getTask, putRequirement } from "./db.js";
 import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
 import { PRIORITY_COLORS, STATUSES, loadTask, metaLine, prLines, saveTask, smallText } from "./tasks.js";
@@ -20,6 +20,30 @@ export const REQUIREMENT_STATUSES = {
 // The requirement status that shows a task's status.
 export function clientStatus(taskStatus) {
   return REQUIREMENT_STATUSES[taskStatus] && taskStatus !== "DISCUSSION" ? taskStatus : "IN_PROGRESS";
+}
+
+// Whether `user`, writing in the external channel `channel`, is on the team
+// rather than the client: a member of the pair's tasks or incidents channel.
+// Slack can't tell them apart otherwise, so the team's suggestions in a
+// requirement thread are only offered to the team. If the members can't be
+// read (the app was installed without channels:read and groups:read),
+// everyone counts, as before.
+export async function onTheTeam(env, channel, user) {
+  const { tasks, incidents } = pairFor(env, channel);
+  try {
+    for (const teamChannel of [tasks, incidents].filter(Boolean)) {
+      let cursor;
+      do {
+        const page = await callSlack(env, "conversations.members", { channel: teamChannel, limit: "1000", cursor });
+        if (page.members.includes(user)) return true;
+        cursor = page.response_metadata?.next_cursor || undefined;
+      } while (cursor);
+    }
+    return false;
+  } catch (error) {
+    console.warn("Could not read the team's channel members", { error: error.message });
+    return true;
+  }
 }
 
 // An incident is a requirement started with `/cade incident`. It is always
