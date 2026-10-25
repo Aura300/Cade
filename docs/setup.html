@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cade · Set up</title>
+<meta name="description" content="Set up Cade in minutes: an AI agent takes you through it, running the commands and stopping when it needs you.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html"><span class="logo">C</span>Cade</a>
+    <ul>
+      <li><a href="index.html#walkthrough">Demo</a></li>
+      <li><a href="index.html#how">How it works</a></li>
+      <li><a href="index.html#features">Features</a></li>
+      <li><a href="index.html#commands">Commands</a></li>
+    </ul>
+    <div class="nav-right">
+      <a class="btn primary nav-cta" href="setup.html" aria-current="page">Set up</a>
+      <button class="theme" id="theme" type="button" aria-label="Toggle dark mode">◐</button>
+    </div>
+  </div>
+</nav>
+
+<header class="guide-head">
+  <div class="wrap">
+    <div class="eyebrow">Set up</div>
+    <h1>Set up Cade in minutes. An AI agent guides you.</h1>
+    <p class="lede">
+      You get one Cloudflare Worker, one Slack app and, if you like, a Google Sheet. There's no server
+      to run. An AI coding agent does the setup with you: it runs each command, checks it worked, and
+      stops whenever it needs you to click something.
+    </p>
+  </div>
+</header>
+
+<main>
+<section style="border-top: 0; padding-top: 8px;">
+  <div class="wrap setup-layout">
+    <div class="setup-steps">
+      <ol class="stepper">
+
+        <li class="stage">
+          <div class="dot">1</div>
+          <div>
+            <h3>Copy Cade to your own repo</h3>
+            <p class="lede" style="font-size: .98rem;">On <a href="https://github.com/Aura300/project-helper">Cade's GitHub page</a>, click <b>Fork</b>, or <b>Use this template</b> for a copy without its history. Your copy is what you deploy, and where you pull updates into later. Then clone it:</p>
+            <div class="copyable">
+              <pre class="term"><code>git clone https://github.com/&lt;you&gt;/&lt;your copy&gt;.git cade
+cd cade
+npm install</code></pre>
+              <button class="copy" type="button">Copy</button>
+            </div>
+          </div>
+        </li>
+
+        <li class="stage">
+          <div class="dot">2</div>
+          <div>
+            <h3>Start the guided setup</h3>
+            <div class="tabs" id="agents">
+              <div class="tablist" role="tablist">
+                <button type="button" role="tab" aria-selected="true" aria-controls="tab-claude" id="t-claude">Claude Code<span class="tag">Recommended</span></button>
+                <button type="button" role="tab" aria-selected="false" aria-controls="tab-other" id="t-other">Other AI agents</button>
+              </div>
+
+              <div class="panel" role="tabpanel" id="tab-claude" aria-labelledby="t-claude">
+                <p>Install <a href="https://claude.com/claude-code">Claude Code</a>, then in your <code>cade</code> folder run:</p>
+                <div class="copyable">
+                  <pre class="term"><code>npm run setup</code></pre>
+                  <button class="copy" type="button">Copy</button>
+                </div>
+                <p style="margin-top: 12px;">It starts Claude Code with the setup prompt already loaded. Anything after <code>--</code> goes to Claude Code, such as <code>npm run setup -- --model opus</code>.</p>
+              </div>
+
+              <div class="panel" role="tabpanel" id="tab-other" aria-labelledby="t-other" hidden>
+                <p>Any coding agent that can run terminal commands works, such as Cursor, GitHub Copilot, Codex or Gemini CLI. Open it in your <code>cade</code> folder and paste this prompt (it's also in <code>scripts/setup-prompt.md</code>):</p>
+                <div class="copyable">
+                  <pre class="term prompt" id="prompt">Set up Cade for me by following GETTING_STARTED.md, one step at a time.
+Before each step, tell me what it does and what you'll run. Run the
+commands yourself, check the result against the step's Expect, and
+fix what you can using its If it fails. Stop and tell me exactly what
+to do whenever a step needs a person: browser logins, approvals, Slack
+and Google settings, and creating or inviting channels. Ask me for every
+value you need (names, channel IDs, the time zone) instead of guessing.
+Never ask me for a token or secret, and never put one in a file, a
+commit or a command: the commands that need one (`slack:create`,
+`slack:update`, `wrangler secret put`, `npm run dev`) ask for it
+themselves, hidden. For those, give me the exact command to run in a
+separate terminal window, in this folder (not with !, which can't take
+hidden input), wait for me, then check the result. Ask before deleting
+anything, and before running a step a second time.</pre>
+                  <button class="copy" type="button">Copy</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </li>
+
+        <li class="stage">
+          <div class="dot">3</div>
+          <div>
+            <h3>Follow along</h3>
+            <p class="lede" style="font-size: .98rem;">Before each step the agent says what it does and what it'll run, then runs it and checks the result. It stops and tells you exactly what to do when a step needs a person:</p>
+            <ul>
+              <li>Logging in to Cloudflare, and to Google for the Sheet, in your browser</li>
+              <li>Making a Slack app configuration token, and installing the app</li>
+              <li>Creating the channels and inviting Cade to them</li>
+              <li>Telling it the channel IDs and your team's time zone</li>
+            </ul>
+          </div>
+        </li>
+
+        <li class="stage">
+          <div class="dot">4</div>
+          <div>
+            <h3>Try it</h3>
+            <p class="lede" style="font-size: .98rem;">Post a message in your client channel: Cade offers to start a requirement from it. Send <code>@Cade help</code> for the short list, or see the <a href="index.html#walkthrough">demo</a> and <a href="commands.html">every command</a>.</p>
+          </div>
+        </li>
+
+      </ol>
+    </div>
+
+    <aside class="aside">
+      <div class="box">
+        <h3>What you need</h3>
+        <ul>
+          <li>Node.js 20 or newer, and git</li>
+          <li>A Cloudflare account (the free plan is enough)</li>
+          <li>A Slack workspace where you can create apps</li>
+          <li>Optional: a Google account, for the Sheet</li>
+        </ul>
+      </div>
+      <div class="box safe">
+        <h3>Your tokens stay with you</h3>
+        <p>The commands that need a token or secret ask for it themselves, hidden, in your own terminal. The agent never sees one, and none is ever written to a file or a commit. It only sees whether each step worked.</p>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="eyebrow">What the agent sets up</div>
+    <h2>Nine steps, most of them done for you</h2>
+    <p class="lede">Steps marked <b style="color: var(--amber);">You</b> need a click in your browser; the agent waits for you.</p>
+    <ol class="checklist">
+      <li>Get the code and run the tests</li>
+      <li>Log in to Cloudflare<span class="you">You</span></li>
+      <li>Name and deploy the Worker</li>
+      <li>Get a Slack app configuration token<span class="you">You</span></li>
+      <li>Create the Slack app</li>
+      <li>Install the app and store its token<span class="you">You</span></li>
+      <li>Set up the channels</li>
+      <li>Optional: the Google Sheet</li>
+      <li>Check it works</li>
+    </ol>
+    <div class="more">
+      <p class="lede" style="margin: 0 0 16px;">Prefer to do it yourself? The same steps, with what to expect and what to do if one fails, are in the guide the agent follows.</p>
+      <a class="btn" href="https://github.com/Aura300/project-helper/blob/main/GETTING_STARTED.md">Step-by-step guide →</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Cade: requirements to shipped, in Slack.</span>
+    <a href="commands.html">All commands →</a>
+  </div>
+</footer>
+
+<script>
+  // Claude Code or another agent.
+  (() => {
+    const tabs = [...document.querySelectorAll("#agents [role=tab]")];
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        for (const other of tabs) {
+          const selected = other === tab;
+          other.setAttribute("aria-selected", String(selected));
+          document.getElementById(other.getAttribute("aria-controls")).hidden = !selected;
+        }
+      });
+    }
+  })();
+
+  // Copy buttons copy the code or prompt beside them.
+  (() => {
+    for (const button of document.querySelectorAll(".copy")) {
+      button.addEventListener("click", async () => {
+        const text = button.parentElement.querySelector("pre").innerText.trim();
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Select and copy";
+        }
+        setTimeout(() => { button.textContent = "Copy"; }, 1600);
+      });
+    }
+  })();
+
+  // Light / dark toggle, remembered per browser when storage allows.
+  (() => {
+    const root = document.documentElement;
+    try {
+      const saved = localStorage.getItem("cade-theme");
+      if (saved) root.dataset.theme = saved;
+    } catch {}
+    document.getElementById("theme").addEventListener("click", () => {
+      const dark = root.dataset.theme
+        ? root.dataset.theme === "dark"
+        : matchMedia("(prefers-color-scheme: dark)").matches;
+      root.dataset.theme = dark ? "light" : "dark";
+      try { localStorage.setItem("cade-theme", root.dataset.theme); } catch {}
+    });
+  })();
+</script>
+</body>
+</html>

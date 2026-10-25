@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cade · Commands</title>
+<meta name="description" content="Every Cade command: where it works, what it does, and an example.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html"><span class="logo">C</span>Cade</a>
+    <ul>
+      <li><a href="index.html#walkthrough">Demo</a></li>
+      <li><a href="index.html#how">How it works</a></li>
+      <li><a href="index.html#features">Features</a></li>
+      <li><a href="index.html#commands">Commands</a></li>
+    </ul>
+    <div class="nav-right">
+      <a class="btn primary nav-cta" href="setup.html">Set up</a>
+      <button class="theme" id="theme" type="button" aria-label="Toggle dark mode">◐</button>
+    </div>
+  </div>
+</nav>
+
+<header class="guide-head">
+  <div class="wrap">
+    <div class="eyebrow">Command guide</div>
+    <h1>Every command, and where it works.</h1>
+    <p class="lede">
+      <code>/cade …</code> commands work at the top of a channel. <code>@Cade …</code> commands are messages, so they
+      also work in threads, where most of the work happens. Most of the time you won't need either: Cade
+      offers what you're about to do, privately, and you click.
+    </p>
+    <input class="search" id="search" type="search" placeholder="Filter commands: try “due”, “review” or “client”" aria-label="Filter commands">
+    <ul class="toc">
+      <li><a href="#start">Start</a></li>
+      <li><a href="#thread">In a task thread</a></li>
+      <li><a href="#details">Priority &amp; due date</a></li>
+      <li><a href="#tidy">Move &amp; delete</a></li>
+      <li><a href="#work">Your work</a></li>
+      <li><a href="#words">Just say it</a></li>
+      <li><a href="#owners">Who owns what</a></li>
+    </ul>
+    <p class="empty" id="empty">No commands match that. Try a shorter word.</p>
+  </div>
+</header>
+
+<main class="guide">
+
+<section id="start">
+  <div class="wrap">
+    <div class="eyebrow">Start</div>
+    <h2>Requirements, incidents and tasks</h2>
+    <div class="entries">
+
+      <article class="entry">
+        <h3><code>/cade requirement</code></h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">Top level</span></div>
+        <p>Opens a form for the requirement's name, priority and an optional due date, then posts it as a new message whose thread is where it's discussed. The card shows its status, priority and due date, and stays pinned until it's done.</p>
+        <div class="example"><b>Example:</b> “Deposit payments at booking”, High, due 14/11/2026.</div>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade requirement</code></h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">In a message's thread</span></div>
+        <p>Starts a requirement from a message that's already in the channel. Cade privately offers a <b>Start requirement</b> button; the form is named from the message's first line, and once the requirement is posted the message is moved into its thread.</p>
+        <div class="example"><b>Example:</b> reply <code>@Cade requirement</code> under “Could we get a monthly occupancy report as a PDF?”</div>
+      </article>
+
+      <article class="entry">
+        <h3><code>/cade incident</code></h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">Top level</span></div>
+        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and are tracked straight away as a task in the incidents channel, with no tracking step. Needs an incidents channel set up for the channel pair.</p>
+        <div class="example"><b>Example:</b> “Card payments failing at checkout for EU customers”.</div>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade incident</code></h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">In a message's thread</span></div>
+        <p>Reports an incident from a message already in the channel, as <code>@Cade requirement</code> does for requirements. The message is moved into the incident's thread.</p>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade track</code></h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">In a thread</span></div>
+        <ul>
+          <li><b>In a requirement thread:</b> a <b>Track task</b> button opens a form for the task title. The priority and due date come from the requirement, and the client keeps changing them there. The task is posted in the dev channel and linked both ways. A requirement has one task, so it can't be tracked twice. If an incident's task was deleted, this tracks it again.</li>
+          <li><b>In a message's thread in the dev channel:</b> privately offers <b>Track task</b>, with the full form named from the message's first line. Once the task is posted, the message moves into its thread.</li>
+        </ul>
+      </article>
+
+      <article class="entry">
+        <h3><code>/cade track</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
+        <p>The team's own work: a form for the title, priority and an optional due date. The task has no client thread, so its changes aren't shared anywhere else, and the team owns its priority and due date.</p>
+        <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="thread" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">In a task thread</div>
+    <h2>People, status, PRs and releases</h2>
+    <p class="lede">These work in a task's thread in the dev channel or the incidents channel.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <h3><code>@Cade assign developer @person</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <p>Adds people to a role: <code>developer</code>, <code>reviewer</code> or <code>tester</code>, several at once if you like. Cade mentions them with what to do next. Without anyone mentioned, <code>@Cade assign</code> shows a button per role (or just the one you name) that opens a form with that role's people, to add or remove.</p>
+        <ul>
+          <li>Reviewers can be added before there's a PR. They're asked to review once one is linked.</li>
+        </ul>
+        <div class="example"><b>Example:</b> <code>@Cade assign tester @Tom</code></div>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade unassign developer @person</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <p>Removes people from a role, and tells them they no longer need to do it. <code>@Cade unassign @person</code> removes them from every role. Without anyone mentioned it shows the same role buttons as <code>@Cade assign</code>.</p>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade status</code> <code>@Cade status in review</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <p>Without a status, shows a menu. With one, Cade sets it and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
+        <ul>
+          <li>Done unpins the task and its requirement; moving it out of Done pins them again.</li>
+          <li>Client review and Done are told to the requirement thread. Client review asks the client to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress).</li>
+          <li>The client sees the team's own stages (To do, In review, In testing) as In progress.</li>
+        </ul>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade pr add &lt;link&gt;</code> <code>@Cade pr remove &lt;link&gt;</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and shown on the card as <code>repo#number</code>. Linking moves a task that's To do or In progress to In review and asks its reviewers; with no reviewer yet, Cade asks who should review, with a people picker.</p>
+        <div class="example"><b>Example:</b> <code>@Cade pr add https://github.com/acme/booking-web/pull/131</code></div>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade release</code> <code>@Cade deliver</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <p>Sends some of the task's PRs to the client before the whole task is done. A <b>Choose PRs</b> form lists the ones not sent yet and asks what they complete. The client gets them in the requirement thread with <b>Approve</b> and <b>Not approve</b>. PRs that weren't approved can be sent again. The task's status doesn't change.</p>
+        <ul>
+          <li>Only for tasks tracked from a requirement or incident, since the team's own work has no client thread.</li>
+        </ul>
+        <div class="example"><b>Example:</b> send PR #128 as “Deposit checkout flow (20% default)”.</div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="details">
+  <div class="wrap">
+    <div class="eyebrow">Priority &amp; due date</div>
+    <h2>Set by whoever owns them</h2>
+    <p class="lede">In a requirement thread, the client sets these and the tracked task follows. In a task thread they work only for the team's own tasks. Incidents are always Urgent and due Immediate.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <h3><code>@Cade priority high</code></h3>
+        <div class="tags"><span class="where">Requirement thread</span><span class="where">Team's own task thread</span></div>
+        <p>One of <code>urgent</code>, <code>high</code>, <code>medium</code> or <code>low</code>. With a value Cade reacts ✅; without one it shows a menu. The card's colour strip follows the priority.</p>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade due 31/12/2026</code></h3>
+        <div class="tags"><span class="where">Requirement thread</span><span class="where">Team's own task thread</span></div>
+        <p>A date as <code>DD/MM/YYYY</code> (also with <code>.</code> or <code>-</code>, or as <code>YYYY-MM-DD</code>), or <code>none</code> to clear it. Without a value Cade shows a date picker.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="tidy" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">Move &amp; delete</div>
+    <h2>Keep every channel tidy</h2>
+    <div class="entries">
+
+      <article class="entry">
+        <h3><code>@Cade move</code></h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Incidents channel</span><span class="where">In a message's thread</span></div>
+        <p>Moves a message into the right thread. Cade privately shows the open requirements and incidents (in the client channel) or open tasks (in the dev and incidents channels) to pick from. Messages only move within their own channel.</p>
+        <ul>
+          <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>
+          <li>Only the message is copied, not its replies or attachments, and a message is never moved twice.</li>
+        </ul>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade delete</code> <code>@Cade remove</code></h3>
+        <div class="tags"><span class="where">Requirement thread</span><span class="where">Task thread</span></div>
+        <p>Asks first, with a prominent <b>Cancel</b> and a plain <b>Delete</b> that asks again. Only the person who asked can confirm. Cade deletes the root message and its own replies; people's replies stay under Slack's “This message was deleted”.</p>
+        <ul>
+          <li><b>A requirement</b> takes its task with it, and the question names the task.</li>
+          <li><b>A requirement's task</b> is removed from the requirement thread instead, and Cade links to it. If the requirement has already gone, the task can be removed on its own.</li>
+          <li><b>The team's own task</b> is removed from its own thread.</li>
+        </ul>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="work">
+  <div class="wrap">
+    <div class="eyebrow">Your work</div>
+    <h2>Lists and standups, only for you</h2>
+    <div class="entries">
+
+      <article class="entry">
+        <h3><code>/cade tasks</code></h3>
+        <div class="tags"><span class="where">Any channel</span><span class="where">Only you see it</span></div>
+        <p>Your open tasks, grouped by what you do on each (developing, reviewing, testing), incidents first, then by priority and due date. In a channel pair's channel it shows that pair; elsewhere, every pair. Add any of:</p>
+        <ul>
+          <li><code>development</code>, <code>review</code> or <code>testing</code>: one role only</li>
+          <li><code>@person</code>: their tasks instead of yours</li>
+          <li><code>-all</code>: everyone's tasks, by status · <code>-unassigned</code>: tasks with no developer</li>
+          <li><code>-status=in-progress</code>: one or more statuses, with commas (Done too, if named)</li>
+          <li><code>-due=@today</code>, <code>-due&lt;@tomorrow</code>, <code>-due&gt;=31/10/2026</code>, <code>-due=none</code>: by due date</li>
+        </ul>
+        <div class="example"><b>Example:</b> <code>/cade tasks review @Mia -status=in-review</code></div>
+      </article>
+
+      <article class="entry">
+        <h3><code>/cade standup</code> <code>/cade standup -unassigned</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span><span class="where">Only you see it</span></div>
+        <p>Walks through the open tasks one developer at a time: you first, then everyone else, then the tasks with no developer. Each task has a status menu, and unassigned ones a developer picker; changes are posted in each task's thread. <code>-unassigned</code> goes through just the tasks with no developer. Built to share your screen in a standup.</p>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade help</code> <code>/cade help</code></h3>
+        <div class="tags"><span class="where">Anywhere</span></div>
+        <p>Lists everything Cade can do. A bare <code>@Cade</code> or an unknown command does the same.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="words" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">Just say it</div>
+    <h2>Plain words Cade picks up</h2>
+    <p class="lede">Cade notices these and offers, privately, to act on them. Nothing changes until you click.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <h3>Hand a task to someone</h3>
+        <div class="tags"><span class="where">Task thread</span><span class="where">Requirement thread</span></div>
+        <p>Mention someone with what you'd like them to do:</p>
+        <ul>
+          <li><b>Developer:</b> “start working”, “work on”, “look into”, “pick this up”, “take this”, “take care of”, “handle this”, “fix this”, “assign this to”, “over to you”</li>
+          <li><b>Reviewer:</b> “review” · <b>Tester:</b> “test”, “QA”, “verify”</li>
+          <li>In a requirement thread only developers are offered: <b>Track and assign</b> before it's tracked, <b>Assign as developer</b> after.</li>
+        </ul>
+        <div class="example"><b>Example:</b> “@Rex please start working on this, first cut by Friday?”</div>
+      </article>
+
+      <article class="entry">
+        <h3>Paste a pull request</h3>
+        <div class="tags"><span class="where">Task thread</span></div>
+        <p>Cade offers to link it. If your message also mentions people who aren't reviewers yet, it offers <b>Link and add reviewer</b> or <b>Just link</b>.</p>
+        <div class="example"><b>Example:</b> “First pass is up: https://github.com/acme/booking-web/pull/128. @Mia can you review this?”</div>
+      </article>
+
+      <article class="entry">
+        <h3>Post a new message</h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Top level</span></div>
+        <ul>
+          <li><b>Client channel:</b> <b>Start requirement</b>, <b>Report incident</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
+          <li><b>Dev channel:</b> <b>Track as task</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
+          <li>Starting something from it names it from the message's first line and moves the message into the new thread.</li>
+        </ul>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="owners">
+  <div class="wrap">
+    <div class="eyebrow">Who owns what</div>
+    <h2>Clear ownership, so nothing is overwritten</h2>
+    <table class="ownership">
+      <thead><tr><th>What</th><th>Who changes it</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td>A requirement's priority and due date</td><td>The client</td><td>The requirement thread; its task follows</td></tr>
+        <tr><td>A task's status, people and PRs</td><td>The team</td><td>The task thread</td></tr>
+        <tr><td>The team's own task's priority and due date</td><td>The team</td><td>The task thread</td></tr>
+        <tr><td>An incident's priority and due date</td><td>Nobody</td><td>Always Urgent, due Immediate</td></tr>
+        <tr><td>Accepting work in Client review, and partial releases</td><td>The client</td><td>Approve / Not approve in the requirement thread</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<section class="setup-cta" id="setup">
+  <div class="wrap">
+    <div class="eyebrow">Set it up</div>
+    <h2>Up and running in minutes, with an AI agent guiding you.</h2>
+    <p class="lede">Claude Code is the easiest, and any coding agent that can run terminal commands works too. It runs every command, checks it worked, and stops whenever it needs you. Your tokens never leave your terminal.</p>
+    <ol class="mini-steps">
+      <li><span class="dot">1</span><div><h3>Copy it to your repo</h3><p>Fork Cade on GitHub and clone your copy.</p></div></li>
+      <li><span class="dot">2</span><div><h3>Start the agent</h3><p><code>npm run setup</code> with Claude Code, or paste the setup prompt into another agent.</p></div></li>
+      <li><span class="dot">3</span><div><h3>Follow along</h3><p>Click through the logins and Slack settings when it asks. That's it.</p></div></li>
+    </ol>
+    <div class="cta">
+      <a class="btn primary" href="setup.html">Set up Cade →</a>
+      <a class="btn" href="https://github.com/Aura300/project-helper">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Cade: requirements to shipped, in Slack.</span>
+    <a href="index.html">Home →</a>
+  </div>
+</footer>
+
+<script>
+  // Filters the commands as you type; a section with nothing left is hidden.
+  (() => {
+    const input = document.getElementById("search");
+    const sections = [...document.querySelectorAll(".guide section")];
+    input.addEventListener("input", () => {
+      const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      for (const section of sections) {
+        const entries = [...section.querySelectorAll(".entry, tbody tr")];
+        let left = 0;
+        for (const entry of entries) {
+          const text = entry.textContent.toLowerCase();
+          const match = words.every((word) => text.includes(word));
+          entry.hidden = !match;
+          if (match) left++;
+        }
+        section.hidden = left === 0;
+        shown += left;
+      }
+      document.getElementById("empty").style.display = shown ? "none" : "block";
+    });
+  })();
+
+  // Light / dark toggle, remembered per browser when storage allows.
+  (() => {
+    const root = document.documentElement;
+    try {
+      const saved = localStorage.getItem("cade-theme");
+      if (saved) root.dataset.theme = saved;
+    } catch {}
+    document.getElementById("theme").addEventListener("click", () => {
+      const dark = root.dataset.theme
+        ? root.dataset.theme === "dark"
+        : matchMedia("(prefers-color-scheme: dark)").matches;
+      root.dataset.theme = dark ? "light" : "dark";
+      try { localStorage.setItem("cade-theme", root.dataset.theme); } catch {}
+    });
+  })();
+</script>
+</body>
+</html>

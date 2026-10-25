@@ -76,8 +76,12 @@ secrets each time, without saving them.
 
 ## 1. Get the code
 
+Copy Cade to your own GitHub account first (person): on its GitHub page,
+click **Fork**, or **Use this template** for a copy without its history.
+Your copy is what you deploy, and where you pull updates into later. Then:
+
 ```sh
-git clone <this repository> cade
+git clone https://github.com/<you>/<your copy>.git cade
 cd cade
 npm install
 npm test
@@ -255,6 +259,9 @@ Information**); `not_in_channel` means the app isn't invited;
 
 ## Updating
 
+Bring Cade's changes into your copy with **Sync fork** on its GitHub page
+(or `git pull https://github.com/Aura300/project-helper.git main`), then:
+
 ```sh
 git pull
 npm install
@@ -279,379 +286,22 @@ the app's page (step 6); the bot token usually stays the same.
   it gives up.
 - Cade can only delete its own messages; people's replies stay.
 
+## Good to know
+
+- **The app icon.** Slack's manifest can't set an icon, so upload
+  `slack/icon.png` (drawn from `slack/icon.svg`) under **Basic Information →
+  Display Information** on the app's page at <https://api.slack.com/apps>.
+- **Test channels.** Several channel groups can run at once (see
+  [Settings](#settings)), so a pair of test channels can sit alongside the
+  real ones: work tracked from the test external channel goes to the test
+  dev channel.
+- **The Google Sheet** has one tab per channel group. Filter its Status
+  column to see completed tasks. See
+  [google-sheet/README.md](google-sheet/README.md); without `sheetUrl`,
+  nothing is written to a Sheet.
+
 ## Using Cade
 
-How Cade works in Slack once it's set up: tracking tasks, requirements and
-incidents, the commands in a task's thread, and who can change what. Send
-`@Cade help` or `/cade help` in Slack for the short list.
-
-### Tracking tasks
-
-Each channel has one way to track a task:
-
-- **Client work:** start it with **`/cade requirement`** in
-  `#acme-external` (see [Requirements](#requirements)), then send
-  **`@Cade track`** in the requirement's thread. `@Cade track` works only
-  there; anywhere else Cade explains where to use it. A requirement has one
-  task, so a tracked requirement can't be tracked again.
-- **The team's own work:** send **`/cade track`** in `#acme-dev`. It
-  opens a form for the **task title**, an optional **due date** (picked from
-  a calendar and shown as DD/MM/YYYY) and the **priority** (Urgent, High,
-  Medium, Low). The task has no external thread, so it shows only "Tracked
-  by @you", and status changes and deletion are not shared anywhere else.
-
-Either way, Cade posts the task to `#acme-dev` and pins it. Task and
-requirement cards look the same: the title, then, beside a strip in the
-priority's colour (red Urgent, orange High, yellow Medium, green Low, the
-same colours as the priority menus' emoji), a small line with the status,
-priority and due date (left out when there's none), then the card's PRs
-(see `@Cade release` below), then who made it. Everything but the title is
-the same small text, with `·` between items. On a task card the last lines
-are who works on it ("Dev @a · Review @b · Test @c", only the roles with
-someone, or "Unassigned") and who tracked it, with a link back to the
-requirement thread if there is one. Statuses show as 📝 To do, ▶️ In progress, 👀 In review,
-🧪 In testing, 🙋 Client review and ✅ Done (💬 In discussion for a
-requirement not tracked yet), so no coloured circle but the strip stands
-for a priority. From a requirement thread, Cade replies with a **Track task** button
-(Slack only opens forms from a click) and, once the task is created, turns
-that message into "@you tracked this as a task: *title*. The team's on
-it!", linking to it.
-
-### Cade's voice
-
-Cade talks like a friendly teammate: in the first person ("I've asked the
-client to review it…"), with contractions, a "could you…?" rather than an
-order, and a "Thanks!" where it fits. Its messages stay short, and the
-cards stay plain: no extra emoji. Its app icon, a smiling "C" with a bow
-tie, is `slack/icon.png` (drawn from `slack/icon.svg`). Slack's manifest
-can't set an icon, so upload it under **Basic Information → Display
-Information** on the app's page at api.slack.com/apps.
-
-### Requirements
-
-**`/cade requirement`** in `#acme-external` opens the same form as a
-task: the requirement's **name**, an optional **due date** and the
-**priority**. Cade then posts it as a new message to discuss in its thread. The
-message shows:
-
-1. "Requirement" (or "Incident") and the name, so the two can be told apart
-   in the same channel,
-2. beside the priority strip, its status, priority and due date, as on a
-   task card, then its task's PRs once there are any, and
-3. in small text, who started it and who tracked it, linking to the task
-   thread ("not tracked yet" until there is one), the same way a task
-   links back to its requirement thread.
-
-The message always shows the current status, priority and due date. Who
-changes what follows who knows it:
-
-- **Priority and due date are the client's.** They are changed only in the
-  requirement's thread, with `@Cade priority` and `@Cade due` (below),
-  before and after a task is tracked. Once there is a task, the task
-  changes with them and Cade notes the change in the task's thread for the
-  team. In the task's thread Cade refuses to change them and links to the
-  requirement thread.
-- **Status is the team's.** It is changed only in `#acme-dev`, with
-  `@Cade status`. The requirement shows it as the client sees it: **In
-  discussion** until a task is tracked, then ▶️ **In progress** while the
-  task is To do, In progress, In review or In testing, then **Client
-  review** and **Done**. When the task reaches Client review or Done, Cade
-  also posts it in the requirement thread, without asking.
-- **The client can accept work, if the team asks.** The team can set a task
-  to Done directly. Client review is an optional step for work the client
-  should check first: when the dev channel moves a requirement's task to
-  Client review, Cade posts in the requirement thread straight away,
-  mentioning whoever started the requirement so they are notified, listing
-  the task's linked PRs for them to look at, with **Approve** and **Not
-  approve** buttons. **Approve** moves the task to Done; **Not
-  approve** moves it back to In progress, and the client explains what
-  needs to change in the thread. Either way Cade tells the task's thread in
-  `#acme-dev`. The buttons do nothing once the team has moved the task
-  on, and Slack can't tell the team from the client, so anyone in the
-  external channel can click them.
-
-When it's agreed, send **`@Cade track`** in the requirement's thread. The
-form asks only for the task title, starting with the requirement's name, and
-shows the priority and due date the task will take from the requirement.
-The requirement then links to the task. The two stay together: removing
-the requirement removes its task (see below), and the task can't be
-removed from the dev channel on its own.
-
-Asking a developer to start in the requirement thread works too: write
-"@rex please start working on this" there, and Cade asks you, in a message
-only you see:
-
-- before the requirement is tracked, **Track and assign** opens the track
-  form; the task starts with @rex as developer and ▶️ In progress, and
-  Cade posts "@you tracked this as a task" with its link;
-- once it's tracked, **Assign as developer** (or **Assign and move to In
-  progress**) assigns them to its task, as in the task's thread.
-
-Either way the task's thread in `#acme-dev` gets "@rex could you pick this
-up when you get a chance? Thanks!", as `@Cade assign developer` would post, since developers
-aren't always in the client's channel. Only developer hand-offs are offered
-there; reviews and testing are asked for in the task's thread.
-
-To remove a requirement, send **`@Cade remove`** (or `@Cade delete`) in its
-thread. It asks for confirmation the same way as deleting a task, then
-deletes the requirement message and Cade's replies. If it has been
-tracked, its task goes too: the question names the task, and confirming
-deletes the task in `#acme-dev` first (like `@Cade delete` there), then
-the requirement.
-
-More about a requirement sometimes arrives as a message of its own. Post
-a message in the external channel outside any thread, and Cade asks you, in
-a message only you see, whether it's a new requirement, an incident, or part
-of one already open: **Start requirement** and **Report incident** open
-their forms named from the message's first line, and once it's posted the
-message is moved into its thread; **Move to existing** shows the open
-requirements and incidents to move it to (only when there are some); **Not
-now** dismisses the question. To do the same for a message later, reply
-**`@Cade requirement`** or **`@Cade incident`** in its thread.
-
-`#acme-dev` works the same way for the team's own work: a message posted
-there outside any thread gets **Track as task** (the `/cade track` form,
-named from its first line), **Move to existing** and **Not now**, and
-**`@Cade track`** replied in a message's thread offers to track it. Once the
-task is posted, the message is moved into its thread.
-
-To move a message later, reply **`@Cade move`** in its thread and pick where
-it goes, privately. It works the same in `#acme-dev` and the incidents
-channel, with their open tasks to pick from; messages only move within their
-channel. Slack can't move messages, so Cade copies it into the chosen
-thread, quoted and crediting its author, with a link back, replies under the
-original "moved this message to the requirement thread… Please carry on the
-conversation there", and reacts to it with :outbox_tray:, so moved messages
-can be passed over. Only the message is copied, not its replies or
-attachments, and a message moved once isn't moved again.
-
-Assign and unassign are for tasks only, and only tracked tasks are recorded
-in the Google Sheet.
-
-### Your tasks
-
-**`/cade tasks`** in any channel shows you, and only you, the open tasks
-you're assigned to, grouped by what you do on each:
-
-- **Developing**, **Reviewing** and **Testing**, in that order, with
-  "Nothing assigned" for a role you have no tasks in;
-- incidents first in each group, labelled **Incident:**, then by priority
-  and the soonest due date;
-- each linking to its task's thread, with its status, priority and due date.
-
-**`/cade tasks development`** (or `dev`), **`/cade tasks review`** and
-**`/cade tasks testing`** (or `test`) show just that role.
-
-These can be added, in any order and together:
-
-| Option | Shows |
-| --- | --- |
-| `@person` | Their tasks instead of yours, the same way. |
-| `-all` | Everyone's tasks, unassigned ones too, grouped by status, each with who works on it. Not with a role or a person. |
-| `-unassigned` | Tasks with no developer, grouped by status, each with who else is on it. Not with a role or a person. |
-| `-status=in-progress` | Only that status: `todo`, `in-progress`, `in-review`, `in-testing`, `client-review` or `done`. Several with commas, as `-status=in-review,in-testing`. Done tasks show only when asked for. |
-| `-due=@today` | Due today. Instead of `=`: `<` before, `<=` by, `>` after, `>=` from. Instead of `@today`: `@tomorrow`, or a date as `31/10/2026` or `2026-10-31`. |
-| `-due=none` | No due date. |
-
-For example, `/cade tasks -due<@today` shows your overdue tasks, and
-`/cade tasks @person -status=in-review` what they're reviewing. Incidents,
-due Immediate, count as due today, and "today" is in your `timezone`
-setting. A list with filters says which under its heading.
-
-The channel decides the group: in a group's channel (its external, dev or
-incidents channel) the list covers that group, its dev and incidents tasks.
-In any other channel it shows every group, one after the other. Slack
-doesn't allow slash commands in threads, so use it from the channel.
-
-The list isn't posted or kept anywhere: ask again for a fresh one. Done
-tasks are left out. The list comes from Cade's database, so it doesn't
-depend on what's pinned.
-
-### Standup
-
-**`/cade standup`** in a group's dev or incidents channel goes through the
-group's open tasks one developer at a time, shown only to you, so you can
-share your screen in the call. It starts with you, if you have open tasks,
-then everyone else by name, and ends with the tasks that have no developer.
-
-- Each developer's step lists their open tasks, most urgent first, each with
-  a status menu. Changing it works like `@Cade status`, and is posted in the
-  task's thread.
-- The last step lists the tasks with no developer, each with a menu to pick
-  one. Picking someone assigns them and asks them to start, in the task's
-  thread.
-- **Next** and **◀ Back** move between steps; **End** (or **Finish**, on the
-  last) removes it. Each step is read afresh, so it shows changes made
-  meanwhile.
-
-**`/cade standup -unassigned`** goes through just the tasks with no
-developer, one at a time, most urgent first: pick a developer, or **Skip**.
-
-### Incidents
-
-Incidents come in through the external channel too, but are tracked in the
-pair's own incidents channel (set `incidents` in `CHANNEL_PAIRS`).
-
-**`/cade incident`** in `#acme-external` opens a form that asks only what
-the incident is. Incidents are always 🔴 **Urgent** and due **Immediate**,
-and need no discussion first, so on submit Cade:
-
-1. posts "**Incident:** *title*" in the external channel, like a
-   requirement message but "Reported by" whoever reported it, and
-2. tracks it straight away as a task in the incidents channel, pinned, and
-   links the two, so the incident shows ▶️ In progress.
-
-From then on it works like a tracked requirement: the task commands below
-work in the incidents channel, the incident message always shows the
-current status, and Client review asks the reporter to approve. The only
-difference is that an incident's priority and due date can't be changed,
-in either thread. Incident tasks are recorded in the pair's sheet tab with
-the other tasks.
-
-### Task commands
-
-In a task's thread in `#acme-dev` or the incidents channel:
-
-- **Just say it.** The main way to assign is to write it in the thread as
-  you normally would. A reply that mentions people with a hand-off phrase
-  makes Cade ask you, in a message only you see, whether to assign them,
-  with **Assign as
-  developer** (or reviewer, tester) and **Not now**:
-  - **developer:** "start working", "start on this", "work on", "look into", "pick this up",
-    "take this", "take care of", "handle this", "fix this", "assigned this
-    to you", "over to you";
-  - **reviewer:** "review";
-  - **tester:** "test", "QA", "verify".
-
-  If a message matches more than one, reviewer comes before tester, and
-  tester before developer. People already in that role aren't asked about.
-  A hand-off also moves the task on: to a developer, a task that's To do
-  moves to ▶️ In progress; to a tester, a task that's To do, In progress or
-  In review moves to 🟠 In testing (**Assign and move to …**). When the
-  people were assigned ahead of time, Cade offers just **Move to …**.
-  Reviews move with linked PRs instead. `@Cade assign` never changes the
-  status, so people can be added in advance.
-  Assigning posts nothing in the thread, since your message already asked
-  them and the task card shows who it is; only a status change is posted,
-  as "@you moved the task to ▶️ In progress". A message with a PR link gets
-  the PR question below instead.
-- `@Cade assign` without anyone mentioned replies with **Developer**,
-  **Reviewer** and **Tester** buttons (`@Cade assign developer` shows just
-  that one). A button opens a form with that role's people filled in, to
-  add or remove people. **Save** sets the role and removes the buttons:
-  those added are asked as below, and those removed are told "you no
-  longer need to work on this" (or review, test).
-- `@Cade assign developer @person [@person …]`, for exact control, adds
-  people as developers;
-  `@Cade assign reviewer @person` and `@Cade assign tester @person` work the
-  same way. Each role can have several people. Developers and testers are
-  asked to start straight away. Reviewers can be added ahead of time: until
-  a PR is linked, Cade doesn't name them, so they aren't notified.
-- `@Cade unassign developer @person` removes people from that role;
-  `@Cade unassign @person` removes them from every role. Either way
-  they're told they no longer need to work on it. Without anyone
-  mentioned, `@Cade unassign` shows the same role buttons and form as
-  `@Cade assign`.
-- `@Cade status` replies with a menu of statuses (To do, In progress, In
-  review, In testing, Client review, Done), starting at the current one.
-  Picking one updates the task and replaces the menu with a confirmation.
-  You can also skip the menu with `@Cade status done` or
-  `@Cade status in progress`; then Cade just reacts ✅ to your message,
-  since the task card shows the change. New tasks start as `TODO`. Setting `DONE`
-  unpins the task; moving it from `DONE` to any other status pins it again,
-  so the channel's pins list shows the open tasks. A requirement or
-  incident is pinned in the external channel the same way: from when it is
-  posted until its task is Done, and again if the task is reopened. When a
-  task reaches Done, Cade posts "Great news! @you marked this as ✅ Done."
-  in the requirement thread straight away; Client review posts "Good news!
-  @you says this is ready for you to review." with the task's PRs and the client's Approve
-  buttons. Neither links to the task, which is the team's. When the client
-  approves, nothing more is posted there.
-- `@Cade release` (or `@Cade deliver`) sends some of a requirement task's
-  PRs to the client before the whole task is done, when the client asks for
-  what's ready so far. A PR goes from **Pending** to **Pending approval**
-  to **Approved**. Cade replies with a **Choose PRs** button; the form
-  lists the pending PRs, all ticked, and asks what they complete. Cade
-  then posts them in the requirement thread, mentioning whoever started the
-  requirement, with **Approve** and **Not approve** buttons, and says so in
-  the task's thread. **Approve** approves them; **Not approve** marks the
-  release not approved, so they're pending again and can be sent again. Either way
-  both threads hear it, the task's mentioning its developers. The task's
-  status doesn't change. Both cards show the PRs the same way, a line each,
-  leaving out empty ones, with releases named by what they complete:
-
-  ```
-  Approved: Login (cade/42, web/7)  ·  Profile page (web/9)
-  Pending approval: Search (web/11)
-  Pending: web/12, web/13
-  ```
-
-  When the task then moves to Client review, the client is asked to review
-  only the remaining PRs, and the task's thread says which; once it's Done,
-  everything is approved, those PRs as "The rest of the requirement". Every
-  release, not approved ones included, is kept in the `releases` table with
-  its PRs, note, who sent and decided it, and when.
-- `@Cade priority high` changes the priority (Urgent, High, Medium, Low);
-  `@Cade priority` replies with a menu. `@Cade due 30/11/2026` changes the
-  due date (YYYY-MM-DD also works), `@Cade due none` removes it, and
-  `@Cade due` replies with a date picker. Given a value, Cade just reacts
-  ✅; with the menu or picker, the menu becomes the confirmation. These work
-  in the thread of a requirement, and in the thread of a task with no
-  requirement. For a task
-  tracked from a requirement, they are changed in the requirement thread
-  instead (see [Requirements](#requirements)).
-- `@Cade pr add <link>` links a pull request to the task (several links
-  work too); `@Cade pr remove <link>` unlinks it. Linked PRs show on the
-  task message on one line, as *reponame/number* linking to each PR, just
-  above who tracked it. GitHub, GitLab and Bitbucket links are recognised.
-  Linking moves a task that's To do or In progress to 👀 In review (tasks
-  further on stay where they are), and asks the task's reviewers to review
-  it. With no reviewer yet,
-  Cade asks who should review it, with a people picker; choosing people
-  assigns them as reviewers and asks them. A reviewer assigned after a PR
-  is linked is asked straight away.
-- PR links pasted into a task's thread without `@Cade pr add` aren't lost:
-  Cade asks whoever posted them, in a message only they can see, whether to
-  link them, with **Link PRs** and **Not now**; either button removes the
-  question. PRs already linked aren't asked about. If the message also
-  mentions people who aren't reviewers yet, Cade offers to add them as
-  reviewers too (**Link and add reviewer** or **Just link**; or just **Add
-  reviewer** when the PRs are already linked). Since you wrote the message,
-  Cade posts only what's new: the task moving to 👀 In review, a review
-  request for reviewers your message didn't mention, or, with no reviewer
-  at all, who should review.
-- `@Cade delete` (or `@Cade remove`) is for the team's own tasks, from
-  `/cade track`. A task tracked from a requirement or incident is removed
-  from its requirement or incident thread instead, which removes both;
-  here Cade replies with a link to that thread. Once that requirement or
-  incident is gone, deleted with Cade or by hand in Slack, the task can be
-  removed here on its own. For the team's own task,
-  it replies with a prominent **Cancel**
-  button and a plain **Delete task** button. **Delete task** opens a second "Delete task?" dialog,
-  and only the person who sent `@Cade delete` can confirm or cancel. Once
-  confirmed, Cade deletes the task message and all of its own replies in the
-  thread, which also removes the pin. Slack only lets a bot delete its own
-  messages, so people's replies stay in the thread under a "This message was
-  deleted" placeholder.
-
-Each command updates the root message and Cade confirms in the thread. The
-mention works whatever the bot is named.
-
-The task's details are stored in the Worker's D1 database; the root message
-shows them and is rewritten from the database on every change.
-
-### Google Sheet
-
-Slack's free plan only keeps recent history, so every task is also recorded
-in a Google Sheet, with one tab per channel pair (for example **acme** and
-**test**). Filter the Status column to see completed tasks. See
-[google-sheet/README.md](google-sheet/README.md) for the setup. Without
-`SHEET_URL` and `SHEET_SECRET`, syncing is turned off.
-
-### Channels
-
-`CHANNEL_PAIRS` (see [Settings](#settings)) links each external channel to the channel
-its tasks are posted to. Several pairs can run at once, so a pair of test
-channels can sit alongside `#acme-external` → `#acme-dev`: tracking
-from the test external channel creates tasks in the test tasks channel, and
-the thread commands work in either tasks channel.
+Once it's set up, send `@Cade help` or `/cade help` in Slack for the short
+list, and see the [commands guide](https://aura300.github.io/project-helper/commands.html)
+for every command, where it works and what it does.
