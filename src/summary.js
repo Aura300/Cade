@@ -1,13 +1,14 @@
 import { findPair, roleOf } from "./channels.js";
-import { deleteCanvas, getCanvas, openRequirements, putCanvas } from "./db.js";
-import { OPEN, byUrgency, groupTasks, threadLink } from "./commands/tasks.js";
+import { deleteCanvas, getCanvas, postedRequirements, putCanvas } from "./db.js";
+import { byUrgency, groupTasks, threadLink } from "./commands/tasks.js";
 import { REQUIREMENT_STATUSES } from "./requirements.js";
 import { formatTime } from "./sheet.js";
 import { callSlack } from "./slack.js";
 import { PRIORITIES, STATUSES } from "./tasks.js";
 
-// A summary is a table in a channel's canvas of what is open there, most
-// urgent first: in an external channel its requirements and incidents, in
+// A summary is a channel's canvas listing what is open there, most urgent
+// first, then what is closed (Done), most recently first, each in tables:
+// in an external channel its requirements and incidents, in
 // a tasks channel the group's tasks, its incidents channel's too, as
 // `/cade tasks` lists them. Incidents channels have none: every incident
 // is in its external channel's. `/cade summary` puts it in the channel's
@@ -19,13 +20,17 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 // summaries continue in another table.
 const MAX_CELLS = 300;
 
+// The Closed section lists only the most recently closed, so it doesn't
+// grow without end.
+const MAX_CLOSED = 50;
+
 const TASK_COLUMNS = ["Title", "Status", "Priority", "Due date", "Dev", "Reviewer", "Tester"];
 const REQUIREMENT_COLUMNS = ["Title", "Priority", "Due date", "Status", "Tracked"];
 
 // The canvas's title, which heads the summary.
 export function summaryTitle(env, channel) {
   const { name } = findPair(env, channel);
-  return roleOf(env, channel) === "external" ? `Open ${name} requirements` : `Open ${name} tasks`;
+  return roleOf(env, channel) === "external" ? `${name} requirements` : `${name} tasks`;
 }
 
 // The channel's summary, as canvas markdown.
@@ -35,19 +40,27 @@ export async function summaryMarkdown(env, channel) {
   const { url } = await callSlack(env, "auth.test", {});
   const updated = `_Updated ${formatTime(env, new Date())}. Cade keeps this up to date._`;
   if (roleOf(env, channel) === "external") {
-    const rows = (await openRequirements(env, channel))
-      .map(({ ts, requirement }) => ({ incident: requirement.incident, task: requirement, link: threadLink(url, channel, ts) }))
-      .sort(byUrgency)
-      .map(({ task: requirement, incident, link }) => [
-        title(requirement.title, incident, link),
-        priority(requirement.priority),
-        requirement.dueDate || "—",
-        unbroken(REQUIREMENT_STATUSES[requirement.status]),
-        requirement.task ? ":white_check_mark: Yes" : "Not yet",
-      ]);
-    return document(updated, REQUIREMENT_COLUMNS, rows, "No open requirements or incidents.");
+    const requirements = (await postedRequirements(env, channel)).map(({ ts, requirement, updatedAt }) => ({
+      incident: requirement.incident,
+      task: requirement,
+      link: threadLink(url, channel, ts),
+      // A requirement is last changed when it is done.
+      closedAt: updatedAt,
+    }));
+    const row = ({ task: requirement, incident, link }) => [
+      title(requirement.title, incident, link),
+      priority(requirement.priority),
+      requirement.dueDate || "—",
+      unbroken(REQUIREMENT_STATUSES[requirement.status]),
+      requirement.task ? ":white_check_mark: Yes" : "Not yet",
+    ];
+    return document(updated, REQUIREMENT_COLUMNS, sections(requirements, row), "requirements or incidents");
   }
-  const rows = (await groupTasks(env, group, OPEN, url)).sort(byUrgency).map(({ task, incident, link }) => [
+  const tasks = (await groupTasks(env, group, Object.keys(STATUSES), url)).map((entry) => ({
+    ...entry,
+    closedAt: entry.task.completedAt,
+  }));
+  const row = ({ task, incident, link }) => [
     title(task.title, incident, link),
     unbroken(STATUSES[task.status]),
     priority(task.priority),
@@ -55,8 +68,19 @@ export async function summaryMarkdown(env, channel) {
     people(task.people.developer),
     people(task.people.reviewer),
     people(task.people.tester),
-  ]);
-  return document(updated, TASK_COLUMNS, rows, "No open tasks.");
+  ];
+  return document(updated, TASK_COLUMNS, sections(tasks, row), "tasks");
+}
+
+// The rows of the open entries, most urgent first, and of the last
+// MAX_CLOSED closed ones, most recently closed first.
+function sections(entries, row) {
+  const open = entries.filter((entry) => entry.task.status !== "DONE").sort(byUrgency);
+  const closed = entries
+    .filter((entry) => entry.task.status === "DONE")
+    .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
+    .slice(0, MAX_CLOSED);
+  return { open: open.map(row), closed: closed.map(row) };
 }
 
 // Rewrites the summary a change in `channel` touches: the external
@@ -133,15 +157,29 @@ async function renameCanvas(env, canvasId, title) {
   });
 }
 
-// When it was updated, and the rows in as many tables as they need.
-function document(updated, columns, rows, empty) {
-  const count = rows.length ? `${rows.length} open, most urgent first.` : empty;
+// When it was updated, then an Open and a Closed section, each with its
+// rows in as many tables as they need. `noun` names what they list.
+function document(updated, columns, { open, closed }, noun) {
+  return [
+    updated,
+    "## Open",
+    open.length ? `${open.length} open, most urgent first.` : `No open ${noun}.`,
+    ...tables(columns, open),
+    "---",
+    "## Closed",
+    closed.length ? `The last ${closed.length} done, most recently first.` : `No closed ${noun} yet.`,
+    ...tables(columns, closed),
+  ].join("\n\n");
+}
+
+// The rows in as many tables as they need.
+function tables(columns, rows) {
   const perTable = Math.floor(MAX_CELLS / columns.length) - 1;
-  const tables = [];
+  const found = [];
   for (let start = 0; start < rows.length; start += perTable) {
-    tables.push(table(columns, rows.slice(start, start + perTable)));
+    found.push(table(columns, rows.slice(start, start + perTable)));
   }
-  return [`${count} ${updated}`, ...tables].join("\n\n");
+  return found;
 }
 
 function table(columns, rows) {

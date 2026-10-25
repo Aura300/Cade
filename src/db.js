@@ -219,17 +219,17 @@ export async function activeRequirements(env, channel) {
   return results.map((row) => ({ ts: row.ts, title: row.title, incident: Boolean(row.incident) }));
 }
 
-// The posted requirements and incidents in `channel` that aren't done or
-// deleted, as { ts, requirement }, oldest first.
-export async function openRequirements(env, channel) {
+// The posted requirements and incidents in `channel` that aren't deleted,
+// as { ts, requirement, updatedAt }, oldest first.
+export async function postedRequirements(env, channel) {
   const { results } = await env.DB.prepare(
     `SELECT * FROM requirements
-     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND status != 'DONE'
+     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL
      ORDER BY ts`,
   )
     .bind(channel)
     .all();
-  return results.map((row) => ({ ts: row.ts, requirement: requirementFromRow(row) }));
+  return results.map((row) => ({ ts: row.ts, requirement: requirementFromRow(row), updatedAt: row.updated_at }));
 }
 
 // The id of the canvas Cade keeps the channel's summary in, or null.

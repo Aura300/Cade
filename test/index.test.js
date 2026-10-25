@@ -6175,9 +6175,14 @@ const canvasMarkdown = (call) =>
     ? JSON.parse(call.args.changes)[0].document_content.markdown
     : JSON.parse(call.args.document_content).markdown;
 
-// A summary's table rows, without its header and divider.
-const summaryRows = (markdown) =>
-  markdown.split("\n").filter((line) => line.startsWith("| ") && !/^\| (Title|---) /.test(line)).map(unbroken);
+// The table rows of a summary's Open or Closed section, without their
+// header and divider.
+const summaryRows = (markdown, section = "Open") =>
+  markdown
+    .split("\n## Closed\n")[section === "Open" ? 0 : 1]
+    .split("\n")
+    .filter((line) => line.startsWith("| ") && !/^\| (Title|---) /.test(line))
+    .map(unbroken);
 
 // Short cells, such as priorities, are kept on one line with non-breaking
 // spaces; shown here as `~`.
@@ -6194,7 +6199,8 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
     ["CDEV", historyTask("100.1", { title: "Low task", priority: "Low", developers: ["UALICE"] })],
     ["CDEV", historyTask("100.2", { title: "High | [later]", priority: "High", dueDate: "05/11/2026", reviewers: ["UBOB"] })],
     ["CDEV", historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", status: "IN_PROGRESS" })],
-    ["CDEV", historyTask("100.4", { title: "Done task", status: "DONE" })],
+    ["CDEV", historyTask("100.4", { title: "Done task", status: "DONE", completedAt: "2026-10-10T09:00:00.000Z" })],
+    ["CDEV", historyTask("100.5", { title: "Done later", status: "DONE", completedAt: "2026-10-20T09:00:00.000Z", developers: ["UBOB"] })],
     ["CINC", historyTask("100.8", { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", testers: ["UALICE", "UBOB"] })],
   ]) await putTask(env, channel, record.ts, record.task);
   const { now, later } = await runTasksCommand("summary", "CDEV", incidentEnv);
@@ -6203,9 +6209,10 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
   const create = calls.find((call) => call.method === "conversations.canvases.create");
   assert.equal(create.args.channel_id, "CDEV");
-  assert.equal(create.args.title, "Open acme tasks");
+  assert.equal(create.args.title, "acme tasks");
   const markdown = canvasMarkdown(create);
-  assert.match(markdown, /^4 open, most urgent first\. _Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\./);
+  assert.match(markdown, /^_Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\. Cade keeps this up to date\._\n\n## Open\n\n4 open, most urgent first\.\n\n/);
+  assert.match(markdown, /\n\n---\n\n## Closed\n\nThe last 2 done, most recently first\.\n\n/);
   assert.ok(markdown.includes("| Title | Status | Priority | Due date | Dev | Reviewer | Tester |"));
   const thread = (channel, ts) =>
     `(https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
@@ -6215,6 +6222,11 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
     `| [High \\| \\[later\\]]${thread("CDEV", "100.2")} | :memo:~To~do | :large_orange_circle:~High | 05/11/2026 | — | ![](@UBOB) | — |`,
     `| [Low task]${thread("CDEV", "100.1")} | :memo:~To~do | :large_green_circle:~Low | 31/10/2026 | ![](@UALICE) | — | — |`,
   ]);
+  // Done tasks follow, most recently done first.
+  assert.deepEqual(summaryRows(markdown, "Closed"), [
+    `| [Done later]${thread("CDEV", "100.5")} | :white_check_mark:~Done | :large_orange_circle:~High | 31/10/2026 | ![](@UBOB) | — | — |`,
+    `| [Done task]${thread("CDEV", "100.4")} | :white_check_mark:~Done | :large_orange_circle:~High | 31/10/2026 | — | — | — |`,
+  ]);
 
   // Sent again, the same canvas is rewritten.
   calls.length = 0;
@@ -6223,7 +6235,7 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   const edits = calls.filter((call) => call.method === "canvases.edit");
   assert.deepEqual(edits.map((call) => call.args.canvas_id), ["F0CANVAS", "F0CANVAS"]);
   assert.deepEqual(edits.map((call) => JSON.parse(call.args.changes)[0].operation), ["replace", "rename"]);
-  assert.equal(JSON.parse(edits[1].args.changes)[0].title_content.markdown, "Open acme tasks");
+  assert.equal(JSON.parse(edits[1].args.changes)[0].title_content.markdown, "acme tasks");
   assert.ok(!calls.some((call) => call.method === "conversations.canvases.create"));
 });
 
@@ -6249,15 +6261,19 @@ test("/cade summary in the external channel lists open requirements and incident
 
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
   const create = calls.find((call) => call.method === "conversations.canvases.create");
-  assert.equal(create.args.title, "Open acme requirements");
+  assert.equal(create.args.title, "acme requirements");
   const markdown = canvasMarkdown(create);
-  assert.match(markdown, /^3 open, most urgent first\./);
+  assert.match(markdown, /## Open\n\n3 open, most urgent first\./);
+  assert.match(markdown, /## Closed\n\nThe last 1 done, most recently first\./);
   assert.ok(markdown.includes("| Title | Priority | Due date | Status | Tracked |"));
   const thread = (ts) => `(https://acme.slack.com/archives/CEXTERNAL/p${ts.replace(".", "")}?thread_ts=${ts}&cid=CEXTERNAL)`;
   assert.deepEqual(summaryRows(markdown), [
     `| **Incident:** [Checkout is down]${thread("200.4")} | :red_circle:~Urgent | Immediate | :arrow_forward:~In~progress | Not yet |`,
     `| [Export reports]${thread("200.1")} | :large_orange_circle:~High | 31/10/2026 | :arrow_forward:~In~progress | :white_check_mark: Yes |`,
     `| [Dark mode]${thread("200.2")} | :large_green_circle:~Low | — | :speech_balloon:~In~discussion | Not yet |`,
+  ]);
+  assert.deepEqual(summaryRows(markdown, "Closed"), [
+    `| [Old one]${thread("200.3")} | :red_circle:~Urgent | — | :white_check_mark:~Done | Not yet |`,
   ]);
 });
 
@@ -6276,10 +6292,10 @@ test("/cade summary uses the canvas the channel already has", async (t) => {
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
   const [edit, rename] = calls.filter((call) => call.method === "canvases.edit");
   assert.equal(edit.args.canvas_id, "F0THEIRS");
-  assert.match(canvasMarkdown(edit), /No open tasks\./);
+  assert.match(canvasMarkdown(edit), /No open tasks\.[\s\S]*No closed tasks yet\./);
   // It takes the summary's title.
   assert.equal(rename.args.canvas_id, "F0THEIRS");
-  assert.equal(JSON.parse(rename.args.changes)[0].title_content.markdown, "Open acme tasks");
+  assert.equal(JSON.parse(rename.args.changes)[0].title_content.markdown, "acme tasks");
 
   // Saved, so it is used from now on.
   calls.length = 0;
@@ -6324,4 +6340,23 @@ test("a long summary continues in another table, as a canvas table holds 300 cel
   const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   const tables = markdown.split("\n\n").filter((part) => part.startsWith("| Title"));
   assert.deepEqual(tables.map((part) => part.split("\n").length - 2), [41, 4]);
+});
+
+test("a summary's Closed section keeps the last 50 done", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  for (let i = 0; i < 55; i++) {
+    const record = historyTask(`100.${String(i).padStart(2, "0")}`, {
+      title: `Done ${i}`,
+      status: "DONE",
+      completedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(),
+    });
+    await putTask(env, "CDEV", record.ts, record.task);
+  }
+  await runTasksCommand("summary", "CDEV");
+  const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
+  const closed = summaryRows(markdown, "Closed");
+  assert.equal(closed.length, 50);
+  assert.match(closed[0], /^\| \[Done 54\]/);
+  assert.match(closed.at(-1), /^\| \[Done 5\]/);
+  assert.match(markdown, /The last 50 done, most recently first\./);
 });
