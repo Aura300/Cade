@@ -28,7 +28,7 @@ const env = {
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   CHANNEL_PAIRS: [
-    { name: "aura300", external: "CEXTERNAL", tasks: "CDEV" },
+    { name: "acme", external: "CEXTERNAL", tasks: "CDEV" },
     { name: "test", external: "CTESTEXT", tasks: "CTESTDEV" },
   ],
 };
@@ -1060,7 +1060,7 @@ const sheetRow = (calls) => {
   const sheet = calls.filter((call) => call.method === "sheet");
   assert.equal(sheet.length, 1);
   assert.equal(sheet[0].args.secret, "sheet-secret");
-  assert.equal(sheet[0].args.project, "aura300");
+  assert.equal(sheet[0].args.project, "acme");
   return sheet[0].args.row;
 };
 
@@ -1920,11 +1920,11 @@ test("confirming a requirement's deletion removes Cade's replies and then the re
   assert.ok(!calls.some((call) => ["sheet", "chat.postMessage", "chat.postEphemeral"].includes(call.method)));
 });
 
-// The aura300 pair with an incidents channel; the test pair has none.
+// The acme pair with an incidents channel; the test pair has none.
 const incidentEnv = {
   ...env,
   CHANNEL_PAIRS: [
-    { name: "aura300", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC" },
+    { name: "acme", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC" },
     { name: "test", external: "CTESTEXT", tasks: "CTESTDEV" },
   ],
 };
@@ -2130,7 +2130,7 @@ test("incident tasks are recorded in the pair's sheet tab", async (t) => {
     { ...incidentEnv, SHEET_URL, SHEET_SECRET: "secret" },
   );
   const row = calls.find((call) => call.method === "sheet").args;
-  assert.equal(row.project, "aura300");
+  assert.equal(row.project, "acme");
   assert.equal(row.row["Due date"], "Immediate");
 });
 
@@ -2243,9 +2243,9 @@ test("/cade tasks in a group's channel shows its open tasks by role, only to you
   // workspace's address, for the links.
   assert.deepEqual(calls.map((call) => call.method), ["auth.test"]);
 
-  assert.equal(later.text, "You have 5 open aura300 tasks.");
+  assert.equal(later.text, "You have 5 open acme tasks.");
   const [header, developing, reviewing, testing] = later.blocks;
-  assert.equal(header.text.text, "Your aura300 tasks");
+  assert.equal(header.text.text, "Your acme tasks");
   // Each link opens the task's thread.
   const thread = (channel, ts) =>
     `https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
@@ -2272,7 +2272,7 @@ test("/cade tasks in an external or incidents channel shows that channel's group
       CDEV: [historyTask("100.1", { developers: ["UACTOR"] })],
       CTESTDEV: [historyTask("100.2", { developers: ["UACTOR"] })],
     }), incidentEnv);
-    assert.equal(later.text, "You have 1 open aura300 task.", channel);
+    assert.equal(later.text, "You have 1 open acme task.", channel);
   }
 });
 
@@ -2281,10 +2281,10 @@ test("/cade tasks outside every group shows each group in turn", async (t) => {
     CDEV: [historyTask("100.1", { developers: ["UACTOR"] })],
     CTESTDEV: [historyTask("100.2", { testers: ["UACTOR"] }), historyTask("100.3", { testers: ["UACTOR"] })],
   }));
-  assert.equal(later.text, "You have 1 open aura300 task. You have 2 open test tasks.");
+  assert.equal(later.text, "You have 1 open acme task. You have 2 open test tasks.");
   assert.deepEqual(
     later.blocks.map((block) => (block.type === "header" ? block.text.text : block.type)),
-    ["Your aura300 tasks", "section", "section", "section", "divider", "Your test tasks", "section", "section", "section"],
+    ["Your acme tasks", "section", "section", "section", "divider", "Your test tasks", "section", "section", "section"],
   );
 });
 
@@ -2297,15 +2297,15 @@ test("/cade tasks with a role shows only that role", async (t) => {
     ],
   });
   for (const [word, heading, text, lines] of [
-    ["development", "Developing", "You have 2 open aura300 developing tasks.", 2],
-    ["dev", "Developing", "You have 2 open aura300 developing tasks.", 2],
-    ["Review", "Reviewing", "You have 1 open aura300 reviewing task.", 1],
-    ["testing", "Testing", "You have 1 open aura300 testing task.", 1],
-    ["test", "Testing", "You have 1 open aura300 testing task.", 1],
+    ["development", "Developing", "You have 2 open acme developing tasks.", 2],
+    ["dev", "Developing", "You have 2 open acme developing tasks.", 2],
+    ["Review", "Reviewing", "You have 1 open acme reviewing task.", 1],
+    ["testing", "Testing", "You have 1 open acme testing task.", 1],
+    ["test", "Testing", "You have 1 open acme testing task.", 1],
   ]) {
     const { later } = await tasksCommand(t, `tasks ${word}`, "CDEV", pins);
     assert.equal(later.text, text, word);
-    assert.equal(later.blocks[0].text.text, `Your aura300 tasks: ${heading}`, word);
+    assert.equal(later.blocks[0].text.text, `Your acme tasks: ${heading}`, word);
     // Just the one role's section.
     assert.equal(later.blocks.length, 2, word);
     assert.equal(later.blocks[1].text.text.split("\n").length, lines + 1, word);
@@ -2317,13 +2317,13 @@ test("/cade tasks with a role and no such tasks says so", async (t) => {
   const { later } = await tasksCommand(t, "tasks review", "CDEV", ({
     CDEV: [historyTask("100.1", { developers: ["UACTOR"] })],
   }));
-  assert.equal(later.text, "You have no open aura300 reviewing tasks.");
-  assert.equal(later.blocks[0].text.text, "Your aura300 tasks: Reviewing");
+  assert.equal(later.text, "You have no open acme reviewing tasks.");
+  assert.equal(later.blocks[0].text.text, "Your acme tasks: Reviewing");
 });
 
 test("/cade tasks with anything else says what it takes", async (t) => {
   // Group names are not taken any more: the channel picks the group.
-  for (const word of ["mars", "aura300"]) {
+  for (const word of ["mars", "acme"]) {
     const { now, calls, later } = await tasksCommand(t, `tasks ${word}`, "CDEV", {});
     assert.deepEqual(JSON.parse(now), {
       response_type: "ephemeral",
@@ -2337,7 +2337,7 @@ test("someone with no open tasks in the group is told so", async (t) => {
   const { later } = await tasksCommand(t, "tasks", "CDEV", ({
     CDEV: [historyTask("100.1", { developers: ["UBOB"] })],
   }));
-  assert.equal(later.text, "You have no open aura300 tasks.");
+  assert.equal(later.text, "You have no open acme tasks.");
   assert.equal(later.blocks[1].text.text, "You have no open tasks.");
 });
 
@@ -2345,11 +2345,11 @@ test("/cade tasks leaves out deleted tasks", async (t) => {
   const { later } = await tasksCommand(t, "tasks", "CDEV", {
     CDEV: [historyTask("100.1", { developers: ["UACTOR"] }), historyTask("100.2", { developers: ["UACTOR"] })],
   });
-  assert.equal(later.text, "You have 2 open aura300 tasks.");
+  assert.equal(later.text, "You have 2 open acme tasks.");
 
   await markTaskDeleted(env, "CDEV", "100.1");
   const again = await runTasksCommand("tasks", "CDEV");
-  assert.equal(again.later.text, "You have 1 open aura300 task.");
+  assert.equal(again.later.text, "You have 1 open acme task.");
 });
 
 test("@Cade tasks points to /cade tasks", async (t) => {
@@ -4173,17 +4173,17 @@ test("/cade tasks @person shows their tasks, headed with their name", async (t) 
     ],
   });
   assert.deepEqual(calls.map((call) => call.method).sort(), ["auth.test", "users.info"]);
-  assert.equal(later.text, "<@UBOB> has 2 open aura300 tasks.");
-  assert.equal(later.blocks[0].text.text, "Bob's aura300 tasks");
+  assert.equal(later.text, "<@UBOB> has 2 open acme tasks.");
+  assert.equal(later.blocks[0].text.text, "Bob's acme tasks");
   assert.match(later.blocks[1].text.text, /^\*Developing \(1\)\*\n• <[^|]+\|Bob's>/);
   assert.match(later.blocks[2].text.text, /^\*Reviewing \(1\)\*\n• <[^|]+\|Both>/);
 
   // Naming yourself is the same as naming no one.
   const mine = await tasksCommand(t, "tasks <@UACTOR>", "CDEV", { CDEV: [historyTask("100.1", { developers: ["UACTOR"] })] });
-  assert.equal(mine.later.text, "You have 1 open aura300 task.");
+  assert.equal(mine.later.text, "You have 1 open acme task.");
 
   const none = await tasksCommand(t, "tasks review <@UBOB>", "CDEV", { CDEV: [historyTask("100.1", { developers: ["UBOB"] })] });
-  assert.equal(none.later.text, "<@UBOB> has no open aura300 reviewing tasks.");
+  assert.equal(none.later.text, "<@UBOB> has no open acme reviewing tasks.");
   assert.equal(none.later.blocks[1].text.text, "<@UBOB> has no open tasks.");
 });
 
@@ -4195,12 +4195,12 @@ test("/cade tasks -all shows everyone's tasks by status, with who works on them"
       historyTask("100.3", { title: "Finished", developers: ["UALICE"], status: "DONE" }),
     ],
   });
-  assert.equal(later.text, "There are 2 open aura300 tasks.");
+  assert.equal(later.text, "There are 2 open acme tasks.");
   // Links left out, as other tests check them.
   assert.deepEqual(
     later.blocks.map((block) => block.text.text.replace(/<https:[^|]+\|/g, "<")),
     [
-      "All aura300 tasks",
+      "All acme tasks",
       "*To do (1)*\n• <Unassigned>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 31/10/2026  ·  _Unassigned_",
       "*In testing (1)*\n• <Shared>  ·  :test_tube: In testing  ·  :large_orange_circle: High  ·  Due 31/10/2026  ·  <@UALICE>, <@UBOB>",
     ],
@@ -4216,16 +4216,16 @@ test("/cade tasks -status shows only those statuses, Done included when named", 
     ],
   };
   const progress = await tasksCommand(t, "tasks -status=in-progress", "CDEV", stored);
-  assert.equal(progress.later.text, "You have 1 aura300 task: In progress.");
+  assert.equal(progress.later.text, "You have 1 acme task: In progress.");
   // The filter is shown under the header.
   assert.equal(progress.later.blocks[1].elements[0].text, "In progress");
   assert.match(progress.later.blocks[2].text.text, /\|Started>/);
 
   const several = await tasksCommand(t, "tasks -status=done,to-do", "CDEV", stored);
-  assert.equal(several.later.text, "You have 2 aura300 tasks: Done, To do.");
+  assert.equal(several.later.text, "You have 2 acme tasks: Done, To do.");
 
   const none = await tasksCommand(t, "tasks -status=client-review", "CDEV", stored);
-  assert.equal(none.later.text, "You have no aura300 tasks: Client review.");
+  assert.equal(none.later.text, "You have no acme tasks: Client review.");
   assert.equal(none.later.blocks[2].text.text, "You have no matching tasks.");
 });
 
@@ -4269,8 +4269,8 @@ test("/cade tasks options combine, in any order", async (t) => {
       historyTask("100.4", { title: "To do", developers: ["UBOB"], dueDate: dueIn(-2) }),
     ],
   });
-  assert.equal(later.text, "<@UBOB> has 1 aura300 developing task: In progress  ·  Due before today.");
-  assert.equal(later.blocks[0].text.text, "Bob's aura300 tasks: Developing");
+  assert.equal(later.text, "<@UBOB> has 1 acme developing task: In progress  ·  Due before today.");
+  assert.equal(later.blocks[0].text.text, "Bob's acme tasks: Developing");
   assert.match(later.blocks[2].text.text, /\|Match>/);
 });
 
@@ -4342,7 +4342,7 @@ test("/cade standup starts with whoever runs it, then everyone by name, then tas
   assert.equal(now, "");
   assert.equal(later.response_type, "ephemeral");
   assert.equal(later.blocks[0].text.text, "*Standup: <@UACTOR>*  ·  1 of 4");
-  assert.equal(later.blocks[1].elements[0].text, "1 open task  ·  aura300");
+  assert.equal(later.blocks[1].elements[0].text, "1 open task  ·  acme");
   const [mine] = later.blocks.filter((block) => block.accessory);
   assert.match(mine.text.text, /\|Mine>  ·  :eyes: In review/);
   assert.equal(mine.accessory.type, "static_select");
@@ -4353,7 +4353,7 @@ test("/cade standup starts with whoever runs it, then everyone by name, then tas
   assert.equal(alice.replace_original, true);
   assert.equal(alice.blocks[0].text.text, "*Standup: <@UALICE>*  ·  2 of 4");
   // Done tasks are left out.
-  assert.equal(alice.blocks[1].elements[0].text, "1 open task  ·  aura300");
+  assert.equal(alice.blocks[1].elements[0].text, "1 open task  ·  acme");
   assert.deepEqual(buttonsOf(alice), [["◀ Back", "standup:back"], ["Next: Bob ▶", "standup:next"], ["End", "standup:end"]]);
 
   const bob = await clickButton(t, alice, "Next: Bob ▶");
@@ -4404,7 +4404,7 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
       historyTask("100.3", { title: "Taken", developers: ["UBOB"] }),
     ],
   });
-  assert.equal(later.blocks[0].text.text, "*Unassigned aura300 tasks*  ·  1 of 2");
+  assert.equal(later.blocks[0].text.text, "*Unassigned acme tasks*  ·  1 of 2");
   const first = later.blocks.find((block) => block.accessory);
   assert.match(first.text.text, /\|Urgent>/);
   assert.deepEqual(buttonsOf(later), [["Skip ▶", "standup:next"], ["End", "standup:end"]]);
@@ -4421,7 +4421,7 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
   assert.equal(post.text, "<@UACTOR> assigned this to <@UALICE>.\n<@UALICE> could you pick this up when you get a chance? Thanks!");
   // Assigned, it leaves the walk: the next one takes its place.
   const next = sent.at(-1);
-  assert.equal(next.blocks[0].text.text, "*Unassigned aura300 tasks*  ·  1 of 1");
+  assert.equal(next.blocks[0].text.text, "*Unassigned acme tasks*  ·  1 of 1");
   assert.match(next.blocks.find((block) => block.accessory).text.text, /\|Low>/);
   assert.deepEqual(buttonsOf(next), [["Finish", "standup:end"]]);
 
@@ -4430,7 +4430,7 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
     "/slack/interactions",
     standupClick({ action_id: last.accessory.action_id, block_id: last.block_id, selected_user: "UBOB" }),
   );
-  assert.equal(sent.at(-1).text, "Every open aura300 task has a developer. Nice!");
+  assert.equal(sent.at(-1).text, "Every open acme task has a developer. Nice!");
 });
 
 test("End and Finish remove the standup", async (t) => {
@@ -4443,7 +4443,7 @@ test("End and Finish remove the standup", async (t) => {
 
 test("/cade standup says so when there's nothing to go through, and takes only -unassigned", async (t) => {
   const empty = await tasksCommand(t, "standup", "CDEV", {});
-  assert.equal(empty.later.text, "No one has open aura300 tasks right now.");
+  assert.equal(empty.later.text, "No one has open acme tasks right now.");
 
   const wrong = await tasksCommand(t, "standup everyone", "CDEV", {});
   assert.equal(
@@ -4457,8 +4457,8 @@ test("/cade standup says so when there's nothing to go through, and takes only -
 
 test("/cade tasks -unassigned lists open tasks with no developer", async (t) => {
   const { later } = await tasksCommand(t, "tasks -unassigned", "CDEV", standupTasks());
-  assert.equal(later.text, "There is 1 open aura300 unassigned task.");
-  assert.equal(later.blocks[0].text.text, "Unassigned aura300 tasks");
+  assert.equal(later.text, "There is 1 open acme unassigned task.");
+  assert.equal(later.blocks[0].text.text, "Unassigned acme tasks");
   assert.match(later.blocks[1].text.text, /^\*To do \(1\)\*\n• <[^|]+\|Nobody's>.*<@UALICE>$/);
   assert.equal(parseTaskFilters("-unassigned <@UBOB>").error.split(" Try ")[0], "`-unassigned` shows tasks with no developer, so it can't take a role or a person.");
   assert.equal(parseTaskFilters("-all -unassigned").error.split(" Try ")[0], "Use `-all` or `-unassigned`, not both.");
