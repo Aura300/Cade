@@ -206,7 +206,7 @@
       <article class="entry">
         <h3><code>@Cade detach</code> <code>/cade detach &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Task thread</span><span class="where">Anywhere, with a link</span></div>
-        <p>Unlinks a task from the requirement or incident it was tracked from, so the team owns it. <code>@Cade detach</code> is sent from the task's thread, never the client's, and both threads are told. <code>/cade detach</code> with the task thread's link (Copy link on the task's message) does it quietly: nothing is posted in either thread, so no one is notified, and only you see the reply. Handy for detaching many at once.</p>
+        <p>Unlinks a task from the requirement or incident it was tracked from, so the team owns it. Either form asks you first, privately, with <b>Cancel</b> and <b>Detach</b>, and Detach asks again. <code>@Cade detach</code> is sent from the task's thread, never the client's, and both threads are told. <code>/cade detach</code> with the task thread's link (Copy link on the task's message) does it quietly: nothing is posted in either thread, so no one is notified, and only you see the reply. Handy for detaching many at once.</p>
         <ul>
           <li><b>The task</b> stays where it is and still links to the thread it was tracked from, but no longer follows it: its priority and due date are changed from its own thread from then on, incidents' included.</li>
           <li><b>The requirement's message</b> stays, unpinned, saying where the work went. Cade stops tracking it, so it leaves the summaries and <code>/cade exec</code>.</li>
@@ -214,13 +214,14 @@
       </article>
 
       <article class="entry">
-        <h3><code>@Cade delete</code> <code>@Cade remove</code></h3>
-        <div class="tags"><span class="where">Requirement thread</span><span class="where">Task thread</span></div>
+        <h3><code>@Cade delete</code> <code>@Cade remove</code> <code>/cade remove &lt;link&gt;</code></h3>
+        <div class="tags"><span class="where">Requirement thread</span><span class="where">Task thread</span><span class="where">Anywhere, with a link</span></div>
         <p>Asks first, with a prominent <b>Cancel</b> and a plain <b>Delete</b> that asks again. Only the person who asked can confirm. Cade deletes the root message and its own replies; people's replies stay under Slack's “This message was deleted”.</p>
         <ul>
           <li><b>A requirement</b> takes its task with it, and the question names the task.</li>
           <li><b>A requirement's task</b> is removed from the requirement thread instead, and Cade links to it. If the requirement has already gone, the task can be removed on its own.</li>
           <li><b>The team's own task</b> is removed from its own thread.</li>
+          <li><b><code>/cade remove &lt;link&gt;</code></b> asks, and answers, only you, about whatever the link points at: a task or requirement, as above; a reply, which goes if Cade posted it; or any other message, whose thread loses Cade's replies, and the message too if Cade posted it. Slack only lets Cade remove its own messages.</li>
         </ul>
       </article>
 

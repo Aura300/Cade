@@ -129,3 +129,24 @@ export function mrkdwn(text) {
 export function mentions(users) {
   return users.map((id) => `<@${id}>`).join(", ");
 }
+
+// A message's link, from Copy link: …/archives/<channel>/p<ts without its
+// dot>, with ?thread_ts=… when the message is a reply.
+const MESSAGE_LINK = /https?:\/\/[^/\s<>|]+\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})(\?[^\s<>|]*)?/;
+
+// The channel and thread root of the first Slack message link in `text`, or
+// null if there is none. A link to a reply stands for its thread.
+export function linkedThread(text) {
+  const link = linkedMessage(text);
+  return link && { channel: link.channel, ts: link.threadTs ?? link.ts };
+}
+
+// The first Slack message link in `text` as { channel, ts, threadTs }, or
+// null if there is none. `threadTs` is set only for a link to a reply.
+export function linkedMessage(text) {
+  const match = MESSAGE_LINK.exec(text.replace(/&amp;/g, "&"));
+  if (!match) return null;
+  const ts = `${match[2]}.${match[3]}`;
+  const threadTs = new URLSearchParams(match[4] ?? "").get("thread_ts");
+  return { channel: match[1], ts, threadTs: threadTs && threadTs !== ts ? threadTs : null };
+}
