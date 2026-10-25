@@ -686,11 +686,12 @@ test("a typed status gets a ✅ and never a question", async (t) => {
     const calls = mockSlack(t, { stored: [root] });
     await send("/slack/events", threadEvent(`<@UBOT> status ${input}`));
     assert.ok(calls.some((call) => call.method === "reactions.add"), input);
-    // Reaching Client review or Done adds a note that the requirement thread
-    // was told; nothing posted here ever asks anything.
+    // Reaching Done adds a note that the requirement thread was told, and
+    // Client review a button to ask someone to approve it; nothing else is
+    // posted here.
     for (const call of calls.filter((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV")) {
-      assert.match(call.args.text, /^I've (let|asked)/, input);
-      assert.equal(call.args.blocks, undefined, input);
+      if (call.args.blocks) assert.equal(call.args.blocks[1].elements[0].action_id, "status:ask", input);
+      else assert.match(call.args.text, /^I've let/, input);
     }
   }
 });
@@ -1289,6 +1290,30 @@ test("/cade track opens the task form straight away", async (t) => {
   assert.deepEqual(JSON.parse(calls[0].args.view.private_metadata), { channel: "CDEV" });
 });
 
+// A group with only a tasks channel: the team tracks its own work, with no
+// client channel to start requirements or incidents in.
+const teamOnlyEnv = {
+  ...env,
+  CHANNEL_PAIRS: [...env.CHANNEL_PAIRS, { name: "team", tasks: "CTEAM" }],
+};
+
+test("a group with only a tasks channel tracks tasks, and says requirements need an external channel", async (t) => {
+  let calls = mockSlack(t);
+  await send("/slack/commands", slash("track", "CTEAM"), {}, teamOnlyEnv);
+  assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
+  assert.deepEqual(JSON.parse(calls[0].args.view.private_metadata), { channel: "CTEAM" });
+
+  for (const name of ["requirement", "incident"]) {
+    calls = mockSlack(t);
+    const reply = await (await send("/slack/commands", slash(name, "CTEAM"), {}, teamOnlyEnv)).json();
+    assert.equal(calls.length, 0);
+    assert.equal(
+      reply.text,
+      "This group has no `external` channel, so that one isn't available here. Add one to its pair in `CHANNEL_PAIRS` to use it.",
+    );
+  }
+});
+
 test("/cade track in the dev channel posts the task without an announcement", async (t) => {
   const calls = mockSlack(t, createdTask);
   await send(
@@ -1511,9 +1536,10 @@ test("Cade's messages never preview the messages they link to", async (t) => {
     "/slack/interactions",
     interaction(submission({ title: "Fix login", priority: "High" })),
   );
-  // The task is Done in this mock, so moving it to Client review is a change
-  // the requirement thread hears about.
-  await send("/slack/events", threadEvent("<@UBOT> status client review"));
+  // The task is Done in this mock, so moving it on and back to Done is a
+  // change the requirement thread hears about.
+  await send("/slack/events", threadEvent("<@UBOT> status in progress"));
+  await send("/slack/events", threadEvent("<@UBOT> status done"));
   await send(
     "/slack/events",
     threadEvent("<@UBOT> priority low", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
@@ -1608,9 +1634,10 @@ test("a requirement always shows its task's current status, as the client sees i
     const calls = mockSlack(t, threads(requirementRoot({ task: true })));
     await send("/slack/events", threadEvent(`<@UBOT> status ${status}`));
     assert.deepEqual((await savedRequirement()).status, shown, status);
-    // Client review and Done are posted in the requirement thread too.
+    // Done is posted in the requirement thread too; Client review once
+    // someone is chosen to approve it.
     const posted = calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
-    assert.equal(posted, ["CLIENT_REVIEW", "DONE"].includes(status), status);
+    assert.equal(posted, status === "DONE", status);
   }
 });
 
@@ -1718,6 +1745,49 @@ test("picking from the menu or date picker changes what the picker's thread is a
 });
 
 // A client clicking Approve or Not approve in the requirement thread.
+// Moves the task at `channel`/100.1 to Client review as UACTOR, clicks the
+// private Ask for approval button and chooses `approver` in its form.
+// Returns every Slack call, and in `calls.responses` what was sent to the
+// button's response_url.
+async function clientReview(t, responses, { channel = "CDEV", approver = "UCREATOR", environment = env } = {}) {
+  const calls = mockSlack(t, responses);
+  calls.responses = recordResponses(t);
+  await send("/slack/events", threadEvent("<@UBOT> status client review", { channel }), {}, environment);
+  const button = calls
+    .find((call) => call.method === "chat.postEphemeral" && call.args.blocks?.[1]?.elements?.[0]?.action_id === "status:ask")
+    .args.blocks[1].elements[0];
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      trigger_id: "T1",
+      user: { id: "UACTOR" },
+      channel: { id: channel },
+      message: { ts: "100.8", thread_ts: "100.1" },
+      response_url: RESPONSE_URL,
+      actions: [{ action_id: "status:ask", value: button.value }],
+    }),
+    {},
+    environment,
+  );
+  const form = calls.findLast((call) => call.method === "views.open").args.view;
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "view_submission",
+      user: { id: "UACTOR" },
+      view: {
+        callback_id: form.callback_id,
+        private_metadata: form.private_metadata,
+        state: { values: { approver: { value: { selected_user: approver } } } },
+      },
+    }),
+    {},
+    environment,
+  );
+  return calls;
+}
+
 const reviewClick = (actionId) =>
   interaction({
     type: "block_actions",
@@ -1816,25 +1886,57 @@ test("Approve on a deleted task says so", async (t) => {
   assert.match(calls[0].args.text, /\nHmm, this task doesn't exist anymore\.$/);
 });
 
-test("Client review on a requirement task asks the client straight away", async (t) => {
-  const calls = mockSlack(t, {
+test("Client review on a requirement task asks who approves, then asks them in the requirement thread", async (t) => {
+  const calls = await clientReview(t, {
     ...threads(requirementRoot({ task: true }), requirementTask("IN_TESTING")),
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
-  });
-  await send("/slack/events", threadEvent("<@UBOT> status client review"));
+  }, { approver: "UPM" });
+
+  // The command gets a ✅, and whoever sent it a private button to choose who
+  // approves, which goes once they have.
+  assert.ok(calls.some((call) => call.method === "reactions.add"));
+  const ask = calls.find((call) => call.method === "chat.postEphemeral").args;
+  assert.equal(ask.user, "UACTOR");
+  assert.equal(ask.text, "Who should approve this? Choose them, and I'll ask.");
+  assert.deepEqual(calls.responses, [{ response_type: "ephemeral", delete_original: true }]);
+  // The form picks whoever started the requirement, to begin with.
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  assert.equal(form.blocks[0].element.type, "users_select");
+  assert.equal(form.blocks[0].element.initial_user, "UCREATOR");
+  assert.equal(form.blocks[1].elements[0].text, "They approve it in the requirement thread.");
 
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
   assert.equal(review.args.thread_ts, "200.1");
+  assert.match(review.args.text, /\n<@UPM>, could you take a look and approve it/);
   assert.deepEqual(
     review.args.blocks[1].elements.map((button) => button.action_id),
     ["status:approve", "status:reject"],
   );
-  // The command gets a ✅, and a note that the client was asked.
-  assert.ok(calls.some((call) => call.method === "reactions.add"));
-  const note = calls.at(-1).args;
-  assert.equal(note.channel, "CDEV");
-  assert.equal(note.thread_ts, "100.1");
-  assert.equal(note.text, "I've asked the client to review it in <https://slack.example/source|the requirement thread>.");
+  assert.equal(JSON.parse(review.args.blocks[1].elements[0].value).approver, "UPM");
+  // The task's thread hears who was asked, and where.
+  const note = calls.at(-1);
+  assert.equal(note.method, "chat.postMessage");
+  assert.equal(note.args.channel, "CDEV");
+  assert.equal(note.args.thread_ts, "100.1");
+  assert.equal(note.args.text, "<@UACTOR> asked <@UPM> to review it in <https://slack.example/source|the requirement thread>.");
+});
+
+test("setting Client review again asks again who approves", async (t) => {
+  const calls = mockSlack(t, threads(requirementRoot({ task: true, status: "CLIENT_REVIEW" }), requirementTask("CLIENT_REVIEW")));
+  await send("/slack/events", threadEvent("<@UBOT> status client review"));
+  assert.equal(calls.find((call) => call.method === "chat.postEphemeral").args.blocks[1].elements[0].action_id, "status:ask");
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL"));
+});
+
+test("only the chosen approver can approve or reject", async (t) => {
+  const calls = mockSlack(t, threads(requirementRoot({ task: true, status: "CLIENT_REVIEW" }), requirementTask("CLIENT_REVIEW")));
+  const click = JSON.parse(new URLSearchParams(reviewClick("status:approve")).get("payload"));
+  click.actions[0].value = JSON.stringify({ ...JSON.parse(click.actions[0].value), approver: "UPM" });
+  await send("/slack/interactions", interaction(click));
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
+  assert.equal(calls[0].args.user, "UCLIENT");
+  assert.equal(calls[0].args.text, "Only <@UPM> can approve or reject this.");
+  assert.equal((await savedTask()).status, "CLIENT_REVIEW");
 });
 
 const requirementDelete = JSON.stringify({
@@ -2077,12 +2179,12 @@ test("the incidents channel runs the task commands like the dev channel", async 
   assert.equal(calls[0].args.channel, "CINC");
   assert.deepEqual((await savedTask("CINC")).people.developer, ["UBOB"]);
 
-  // Client review asks whoever reported the incident, as for requirements.
-  calls = mockSlack(t, {
+  // Client review asks whoever is chosen in the incident's thread, as for
+  // requirements.
+  calls = await clientReview(t, {
     ...threads(incidentRoot(), incidentTask("IN_TESTING")),
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
-  });
-  await send("/slack/events", threadEvent("<@UBOT> status client review", { channel: "CINC" }), {}, incidentEnv);
+  }, { channel: "CINC", environment: incidentEnv });
   assert.deepEqual((await savedRequirement()).status, "CLIENT_REVIEW");
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
   assert.match(review.args.text, /\n<@UCREATOR>, could you take a look and approve it/);
@@ -3507,15 +3609,14 @@ test("other typed statuses get only the ✅", async (t) => {
 test("Client review lists the task's PRs for the client, and keeps them after a decision", async (t) => {
   const task = requirementTask("IN_TESTING");
   task.task.prs = [PR, MR];
-  const calls = mockSlack(t, {
+  const calls = await clientReview(t, {
     ...threads(requirementRoot({ task: true }), task),
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
-  await send("/slack/events", threadEvent("<@UBOT> status client review"));
 
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   const announced = [
-    "Good news! <@UACTOR> says this is ready for you to review.",
+    "Good news! <@UACTOR> says this is ready for review.",
     `*PRs:* <${PR}|cade/42>, <${MR}|web-app/118>`,
   ].join("\n");
   assert.equal(
@@ -3531,11 +3632,10 @@ test("Client review lists the task's PRs for the client, and keeps them after a 
 });
 
 test("Client review on a task with no PRs shows no PRs line", async (t) => {
-  const calls = mockSlack(t, {
+  const calls = await clientReview(t, {
     ...threads(requirementRoot({ task: true }), requirementTask("IN_TESTING")),
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
-  await send("/slack/events", threadEvent("<@UBOT> status client review"));
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   assert.ok(!review.blocks[0].text.text.includes("*PRs:*"));
 });
@@ -3730,15 +3830,14 @@ test("removing a requirement drops a task of it still waiting to be posted", asy
 });
 
 test("the ready to review message doesn't link to the team's task", async (t) => {
-  const calls = mockSlack(t, {
+  const calls = await clientReview(t, {
     ...threads(requirementRoot({ task: true }), requirementTask("IN_TESTING")),
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
-  await send("/slack/events", threadEvent("<@UBOT> status client review"));
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   assert.equal(
     review.text,
-    "Good news! <@UACTOR> says this is ready for you to review.\n<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?",
+    "Good news! <@UACTOR> says this is ready for review.\n<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?",
   );
   assert.ok(!review.text.includes("slack.example/p100"));
   // No link to look up for it.
@@ -4012,6 +4111,9 @@ test("npm run config turns cade.config.json into the Worker's secrets", async ()
   });
   // The timezone is optional.
   assert.deepEqual(readConfig(JSON.stringify({ channels })), { CHANNEL_PAIRS: JSON.stringify(channels) });
+  // So is the external channel, for a team that only tracks its own tasks.
+  const teamOnly = [{ name: "team", tasks: "C0000000003" }];
+  assert.deepEqual(readConfig(JSON.stringify({ channels: teamOnly })), { CHANNEL_PAIRS: JSON.stringify(teamOnly) });
 });
 
 test("npm run config stops on a mistake, before uploading anything", async () => {
@@ -4019,8 +4121,9 @@ test("npm run config stops on a mistake, before uploading anything", async () =>
   const good = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
   for (const [config, problem] of [
     ["{", /not valid JSON/],
-    [{ timezone: "UTC" }, /must list \{ name, external, tasks \}/],
-    [{ channels: [{ external: "C0000000001", tasks: "C0000000002" }] }, /must list \{ name, external, tasks \}/],
+    [{ timezone: "UTC" }, /must list \{ name, tasks \}/],
+    [{ channels: [{ external: "C0000000001", tasks: "C0000000002" }] }, /must list \{ name, tasks \}/],
+    [{ channels: [{ name: "acme", external: "C0000000001" }] }, /must list \{ name, tasks \}/],
     [{ channels: [{ name: "acme", external: "#acme-external", tasks: "C0000000002" }] }, /doesn't look like a Slack channel ID/],
     [{ channels: [{ name: "acme", external: "C0000000001", tasks: "C0000000001" }] }, /used twice/],
     [{ channels: good, timezone: "Sri Lanka" }, /isn't a time zone/],
@@ -4035,7 +4138,7 @@ test("the example config is valid", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const { readFile } = await import("node:fs/promises");
   const secrets = readConfig(await readFile(new URL("../cade.config.example.json", import.meta.url), "utf8"));
-  assert.equal(JSON.parse(secrets.CHANNEL_PAIRS).length, 2);
+  assert.equal(JSON.parse(secrets.CHANNEL_PAIRS).length, 3);
 });
 
 test("npm run dev passes its settings to Wrangler as a quoted .env file", async () => {
@@ -4720,17 +4823,18 @@ const releaseThreads = (prs, releases = [], status = "IN_PROGRESS") => {
   return { stored: [requirement, task] };
 };
 
-const releaseSubmission = (prs, note = "Login and sign-up") =>
+const releaseSubmission = (prs, note = "Login and sign-up", approver = "UCREATOR") =>
   interaction({
     type: "view_submission",
     user: { id: "UDEV" },
     view: {
       callback_id: "release",
-      private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1", promptTs: "100.7" }),
+      private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1", responseUrl: RESPONSE_URL }),
       state: {
         values: {
           prs: { value: { selected_options: prs.map((value) => ({ value })) } },
           note: { value: { value: note } },
+          approver: { value: { selected_user: approver } },
         },
       },
     },
@@ -4767,9 +4871,8 @@ const shownPrs = (calls, ts = "200.1") => {
 };
 const rootPrs = (calls) => shownPrs(calls);
 
-test("@Cade release needs a requirement task with PRs not sent yet", async (t) => {
+test("@Cade release needs a task with PRs not sent yet", async (t) => {
   const cases = [
-    [{ stored: [ownTask()] }, /doesn't have a client thread/],
     [releaseThreads([]), /There aren't any PRs to send yet/],
     [releaseThreads([PR], [inReview([PR])]), /already with the client/],
   ];
@@ -4783,6 +4886,9 @@ test("@Cade release needs a requirement task with PRs not sent yet", async (t) =
 test("@Cade release offers a button that opens the form with the unsent PRs", async (t) => {
   const calls = mockSlack(t, releaseThreads([PR, MR], [inReview([PR])]));
   await send("/slack/events", threadEvent("<@UBOT> deliver"));
+  // Only whoever asked sees the button.
+  assert.equal(calls.at(-1).method, "chat.postEphemeral");
+  assert.equal(calls.at(-1).args.user, "UACTOR");
   const button = calls.at(-1).args.blocks[0].elements[0];
   assert.equal(button.action_id, "release:open");
 
@@ -4794,12 +4900,13 @@ test("@Cade release offers a button that opens the form with the unsent PRs", as
       user: { id: "UDEV" },
       channel: { id: "CDEV" },
       message: { ts: "100.7", thread_ts: "100.1" },
+      response_url: RESPONSE_URL,
       actions: [{ action_id: "release:open", value: button.value }],
     }),
   );
   const view = calls.at(-1).args.view;
   assert.equal(view.callback_id, "release");
-  assert.deepEqual(JSON.parse(view.private_metadata), { channel: "CDEV", ts: "100.1", promptTs: "100.7" });
+  assert.deepEqual(JSON.parse(view.private_metadata), { channel: "CDEV", ts: "100.1", responseUrl: RESPONSE_URL });
   assert.deepEqual(view.blocks[0].element.options, [
     { text: { type: "plain_text", text: "web-app/118" }, value: MR },
   ]);
@@ -4808,10 +4915,11 @@ test("@Cade release offers a button that opens the form with the unsent PRs", as
 
 test("the release form needs PRs and what they complete", async (t) => {
   mockSlack(t, releaseThreads([PR]));
-  const response = await send("/slack/interactions", releaseSubmission([], ""));
+  const response = await send("/slack/interactions", releaseSubmission([], "", null));
   assert.deepEqual((await response.json()).errors, {
     prs: "Please choose at least one PR.",
     note: "Please say what these PRs complete.",
+    approver: "Please choose who approves them.",
   });
 });
 
@@ -4821,9 +4929,12 @@ test("sending PRs asks the client in the requirement thread and says so in the t
     "chat.postMessage": { ts: "200.9" },
     "chat.getPermalink": { permalink: "https://slack.example/release" },
   });
+  const responses = recordResponses(t);
   await send("/slack/interactions", releaseSubmission([PR]));
 
   assert.deepEqual(await releasesOf(), [{ ...inReview([PR]), decidedBy: null }]);
+  // The private Choose PRs button goes.
+  assert.deepEqual(responses, [{ response_type: "ephemeral", delete_original: true }]);
   // The release in review, named by what it completes, then the PRs not
   // sent, the same on the requirement's card and the task's.
   const shown = `*Pending approval:* Login and sign-up (<${PR}|cade/42>)\n*Pending:* <${MR}|web-app/118>`;
@@ -4833,16 +4944,17 @@ test("sending PRs asks the client in the requirement thread and says so in the t
   const ask = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(ask.channel, "CEXTERNAL");
   assert.equal(ask.thread_ts, "200.1");
-  assert.equal(ask.blocks[0].text.text, `<@UDEV> sent these PRs for your approval: <${PR}|cade/42>\n*Completes:* Login and sign-up`);
+  assert.equal(ask.blocks[0].text.text, `<@UDEV> sent these PRs for approval: <${PR}|cade/42>\n*Completes:* Login and sign-up`);
   assert.match(ask.blocks[1].text.text, /^<@UCREATOR>, could you take a look and approve them/);
   assert.deepEqual(ask.blocks[2].elements.map((button) => button.action_id), ["release:approve", "release:reject"]);
 
   const told = calls.at(-1);
-  assert.equal(told.method, "chat.update");
-  assert.equal(told.args.ts, "100.7");
+  assert.equal(told.method, "chat.postMessage");
+  assert.equal(told.args.channel, "CDEV");
+  assert.equal(told.args.thread_ts, "100.1");
   assert.equal(
     told.args.text,
-    `<@UDEV> sent <${PR}|cade/42> to the client for approval in <https://slack.example/release|the requirement thread>. I'll let you know when they reply.\n*Completes:* Login and sign-up`,
+    `<@UDEV> sent <${PR}|cade/42> to <@UCREATOR> for approval in <https://slack.example/release|the requirement thread>. I'll let you know when they reply.\n*Completes:* Login and sign-up`,
   );
 });
 
@@ -4905,11 +5017,10 @@ test("a release decided already, or gone, is not applied again", async (t) => {
 });
 
 test("Client review after a release sends the remaining PRs, and both threads say so", async (t) => {
-  const calls = mockSlack(t, {
+  const calls = await clientReview(t, {
     ...releaseThreads([PR, MR], [{ ...inReview([PR]), status: "APPROVED" }], "IN_TESTING"),
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
-  await send("/slack/events", threadEvent("<@UBOT> status client review"));
 
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   assert.match(review.blocks[0].text.text, new RegExp(`\\*Remaining PRs:\\* <${MR}\\|web-app/118>\\n`));
@@ -4917,7 +5028,7 @@ test("Client review after a release sends the remaining PRs, and both threads sa
   assert.equal(note.thread_ts, "100.1");
   assert.equal(
     note.text,
-    `I've asked the client to review the remaining PRs, <${MR}|web-app/118>, in <https://slack.example/source|the requirement thread>.`,
+    `<@UACTOR> asked <@UCREATOR> to review the remaining PRs, <${MR}|web-app/118>, in <https://slack.example/source|the requirement thread>.`,
   );
 });
 
@@ -5548,8 +5659,10 @@ test("anyone on a task saying it's finished is offered Done, and Client review f
     [taskWith("IN_REVIEW", { testers: ["UACTOR"] }), "UACTOR", ["CLIENT_REVIEW", "DONE"]],
     // Whoever tracked it.
     [taskWith("IN_PROGRESS"), "UCREATOR", ["CLIENT_REVIEW", "DONE"]],
-    // The team's own task, and an incident's, have no client to review it.
-    [ownTask({ developers: ["UACTOR"] }), "UACTOR", ["DONE"]],
+    // The team's own task in a group with a client: whoever handles the
+    // client may still show it to them.
+    [ownTask({ developers: ["UACTOR"] }), "UACTOR", ["CLIENT_REVIEW", "DONE"]],
+    // An incident's has no client review.
     [incidentTask("IN_PROGRESS"), "UCREATOR", ["DONE"]],
   ]) {
     for (const text of ["done", "Finished it", "completed", "merged", "deployed to staging", "released", "shipped", "fixed"]) {
@@ -5613,7 +5726,7 @@ test("Move to In testing with no testers yet asks no one", async (t) => {
   assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UACTOR> set the status to :test_tube: In testing.");
 });
 
-test("Move to Client review asks the client in the requirement thread, as the status menu does", async (t) => {
+test("Move to Client review asks who approves, as the status menu does", async (t) => {
   const calls = mockSlack(t, {
     ...threads(requirementRoot({ task: true }), taskWith("IN_TESTING", { testers: ["UACTOR"] })),
     "chat.getPermalink": () => ({ permalink: "https://slack.example/source" }),
@@ -5622,10 +5735,9 @@ test("Move to Client review asks the client in the requirement thread, as the st
   await send("/slack/interactions", progressClick("CLIENT_REVIEW", "IN_TESTING"));
   assert.equal((await savedTask()).status, "CLIENT_REVIEW");
   const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args);
-  const asked = posts.find((post) => post.channel === "CEXTERNAL");
-  assert.match(asked.text, /ready for you to review/);
-  const told = posts.find((post) => post.channel === "CDEV");
-  assert.match(told.text, /^<@UACTOR> set the status to :raising_hand: Client review\.\nI've asked the client to review it in /);
+  assert.ok(!posts.some((post) => post.channel === "CEXTERNAL"));
+  assert.equal(calls.find((call) => call.method === "chat.postEphemeral").args.blocks[1].elements[0].action_id, "status:ask");
+  assert.equal(posts[0].text, "<@UACTOR> set the status to :raising_hand: Client review.");
 });
 
 test("Move to Done marks it done", async (t) => {
@@ -6674,4 +6786,170 @@ test("a period's days start and end in TIMEZONE", async () => {
   // Across a change of clocks, in London.
   assert.equal(dayBoundary({ TIMEZONE: "Europe/London" }, "2026-10-25"), "2026-10-24T23:00:00.000Z");
   assert.equal(dayBoundary({ TIMEZONE: "Europe/London" }, "2026-10-25", { end: true }), "2026-10-25T23:59:59.999Z");
+});
+
+test("@Cade detach in a task thread hands it to the team and closes its requirement", async (t) => {
+  const calls = mockSlack(t, { stored: [requirementRoot({ task: true }), storedTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> detach"));
+
+  // The task, re-rendered with no link to the requirement.
+  const task = await savedTask();
+  assert.equal(task.source, undefined);
+  const card = calls.find((call) => call.method === "chat.update" && call.args.channel === "CDEV");
+  assert.doesNotMatch(JSON.stringify(card.args), /the requirement thread/);
+
+  // The requirement's message says where the work went, and Cade stops
+  // tracking it.
+  const root = calls.find((call) => call.method === "chat.update" && call.args.channel === "CEXTERNAL");
+  assert.match(blockText(root.args.blocks[1]), /^Moved to <https:\/\/slack\.example\/p100\|its task> in <#CDEV> by <@UACTOR>/);
+  assert.deepEqual(root.args.attachments, []);
+  assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.channel === "CEXTERNAL"));
+  assert.equal(await savedRequirement(), null);
+
+  // Both threads hear it.
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  assert.deepEqual(posts.map((call) => [call.args.channel, call.args.thread_ts]), [["CEXTERNAL", "200.1"], ["CDEV", "100.1"]]);
+  assert.match(posts[0].args.text, /detached the task\. The team tracks it in <https:\/\/slack\.example\/p100\|its own thread>/);
+  assert.match(posts[1].args.text, /detached this task from <https:\/\/slack\.example\/source\|its requirement thread>\. Its priority and due date are set here now\.$/);
+
+  // Its priority is the team's to change now.
+  mockSlack(t, { stored: [{ channel: "CDEV", ts: "100.1", task }] });
+  await send("/slack/events", threadEvent("<@UBOT> priority low"));
+  assert.equal((await savedTask()).priority, "Low");
+});
+
+test("@Cade detach frees an incident's task to change its priority and due date", async (t) => {
+  const incidentTask = inChannel("CINC", storedTask());
+  incidentTask.task.source.incident = true;
+  mockSlack(t, { stored: [incidentTask] });
+  await send("/slack/events", threadEvent("<@UBOT> detach", { channel: "CINC" }), {}, incidentEnv);
+  mockSlack(t, { stored: [{ ...incidentTask, task: await savedTask("CINC") }] });
+  await send("/slack/events", threadEvent("<@UBOT> due 5/1/2027", { channel: "CINC" }), {}, incidentEnv);
+  assert.equal((await savedTask("CINC")).dueDate, "05/01/2027");
+});
+
+test("@Cade detach works only in a linked task's thread", async (t) => {
+  let calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> detach"));
+  assert.equal(calls.at(-1).args.text, "This task isn't linked to a requirement or incident, so there's nothing to detach.");
+
+  // From the client's thread it points to the task's.
+  calls = mockSlack(t, { stored: [requirementRoot({ task: true }), storedTask()] });
+  await send("/slack/events", requirementReplyFrom("<@UBOT> detach", "UACTOR"));
+  assert.equal(calls.at(-1).args.text, "That one works with `@Cade detach` in a task thread in <#CDEV>.");
+  assert.ok((await savedTask()).source);
+});
+
+test("a team-only group's task saying it's finished is offered Done only", async (t) => {
+  const record = inChannel("CTEAM", ownTask({ developers: ["UACTOR"] }));
+  const calls = mockSlack(t, { stored: [record] });
+  await send("/slack/events", threadReply("done", { channel: "CTEAM" }), {}, teamOnlyEnv);
+  assert.deepEqual(questionButtons(ephemeral(calls)).slice(0, -1).map((button) => JSON.parse(button.value).status), ["DONE"]);
+});
+
+// The team's own task at CDEV/100.1, or one detached from its requirement,
+// with `prs` linked: no requirement thread to send them to.
+const ownReleaseTask = (prs, releases = []) => {
+  const record = ownTask({ developers: ["UDEV"] });
+  Object.assign(record.task, { prs, releases });
+  return { stored: [record] };
+};
+
+test("PRs of a task with no requirement thread are sent for approval in its own thread", async (t) => {
+  let calls = mockSlack(t, ownReleaseTask([PR, MR]));
+  await send("/slack/events", threadEvent("<@UBOT> release"));
+  const button = calls.at(-1).args.blocks[0].elements[0];
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      trigger_id: "T1",
+      user: { id: "UDEV" },
+      channel: { id: "CDEV" },
+      message: { ts: "100.7", thread_ts: "100.1" },
+      actions: [{ action_id: "release:open", value: button.value }],
+    }),
+  );
+  // No requirement, so nobody is picked to begin with.
+  const view = calls.at(-1).args.view;
+  assert.equal(view.blocks[2].element.type, "users_select");
+  assert.equal(view.blocks[2].element.initial_user, undefined);
+  assert.equal(view.blocks[3].elements[0].text, "They approve them in this thread. If they don't, you can send them again.");
+
+  calls = mockSlack(t, ownReleaseTask([PR, MR]));
+  await send("/slack/interactions", releaseSubmission([PR], "Login and sign-up", "UPM"));
+  assert.deepEqual(await releasesOf(), [{ ...inReview([PR]), decidedBy: null }]);
+  // The request is posted in the task's thread only.
+  assert.ok(!calls.some((call) => call.args.channel === "CEXTERNAL"));
+  const ask = calls.at(-1).args;
+  assert.equal(calls.at(-1).method, "chat.postMessage");
+  assert.equal(ask.channel, "CDEV");
+  assert.equal(ask.thread_ts, "100.1");
+  assert.equal(ask.blocks[0].text.text, `<@UDEV> sent these PRs for approval: <${PR}|cade/42>\n*Completes:* Login and sign-up`);
+  assert.match(ask.blocks[1].text.text, /^<@UPM>, could you take a look and approve them/);
+  assert.equal(JSON.parse(ask.blocks[2].elements[0].value).approver, "UPM");
+
+  // The approver decides there, and the developers hear it.
+  for (const [action, status, said] of [
+    ["release:approve", "APPROVED", `<@UDEV>, good news! <@UPM> approved <${PR}|cade/42>.`],
+    ["release:reject", "NOT_APPROVED", `<@UDEV>, <@UPM> didn't approve <${PR}|cade/42>. Have a look at the thread for what needs to change, then send them again with \`@Cade release\`.`],
+  ]) {
+    calls = mockSlack(t, ownReleaseTask([PR, MR], [inReview([PR])]));
+    const click = JSON.parse(new URLSearchParams(releaseClick(action)).get("payload"));
+    Object.assign(click, { user: { id: "UPM" }, channel: { id: "CDEV" } });
+    click.message = { ts: "100.7", thread_ts: "100.1", blocks: ask.blocks };
+    click.actions[0].value = ask.blocks[2].elements[0].value;
+    await send("/slack/interactions", interaction(click));
+    const row = await DB.prepare("SELECT status, decided_by FROM releases").first();
+    assert.deepEqual({ ...row }, { status, decided_by: "UPM" });
+    const told = calls.find((call) => call.method === "chat.postMessage").args;
+    assert.equal(told.channel, "CDEV");
+    assert.equal(told.text, said);
+    assert.ok(!calls.some((call) => call.method === "chat.getPermalink"));
+  }
+});
+
+test("Client review on a task with no requirement thread asks the approver in its own thread", async (t) => {
+  const record = ownTask({ developers: ["UDEV"] });
+  record.task.status = "IN_TESTING";
+  record.task.prs = [PR];
+  let calls = await clientReview(t, { stored: [record] }, { approver: "UPM" });
+  assert.equal((await savedTask()).status, "CLIENT_REVIEW");
+  assert.ok(!calls.some((call) => call.args.channel === "CEXTERNAL"));
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  assert.equal(form.blocks[0].element.initial_user, undefined);
+  assert.equal(form.blocks[1].elements[0].text, "They approve it in this thread.");
+  // The request is posted in the task's thread.
+  const ask = calls.at(-1).args;
+  assert.equal(calls.at(-1).method, "chat.postMessage");
+  assert.equal(ask.channel, "CDEV");
+  assert.equal(ask.thread_ts, "100.1");
+  assert.equal(
+    ask.blocks[0].text.text,
+    `Good news! <@UACTOR> says this is ready for review.\n*PRs:* <${PR}|cade/42>\n<@UPM>, could you take a look and approve it, or let us know what needs to change?`,
+  );
+  const [approve] = ask.blocks[1].elements;
+
+  for (const [action, status, said] of [
+    ["status:approve", "DONE", "<@UPM> approved this, so it's now :white_check_mark: Done. Nice work!"],
+    ["status:reject", "IN_PROGRESS", "<@UPM> didn't approve this, so it's back to :arrow_forward: In progress. Have a look at the thread for what needs to change."],
+  ]) {
+    calls = mockSlack(t, { stored: [{ ...record, task: { ...record.task, status: "CLIENT_REVIEW" } }] });
+    await send(
+      "/slack/interactions",
+      interaction({
+        type: "block_actions",
+        user: { id: "UPM" },
+        channel: { id: "CDEV" },
+        message: { ts: "100.8", thread_ts: "100.1" },
+        actions: [{ action_id: action, value: approve.value }],
+      }),
+    );
+    assert.equal((await savedTask()).status, status);
+    const told = calls.find((call) => call.method === "chat.postMessage").args;
+    assert.equal(told.thread_ts, "100.1");
+    assert.equal(told.text, said);
+    assert.equal(calls.at(-1).args.ts, "100.8");
+    assert.ok(!calls.some((call) => call.method === "chat.getPermalink"));
+  }
 });

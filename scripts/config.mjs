@@ -72,7 +72,8 @@ export async function uploadConfig() {
   const secrets = readConfig(json);
   for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
     const incidents = pair.incidents ? `, incidents ${pair.incidents}` : "";
-    console.log(`${pair.name}: external ${pair.external} → tasks ${pair.tasks}${incidents}`);
+    const external = pair.external ? `external ${pair.external} → ` : "";
+    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.SHEET_URL) console.log(`sheetUrl: ${secrets.SHEET_URL}`);

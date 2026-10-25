@@ -316,3 +316,37 @@ export function formatDueDate(selectedDate) {
   const [, year, month, day] = match;
   return `${day}/${month}/${year}`;
 }
+
+// The approval forms' picker for who approves or rejects: the client, or
+// whoever handles them. A requirement's starter is picked to begin with.
+export function approverBlock(initialUser) {
+  return {
+    type: "input",
+    block_id: "approver",
+    label: plainText("Who approves"),
+    element: {
+      type: "users_select",
+      action_id: "value",
+      placeholder: plainText("Choose a person"),
+      ...(initialUser && { initial_user: initialUser }),
+    },
+  };
+}
+
+export function readApprover(values) {
+  return values.approver?.value?.selected_user ?? null;
+}
+
+// Whether `payload`'s Approve or Not approve click came from someone other
+// than `approver`, who alone decides; they are told so, privately. Buttons
+// from before an approver was picked have none, and anyone may click them.
+export async function notTheApprover(env, payload, approver) {
+  if (!approver || payload.user.id === approver) return false;
+  await callSlack(env, "chat.postEphemeral", {
+    channel: payload.channel.id,
+    thread_ts: payload.message.thread_ts,
+    user: payload.user.id,
+    text: `Only <@${approver}> can approve or reject this.`,
+  });
+  return true;
+}

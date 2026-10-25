@@ -89,6 +89,8 @@ fix what you can using its If it fails. Stop and tell me exactly what
 to do whenever a step needs a person: browser logins, approvals, Slack
 and Google settings, and creating or inviting channels. Ask me for every
 value you need (names, channel IDs, the time zone) instead of guessing.
+For the channels, ask me whether each group is team only or has a client
+channel too.
 Never ask me for a token or secret, and never put one in a file, a
 commit or a command: the commands that need one (`slack:create`,
 `slack:update`, `wrangler secret put`, `npm run dev`) ask for it
@@ -111,7 +113,7 @@ anything, and before running a step a second time.</pre>
             <ul>
               <li>Logging in to Cloudflare, and to Google for the Sheet, in your browser</li>
               <li>Making a Slack app configuration token, and installing the app</li>
-              <li>Creating the channels and inviting Cade to them</li>
+              <li>Choosing team only (a dev channel) or with a client (a client channel too), creating the channels and inviting Cade to them</li>
               <li>Telling it the channel IDs and your team's time zone</li>
             </ul>
           </div>
@@ -121,7 +123,7 @@ anything, and before running a step a second time.</pre>
           <div class="dot">4</div>
           <div>
             <h3>Try it</h3>
-            <p class="lede" style="font-size: .98rem;">Post a message in your client channel: Cade offers to start a requirement from it. Send <code>@Cade help</code> for the short list, or see the <a href="index.html#walkthrough">demo</a> and <a href="commands.html">every command</a>.</p>
+            <p class="lede" style="font-size: .98rem;">Send <code>/cade track</code> in your dev channel to track a task, or, with a client channel, post a message there: Cade offers to start a requirement from it. Send <code>@Cade help</code> for the short list, or see the <a href="index.html#walkthrough">demo</a> and <a href="commands.html">every command</a>.</p>
           </div>
         </li>
 

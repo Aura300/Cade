@@ -5,6 +5,8 @@ fix what you can using its If it fails. Stop and tell me exactly what
 to do whenever a step needs a person: browser logins, approvals, Slack
 and Google settings, and creating or inviting channels. Ask me for every
 value you need (names, channel IDs, the time zone) instead of guessing.
+For the channels, ask me whether each group is team only or has a client
+channel too.
 Never ask me for a token or secret, and never put one in a file, a
 commit or a command: the commands that need one (`slack:create`,
 `slack:update`, `wrangler secret put`, `npm run dev`) ask for it

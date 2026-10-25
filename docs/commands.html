@@ -135,7 +135,8 @@
         <p>Without a status, shows a menu. With one, Cade sets it and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
         <ul>
           <li>Done unpins the task and its requirement; moving it out of Done pins them again.</li>
-          <li>Client review and Done are told to the requirement thread. Client review asks the client to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress).</li>
+          <li>Done is told to the requirement thread.</li>
+          <li>Client review shows whoever set it a private <b>Ask for approval</b> button (set it again to get it back): pick who approves (whoever started the requirement, to begin with). Cade asks them in the requirement thread, or in the task thread when there's none, to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress). Only they can click.</li>
           <li>The client sees the team's own stages (To do, In review, In testing) as In progress.</li>
         </ul>
       </article>
@@ -150,9 +151,9 @@
       <article class="entry">
         <h3><code>@Cade release</code> <code>@Cade deliver</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
-        <p>Sends some of the task's PRs to the client before the whole task is done. A <b>Choose PRs</b> form lists the ones not sent yet and asks what they complete. The client gets them in the requirement thread with <b>Approve</b> and <b>Not approve</b>. PRs that weren't approved can be sent again. The task's status doesn't change.</p>
+        <p>Sends some of the task's PRs to the client before the whole task is done. A private <b>Choose PRs</b> button opens a form that lists the ones not sent yet and asks what they complete and who approves them (whoever started the requirement, to begin with). The approver gets them with <b>Approve</b> and <b>Not approve</b>, which only they can click, in the requirement thread, or in the task thread when there's none. PRs that weren't approved can be sent again. The task's status doesn't change.</p>
         <ul>
-          <li>Only for tasks tracked from a requirement or incident, since the team's own work has no client thread.</li>
+          <li>The task thread hears the decision, mentioning the developers.</li>
         </ul>
         <div class="example"><b>Example:</b> send PR #128 as “Deposit checkout flow (20% default)”.</div>
       </article>
@@ -199,6 +200,16 @@
           <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>
           <li>Only the message is copied, not its replies or attachments, and a message is never moved twice.</li>
           <li>If the original was pinned, it's unpinned: its new thread is where it's followed now.</li>
+        </ul>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade detach</code></h3>
+        <div class="tags"><span class="where">Task thread</span></div>
+        <p>Unlinks a task from the requirement or incident it was tracked from, so the team owns it. Sent from the task's thread, never the client's; both threads are told.</p>
+        <ul>
+          <li><b>The task</b> stays where it is, without the link, and its priority and due date are changed from its own thread from then on, incidents' included.</li>
+          <li><b>The requirement's message</b> stays, unpinned, saying where the work went. Cade stops tracking it, so it leaves the summaries and <code>/cade exec</code>.</li>
         </ul>
       </article>
 
@@ -316,7 +327,7 @@
         <tr><td>A task's status, people and PRs</td><td>The team</td><td>The task thread</td></tr>
         <tr><td>The team's own task's priority and due date</td><td>The team</td><td>The task thread</td></tr>
         <tr><td>An incident's priority and due date</td><td>Nobody</td><td>Always Urgent, due Immediate</td></tr>
-        <tr><td>Accepting work in Client review, and partial releases</td><td>The client</td><td>Approve / Not approve in the requirement thread</td></tr>
+        <tr><td>Accepting work in Client review, and partial releases</td><td>Whoever is picked to approve: the client, or whoever handles them</td><td>Approve / Not approve in the requirement thread, or the task thread when there's none</td></tr>
       </tbody>
     </table>
   </div>

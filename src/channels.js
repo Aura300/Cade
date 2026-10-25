@@ -1,7 +1,9 @@
-// CHANNEL_PAIRS links each external channel, where tasks are requested, to the
-// channel where those tasks are tracked, and optionally to a channel where
-// incidents are tracked. Several pairs can run side by side, such as the real
-// channels and a pair of test channels.
+// CHANNEL_PAIRS names each group's tasks channel, where the team tracks its
+// work, and optionally its external channel, where a client starts
+// requirements and reports incidents, and its incidents channel, where
+// incidents are tracked. A group with only a tasks channel uses `/cade track`
+// alone. Several pairs can run side by side, such as the real channels and a
+// pair of test channels.
 const ROLES = ["external", "tasks", "incidents"];
 
 // It is a Worker secret, so a JSON string; a list also works, as tests and
@@ -11,9 +13,9 @@ export function channelPairs(env) {
   if (
     !Array.isArray(pairs) ||
     !pairs.length ||
-    pairs.some((pair) => !pair?.name || !pair?.external || !pair?.tasks)
+    pairs.some((pair) => !pair?.name || !pair?.tasks)
   ) {
-    throw new Error("CHANNEL_PAIRS must list { name, external, tasks } for each pair");
+    throw new Error("CHANNEL_PAIRS must list { name, tasks } for each pair, with external and incidents if it has them");
   }
   return pairs;
 }
@@ -27,7 +29,7 @@ function parsePairs(json) {
 }
 
 // Returns every channel ID with the given role: "external", "tasks" or
-// "incidents". Pairs without an incidents channel have none.
+// "incidents". Pairs without an external or incidents channel have none.
 export function channelsWithRole(env, role) {
   return channelPairs(env)
     .map((pair) => pair[role])

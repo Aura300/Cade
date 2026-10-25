@@ -58,6 +58,8 @@ function checkScope(scope, usage, command, env) {
     (!scope.inThread || inThread);
   if (allowed) return undefined;
 
+  const missing = missingRoles(scope, env, command.channel);
+  if (missing) return missing;
   const where = scope.inThread ? " in a task thread" : "";
   return `That one works with \`${usage}\`${where}${channelHint(scope, env, command.channel)}.`;
 }
@@ -65,6 +67,16 @@ function checkScope(scope, usage, command, env) {
 function channelsFor(scope, env) {
   const roles = [scope.channel ?? []].flat();
   return roles.flatMap((role) => channelsWithRole(env, role));
+}
+
+// From a channel in a pair that has none of the channels the command works
+// in, such as a group with only a tasks channel, says what to add.
+function missingRoles(scope, env, from) {
+  const pair = findPair(env, from);
+  const roles = [scope.channel ?? []].flat();
+  if (!pair || !roles.length || roles.some((role) => pair[role])) return undefined;
+  const names = roles.map((role) => `\`${role}\``).join(" or ");
+  return `This group has no ${names} channel, so that one isn't available here. Add one to its pair in \`CHANNEL_PAIRS\` to use it.`;
 }
 
 // Names the channels to use instead. From a channel in a pair, only that

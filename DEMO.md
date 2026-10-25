@@ -193,8 +193,10 @@ In the **Occupancy report** requirement thread, **You**:
 **Rex**:
 > `@Cade release`
 
-- **Choose PRs** → tick #128 → note **"Deposit checkout flow (20% default)"**.
-- **Show:** the requirement thread gets it with **Approve / Not approve**.
+- **Choose PRs** → tick #128 → note **"Deposit checkout flow (20% default)"**
+  → **Who approves** is already Sarah.
+- **Show:** the requirement thread gets it with **Approve / Not approve**,
+  which only Sarah can click.
   **Sarah** clicks **Not approve** and replies:
   > The deposit line is missing on the confirmation email.
 - **Rex** fixes it and sends again with `@Cade deliver` (same command) →
@@ -207,8 +209,9 @@ In the **Occupancy report** requirement thread, **You**:
 - Pick 🧪 In testing from the menu (already set — show the menu anyway), then:
 > `@Cade status client review`
 
-- Cade reacts ✅; the requirement thread mentions Sarah with the remaining
-  PRs and **Approve / Not approve**.
+- Cade reacts ✅ and shows Tom a private **Ask for approval** → keep Sarah → the
+  requirement thread mentions her with the remaining PRs and
+  **Approve / Not approve**.
 
 ### 15b. Progress in plain words
 In a task that's 👀 In review, the reviewer (**Mia**):
@@ -225,7 +228,7 @@ In a task that's 👀 In review, the reviewer (**Mia**):
 ### 16. The client decides
 **Sarah** clicks **Not approve** once → the task goes back to ▶️ In progress
 and the task thread is told. **Tom** sends `@Cade status client review`
-again → **Sarah** clicks **Approve** → ✅ Done, the task and requirement are
+again → **Ask for approval** → **Sarah** clicks **Approve** → ✅ Done, the task and requirement are
 unpinned, and the requirement card shows Done.
 
 ---

@@ -48,7 +48,7 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "external", "tasks", "incidents" }`. `name` is the group's name (its tab in the Sheet); `external` is the client's channel, `tasks` the dev channel, `incidents` (optional) the incidents channel. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents" }`. `name` is the group's name (its tab in the Sheet); `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `sheetUrl` | Optional | The Google Sheet's web app URL (`https://script.google.com/…/exec`). Without it, nothing is written to a Sheet. | Set for you by `npm run sheet:create` (step 8). |
 
@@ -167,12 +167,19 @@ npx wrangler secret put SLACK_BOT_TOKEN
 
 ## 7. Set up the channels
 
-For each team or project (a **group**), create in Slack:
+For each team or project (a **group**), pick one of two setups:
 
-- an **external** channel, where the client asks for work (for example
-  `#acme-external`);
-- a **dev** channel, where the team tracks it (`#acme-dev`);
-- optionally an **incidents** channel (`#acme-incidents`).
+- **Team only:** a **dev** channel (for example `#acme-dev`), where the team
+  tracks its work with `/cade track`, setting each task's priority and due
+  date. This is the simplest setup, and enough when no client works in
+  Slack with you.
+- **With a client:** the dev channel, plus an **external** channel shared
+  with the client (`#acme-external`), where they start requirements and
+  report incidents that the team tracks as tasks in the dev channel, and
+  optionally an **incidents** channel (`#acme-incidents`) for incidents'
+  tasks.
+
+You can add the external channel to a group later.
 
 Find each channel's ID: open the channel → click its name → **About** →
 **Channel ID** at the bottom (it starts with `C`). Put them in
@@ -186,12 +193,14 @@ cp cade.config.example.json cade.config.json
 {
   "timezone": "UTC",
   "channels": [
-    { "name": "acme", "external": "C…", "tasks": "C…", "incidents": "C…" }
+    { "name": "acme", "tasks": "C…" },
+    { "name": "globex", "external": "C…", "tasks": "C…", "incidents": "C…" }
   ]
 }
 ```
 
-Add one line to `channels` per group. Each key is described under
+Add one line to `channels` per group: `acme` is team only, `globex` has a
+client. Each key is described under
 [Settings](#settings); `timezone` and `sheetUrl` are optional.
 
 `cade.config.json` stays on your machine (git ignores it). Upload it:
@@ -245,11 +254,11 @@ again. Details, doing it by hand, and troubleshooting are in
 ## 9. Check it works
 
 1. In any channel: `/cade help` → only you see the command list.
-2. In the external channel: `/cade requirement` → a form; submitting posts a
-   **Requirement** card.
-3. In its thread: `@Cade track` → a **Track task** button; tracking posts
-   the task in the dev channel.
-4. In the task's thread: `@Cade status in progress` → ✅ on your message.
+2. In the dev channel: `/cade track` → a form; submitting posts the task.
+3. In the task's thread: `@Cade status in progress` → ✅ on your message.
+4. With a client channel, in it: `/cade requirement` → a form; submitting
+   posts a **Requirement** card. In its thread, `@Cade track` → a **Track
+   task** button; tracking posts the task in the dev channel.
 
 **If nothing answers:** run `npx wrangler tail` and try again.
 `Invalid signature` means the signing secret is wrong (rerun step 5 or

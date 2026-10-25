@@ -1,7 +1,17 @@
 import { decideRelease, insertRelease } from "../db.js";
 import { loadRequirement, reflectOnRequirement } from "../requirements.js";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, loadTask, parsePullRequest, prLink, taskMessage, unsentPrs } from "../tasks.js";
+import { callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText } from "../slack.js";
+import {
+  NOT_A_TASK,
+  approverBlock,
+  loadTask,
+  notTheApprover,
+  parsePullRequest,
+  prLink,
+  readApprover,
+  taskMessage,
+  unsentPrs,
+} from "../tasks.js";
 
 const OPEN_ACTION = "release:open";
 const APPROVE_ACTION = "release:approve";
@@ -11,27 +21,28 @@ const RELEASE_VIEW = "release";
 // Slack shows up to 10 checkboxes; more pull requests are offered in a menu.
 const MAX_CHECKBOXES = 10;
 
-const NOT_FOR_OWN_WORK =
-  "I can only send PRs to the client for tasks tracked from a requirement or incident, and this one doesn't have a client thread.";
 const NO_PRS = "There aren't any PRs to send yet. Link them first with `@Cade pr add <link>`.";
 const ALL_SENT = "All of this task's PRs are already with the client.";
 
 // `@Cade release` (or `@Cade deliver`) in a task thread sends some of the
-// task's PRs to the client before the whole requirement is done. It replies
-// with a Choose PRs button, since only a click carries the trigger_id a
-// modal needs. The form lists the PRs not sent yet, and asks what they
-// complete.
+// task's PRs to the client before the whole requirement is done. It shows
+// whoever sent it, privately, a Choose PRs button, since only a click
+// carries the trigger_id a modal needs. The form lists the PRs not sent yet,
+// and asks what they complete and who approves them: whoever started the
+// requirement, to begin with, or whoever handles the client.
 //
-// Submitting posts the PRs and what they complete in the requirement thread,
-// mentioning whoever started the requirement, with Approve and Not approve
-// buttons, and says so in the task's thread. The release is stored with the
+// Submitting removes the private button and posts the PRs and what they
+// complete with Approve and Not approve buttons, mentioning the approver,
+// who alone can click them. They go in the requirement thread, and the
+// task's thread is told; a task with no requirement thread, the team's own
+// or one detached from it, gets them in its own thread instead. The release is stored with the
 // task (in the releases table), and the task's message and the
 // requirement's show each PR pending, pending approval or approved. Approving
 // marks the release APPROVED. Not approving marks it NOT_APPROVED, kept but
-// no longer shown, so its PRs are pending again and can be sent again. Either way both threads hear it,
-// the task's mentioning its developers. The task's status doesn't change:
-// the rest of the work goes on, and Client review sends what's left (see
-// status.js).
+// no longer shown, so its PRs are pending again and can be sent again. Either
+// way the task's thread hears it, mentioning its developers. The task's
+// status doesn't change: the rest of the work goes on, and Client review
+// sends what's left (see status.js).
 export default {
   name: "release",
   aliases: ["deliver"],
@@ -44,8 +55,11 @@ export default {
     const found = await findRelease(env, command.channel, command.threadTs);
     if (found.problem) return found.problem;
     const value = JSON.stringify({ channel: command.channel, ts: command.threadTs });
-    return {
-      text: "Send PRs to the client",
+    await callSlack(env, "chat.postEphemeral", {
+      channel: command.channel,
+      thread_ts: command.threadTs,
+      user: command.user,
+      text: "Send PRs for approval",
       blocks: [
         {
           type: "actions",
@@ -54,7 +68,7 @@ export default {
           ],
         },
       ],
-    };
+    });
   },
   actions: {
     [OPEN_ACTION]: async (payload, { env }) => {
@@ -64,10 +78,11 @@ export default {
         await callSlack(env, "chat.postEphemeral", { channel, thread_ts: ts, user: payload.user.id, text: found.problem });
         return;
       }
-      // The button's own message is replaced by the announcement later.
+      // The private button goes once the form is sent, through the click's
+      // response_url, the only way to change a private message.
       await callSlack(env, "views.open", {
         trigger_id: payload.trigger_id,
-        view: releaseView({ channel, ts, promptTs: payload.message.ts }, found.unsent),
+        view: releaseView({ channel, ts, responseUrl: payload.response_url }, found.unsent, found.requirement),
       });
     },
     [APPROVE_ACTION]: async (payload, context) => {
@@ -80,27 +95,27 @@ export default {
   views: { [RELEASE_VIEW]: submit },
 };
 
-// The task in the thread, its requirement and the PRs not sent yet, as
-// { task, requirement, unsent }, or { problem } saying why none can be sent.
+// The task in the thread, its requirement, if it has one, and the PRs not
+// sent yet, as { task, requirement, unsent }, or { problem } saying why none
+// can be sent.
 async function findRelease(env, channel, ts) {
   const task = await loadTask(env, channel, ts);
   if (!task) return { problem: NOT_A_TASK };
-  if (!task.source) return { problem: NOT_FOR_OWN_WORK };
   if (!task.prs.length) return { problem: NO_PRS };
-  const requirement = await loadRequirement(env, task.source.channel, task.source.threadTs);
-  if (!requirement) return { problem: NOT_FOR_OWN_WORK };
+  const requirement = task.source && (await loadRequirement(env, task.source.channel, task.source.threadTs));
   const unsent = unsentPrs(task);
   if (!unsent.length) return { problem: ALL_SENT };
   return { task, requirement, unsent };
 }
 
-function releaseView(origin, prs) {
+function releaseView(origin, prs, requirement) {
   // Each PR as reponame/number; option text holds up to 75 characters.
   const option = (url) => {
     const pr = parsePullRequest(url);
     return { text: plainText((pr ? `${pr.repo}/${pr.number}` : url).slice(0, 75)), value: url };
   };
   const options = prs.map(option);
+  const where = requirement ? "in the requirement thread" : "in this thread";
   return {
     type: "modal",
     callback_id: RELEASE_VIEW,
@@ -131,9 +146,10 @@ function releaseView(origin, prs) {
           placeholder: plainText("e.g. Login and sign-up. Password reset is still in progress."),
         },
       },
+      approverBlock(requirement?.createdBy),
       {
         type: "context",
-        elements: [mrkdwn("The client approves them in the requirement thread. If they don't, you can send them again.")],
+        elements: [mrkdwn(`They approve them ${where}. If they don't, you can send them again.`)],
       },
     ],
   };
@@ -143,19 +159,21 @@ async function submit(payload, context) {
   const values = payload.view.state.values;
   const prs = (values.prs.value.selected_options ?? []).map((option) => option.value);
   const note = values.note.value.value?.trim() ?? "";
+  const approver = readApprover(values);
   const errors = {};
   if (!prs.length) errors.prs = "Please choose at least one PR.";
   if (!note) errors.note = "Please say what these PRs complete.";
+  if (!approver) errors.approver = "Please choose who approves them.";
   if (Object.keys(errors).length) return { response_action: "errors", errors };
 
   const origin = JSON.parse(payload.view.private_metadata || "{}");
-  context.waitUntil(send(context.env, origin, prs, note, payload.user.id));
+  context.waitUntil(send(context.env, origin, prs, note, approver, payload.user.id));
   return { response_action: "clear" };
 }
 
-// Records the release on the task, asks the client to approve it in
-// the requirement thread, and tells the task's thread.
-async function send(env, origin, chosen, note, user) {
+// Records the release on the task, asks the approver in the requirement
+// thread, or the task's own when it has none, and tells the task's thread.
+async function send(env, origin, chosen, note, approver, user) {
   const found = await findRelease(env, origin.channel, origin.ts);
   // Someone else may have sent some of them while the form was open.
   const prs = found.problem ? [] : chosen.filter((url) => found.unsent.includes(url));
@@ -165,7 +183,6 @@ async function send(env, origin, chosen, note, user) {
     return;
   }
   const { task, requirement } = found;
-  const { channel, threadTs } = task.source;
   const release = { prs, note, status: "PENDING_APPROVAL", sentBy: user };
   const id = await insertRelease(env, origin.channel, origin.ts, release);
   task.releases = [...task.releases, { id, ...release }];
@@ -173,13 +190,13 @@ async function send(env, origin, chosen, note, user) {
   console.log("Release sent", { ts: origin.ts, id, prs: prs.length });
 
   const list = prs.map(prLink).join(", ");
-  const sent = `<@${user}> sent these PRs for your approval: ${list}\n*Completes:* ${escapeSlack(note)}`;
-  const request = `<@${requirement.createdBy}>, could you take a look and approve them, or let us know what needs to change?`;
-  // The buttons carry the task's thread, which holds the release.
-  const value = JSON.stringify({ channel: origin.channel, ts: origin.ts, id });
-  const posted = await callSlack(env, "chat.postMessage", {
-    channel,
-    thread_ts: threadTs,
+  const completes = `*Completes:* ${escapeSlack(note)}`;
+  const sent = `<@${user}> sent these PRs for approval: ${list}\n${completes}`;
+  const request = `<@${approver}>, could you take a look and approve them, or let us know what needs to change?`;
+  // The buttons carry the task's thread, which holds the release, and who
+  // may click them.
+  const value = JSON.stringify({ channel: origin.channel, ts: origin.ts, id, approver });
+  const ask = {
     text: `${sent}\n${request}`,
     blocks: [
       // The decision replaces the request and the buttons, so `sent` is a
@@ -194,17 +211,25 @@ async function send(env, origin, chosen, note, user) {
         ],
       },
     ],
-  });
+  };
 
-  const where = await threadLink(env, channel, posted.ts ?? threadTs);
-  const text = `<@${user}> sent ${list} to the client for approval ${where}. I'll let you know when they reply.\n*Completes:* ${escapeSlack(note)}`;
-  const body = { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
-  if (origin.promptTs) {
-    await callSlack(env, "chat.update", { channel: origin.channel, ts: origin.promptTs, ...body });
-  } else {
-    await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.ts, ...body });
+  await dismiss(origin.responseUrl);
+  if (!requirement) {
+    await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.ts, ...ask });
+    return;
   }
+  const { channel, threadTs } = task.source;
+  const posted = await callSlack(env, "chat.postMessage", { channel, thread_ts: threadTs, ...ask });
+  const where = await threadLink(env, channel, posted.ts ?? threadTs);
+  const text = `<@${user}> sent ${list} to <@${approver}> for approval ${where}. I'll let you know when they reply.\n${completes}`;
+  await callSlack(env, "chat.postMessage", {
+    channel: origin.channel,
+    thread_ts: origin.ts,
+    text,
+    blocks: [{ type: "section", text: mrkdwn(text) }],
+  });
 }
+
 
 // Shows the task's releases on its message and its requirement's.
 async function showReleases(env, channel, ts, task) {
@@ -223,11 +248,12 @@ async function threadLink(env, channel, ts) {
   }
 }
 
-// Applies the client's decision on a release, then replaces the request and
-// its buttons with the decision and tells the task's thread, mentioning its
-// developers.
+// Applies the approver's decision on a release, then replaces the request
+// and its buttons with the decision and tells the task's thread, mentioning
+// its developers.
 async function review(payload, env, approved) {
-  const { channel, ts, id } = JSON.parse(payload.actions[0].value);
+  const { channel, ts, id, approver } = JSON.parse(payload.actions[0].value);
+  if (await notTheApprover(env, payload, approver)) return;
   const user = payload.user.id;
   const task = await loadTask(env, channel, ts);
   const release = task?.releases.find((item) => item.id === id);
@@ -264,12 +290,15 @@ async function review(payload, env, approved) {
   });
 }
 
+// Tells the task's thread the decision, as a new reply, since mentions in an
+// edited message notify no one. A decision made in the requirement thread
+// links to it.
 async function tellTask(env, channel, ts, task, payload, release, list, approved) {
-  const where = await threadLink(env, payload.channel.id, payload.message.ts);
+  const where = payload.channel.id === channel ? "" : ` ${await threadLink(env, payload.channel.id, payload.message.ts)}`;
   const people = [...new Set([release.sentBy, ...task.people.developer])];
   const text = approved
-    ? `${mentions(people)}, good news! <@${payload.user.id}> approved ${list} ${where}.`
-    : `${mentions(people)}, <@${payload.user.id}> didn't approve ${list} ${where}. Have a look at the thread for what needs to change, then send them again with \`@Cade release\`.`;
+    ? `${mentions(people)}, good news! <@${payload.user.id}> approved ${list}${where}.`
+    : `${mentions(people)}, <@${payload.user.id}> didn't approve ${list}${where}. Have a look at the thread for what needs to change, then send them again with \`@Cade release\`.`;
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,

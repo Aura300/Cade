@@ -168,7 +168,7 @@ async function move(payload, env, at) {
 // byUrgency sorts by.
 async function entries(env, group, url) {
   const requirements = await Promise.all(
-    (await postedRequirements(env, group.external)).map(async ({ ts, requirement, updatedAt }) => {
+    (group.external ? await postedRequirements(env, group.external) : []).map(async ({ ts, requirement, updatedAt }) => {
       const tracked = requirement.task;
       const task = tracked ? await getTask(env, tracked.channel, tracked.ts) : null;
       const noun = requirement.incident ? "Incident" : "Requirement";

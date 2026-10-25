@@ -137,15 +137,16 @@ export async function reflectOnRequirement(env, ts, task, fields) {
 //   "task"         a task thread for a task with no requirement
 //   "client"       a task thread for a task tracked from a requirement, whose
 //                  priority and due date cannot be changed there
-//   "incident"     an incident's thread, in either channel, whose priority
-//                  and due date are fixed
+//   "incident"     an incident's thread, in either channel, or its task's
+//                  while linked to it, whose priority and due date are fixed
 export async function findDetails(env, channel, threadTs) {
   const role = roleOf(env, channel);
   if (role !== "external") {
     const task = await loadTask(env, channel, threadTs);
     if (!task) return null;
+    // A task detached from its incident is the team's own, like any other.
     let kind = task.source ? "client" : "task";
-    if (role === "incidents") kind = "incident";
+    if (role === "incidents" && task.source) kind = "incident";
     return { kind, channel, ts: threadTs, item: task };
   }
 

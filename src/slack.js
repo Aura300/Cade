@@ -96,6 +96,16 @@ export async function respondLater(responseUrl, body) {
   }
 }
 
+// Removes a private message whose button opened a form, once the form is
+// sent, through the click's response_url. That lasts half an hour, so a form
+// kept open longer leaves the message behind, which is harmless.
+export async function dismiss(responseUrl) {
+  if (!responseUrl) return;
+  await respondLater(responseUrl, { delete_original: true }).catch((error) => {
+    console.warn("Could not remove the private message", { error: error.message });
+  });
+}
+
 // A reply that acknowledges a command with a ✅ on its message rather than a
 // message of its own, for commands whose effect is plain to see. `note`, if
 // any, is posted as well: what the command did elsewhere.

@@ -1,9 +1,9 @@
 # Cade
 
 **C.A.D.E.**, the Central Assistant for Delivery & Execution, is a Slack
-app for tracking work between a client and a team: the client starts
-requirements and reports incidents in a shared channel, and
-the team tracks them as tasks in its own channels. It runs as a single
+app for tracking a team's work as tasks in its own channel. A group can
+also have a channel shared with a client, where the client starts
+requirements and reports incidents that the team tracks as tasks. It runs as a single
 Cloudflare Worker, with its tasks in a D1 database.
 
 - **Start here:** [the Cade website](https://xteclk.github.io/Cade/)
@@ -136,7 +136,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `tasks`, `standup`, `delete` |
+| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `detach`, `tasks`, `standup`, `delete` |
 | `src/db.js` | Reading and writing tasks and requirements in D1 |
 | `src/retry.js` | The cron's job: posting tasks and requirements Slack refused |
 | `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |
