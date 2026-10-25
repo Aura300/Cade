@@ -93,6 +93,44 @@ export async function markTaskDeleted(env, channel, ts) {
     .run();
 }
 
+// Returns the task whose root message is `ts`, deleted or not, with
+// `deleted` saying which, or null if there is none. A deleted task's
+// messages may still be in Slack, if deleting them failed.
+export async function getTaskIncludingDeleted(env, channel, ts) {
+  const row = await env.DB.prepare("SELECT * FROM tasks WHERE channel = ? AND ts = ?")
+    .bind(channel, ts)
+    .first();
+  return row ? { ...taskFromRow(row), deleted: Boolean(row.deleted_at) } : null;
+}
+
+// The posted task most recently tracked from the requirement thread
+// `source` ({ channel, threadTs }), deleted or not, as { channel, ts, title,
+// link, deleted }, or null. The requirement links to it too, unless storing
+// that link failed.
+export async function latestTaskFrom(env, source) {
+  const row = await env.DB.prepare(
+    `SELECT channel, ts, title, link, deleted_at FROM tasks
+     WHERE source_channel = ? AND source_thread_ts = ? AND ts IS NOT NULL
+     ORDER BY id DESC LIMIT 1`,
+  )
+    .bind(source.channel, source.threadTs)
+    .first();
+  return row
+    ? { channel: row.channel, ts: row.ts, title: row.title, link: row.link || undefined, deleted: Boolean(row.deleted_at) }
+    : null;
+}
+
+// Marks deleted the tasks tracked from the thread that are waiting to be
+// posted, so a retry doesn't post them.
+export async function markUnpostedTasksDeleted(env, source) {
+  await env.DB.prepare(
+    `UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP
+     WHERE source_channel = ? AND source_thread_ts = ? AND ts IS NULL AND deleted_at IS NULL`,
+  )
+    .bind(source.channel, source.threadTs)
+    .run();
+}
+
 // The posted tasks in `channel` with one of `statuses`, as { ts, task },
 // oldest first.
 export async function tasksWithStatus(env, channel, statuses) {

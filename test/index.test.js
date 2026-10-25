@@ -1863,7 +1863,7 @@ test("@Cade remove in a requirement thread asks for confirmation", async (t) => 
 });
 
 test("removing a tracked requirement asks to delete its task too", async (t) => {
-  const calls = mockSlack(t, { stored: [requirementRoot({ task: true })] });
+  const calls = mockSlack(t, threads(requirementRoot({ task: true })));
   await send(
     "/slack/events",
     threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", user: "UCLIENT", ts: "200.5", thread_ts: "200.1" }),
@@ -3325,16 +3325,164 @@ test("confirming removes the task first, then the requirement", async (t) => {
 });
 
 test("a task from a requirement or incident can't be removed from its own thread", async (t) => {
-  for (const [root, environment, channel, text] of [
-    [requirementTask(), env, "CDEV", "This task belongs to a requirement, so I'd remove them together: send `@Cade remove` in <https://slack.example/source|its thread>."],
-    [incidentTask(), incidentEnv, "CINC", "This task belongs to an incident, so I'd remove them together: send `@Cade remove` in <https://slack.example/source|its thread>."],
+  for (const [requirement, root, environment, channel, text] of [
+    [requirementRoot({ task: true }), requirementTask(), env, "CDEV", "This task is tracked by <https://slack.example/source|the requirement thread>, so please remove it from there with `@Cade remove`."],
+    [incidentRoot(), incidentTask(), incidentEnv, "CINC", "This task is tracked by <https://slack.example/source|the incident thread>, so please remove it from there with `@Cade remove`."],
   ]) {
-    if (channel === "CINC") root.task.source.incident = true;
-    const calls = mockSlack(t, { stored: [root] });
+    const calls = mockSlack(t, {
+      stored: [requirement, root],
+      "conversations.replies": { messages: [{ ts: "200.1", bot_id: "BCADE" }] },
+    });
     await send("/slack/events", threadEvent("<@UBOT> remove", { channel }), {}, environment);
-    assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], channel);
-    assert.equal(calls[0].args.text, text);
+    assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postMessage"], channel);
+    assert.equal(calls[1].args.text, text);
   }
+});
+
+test("confirming a task's deletion does nothing while its requirement is there", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true })),
+    "conversations.replies": { messages: [{ ts: "200.1", bot_id: "BCADE" }] },
+  });
+  await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"));
+  assert.ok(!calls.some((call) => call.method === "chat.delete"));
+  assert.ok(await savedTask());
+});
+
+// The ways a task's requirement can be gone: deleted from Cade, or deleted
+// by hand in Slack, with no replies or with some.
+const orphanings = [
+  ["deleted from Cade", [], {}],
+  ["deleted in Slack", [requirementRoot({ task: true })], { error: "thread_not_found" }],
+  ["deleted in Slack with replies", [requirementRoot({ task: true })], { messages: [{ ts: "200.1", subtype: "tombstone" }] }],
+];
+
+// A Slack API for an orphaned task: conversations.replies gives `source` for
+// the requirement thread, failing with its `error` if it has one, and Cade's
+// replies in the task's own thread.
+const mockOrphan = (t, stored, source) => {
+  const calls = mockSlack(t, {
+    stored,
+    "conversations.replies": (args) =>
+      args.channel === "CEXTERNAL"
+        ? source
+        : { messages: [{ ts: args.ts, bot_id: "BCADE" }, { ts: "100.3", bot_id: "BCADE" }] },
+  });
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith("/conversations.replies") && source.error && init.body.get("channel") === "CEXTERNAL") {
+      calls.push({ method: "conversations.replies", args: Object.fromEntries(init.body) });
+      return Response.json({ ok: false, error: source.error });
+    }
+    return fetch(url, init);
+  };
+  return calls;
+};
+
+test("a task whose requirement is gone can be removed from its own thread", async (t) => {
+  for (const [name, requirement, source] of orphanings) {
+    const calls = mockOrphan(t, [...requirement, requirementTask()], source);
+    await send("/slack/events", threadEvent("<@UBOT> remove", { user: "UACTOR" }));
+    const prompt = calls.at(-1).args;
+    assert.equal(
+      prompt.text,
+      "<@UACTOR>, the requirement this task came from has been deleted, so should I delete the task *Fix login* on its own? There's no undo.",
+      name,
+    );
+    assert.equal(prompt.blocks[1].elements[1].action_id, "delete:confirm", name);
+    assert.equal(JSON.parse(prompt.blocks[1].elements[1].value).kind, "task", name);
+  }
+});
+
+test("confirming an orphaned task's deletion removes it, and the requirement left in the database", async (t) => {
+  for (const [name, requirement, source] of orphanings) {
+    const calls = mockOrphan(t, [...requirement, requirementTask()], source);
+    await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"));
+    const deletes = calls.filter((call) => call.method === "chat.delete").map((call) => [call.args.channel, call.args.ts]);
+    assert.deepEqual(deletes, [["CDEV", "100.3"], ["CDEV", "100.1"]], name);
+    assert.equal(await savedTask(), null, name);
+    assert.equal(await savedRequirement(), null, name);
+  }
+});
+
+test("a task whose deletion failed after it was marked deleted can be removed again", async (t) => {
+  // Left behind when its requirement was deleted, by the old order.
+  const calls = mockSlack(t, {
+    stored: [requirementTask()],
+    "conversations.replies": (args) => ({ messages: [{ ts: args.ts, bot_id: "BCADE" }] }),
+  });
+  await seeded;
+  await markTaskDeleted(env, "CDEV", "100.1");
+  await send("/slack/events", threadEvent("<@UBOT> remove"));
+  assert.match(calls.at(-1).args.text, /has been deleted, so should I delete the task \*Fix login\* on its own\?/);
+
+  await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"));
+  assert.deepEqual(
+    calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts),
+    ["100.1"],
+  );
+});
+
+test("a failed task deletion leaves the task to be tried again", async (t) => {
+  const calls = mockSlack(t, {
+    stored: [ownTask()],
+    "conversations.replies": { messages: [{ ts: "100.1", bot_id: "BCADE" }] },
+  });
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) =>
+    url.endsWith("/chat.delete") ? Response.json({ ok: false, error: "ratelimited" }) : fetch(url, init);
+  await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR")).catch(() => {});
+  assert.ok(calls.some((call) => call.method === "conversations.replies"));
+  assert.ok(await savedTask());
+});
+
+test("removing a requirement whose link to its task was lost still removes the task", async (t) => {
+  const task = requirementTask();
+  task.task.link = "https://slack.example/p100";
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot(), task),
+    "conversations.replies": (args) => ({ messages: [{ ts: args.ts, bot_id: "BCADE" }] }),
+  });
+  await send(
+    "/slack/events",
+    threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", user: "UCLIENT", ts: "200.5", thread_ts: "200.1" }),
+  );
+  assert.equal(
+    calls.at(-1).args.text,
+    "<@UCLIENT>, should I delete the requirement *Export reports* and its task <https://slack.example/p100|Fix login> in <#CDEV>? There's no undo.",
+  );
+
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLIENT" },
+      actions: [{ action_id: "delete:confirm", value: requirementDelete }],
+    }),
+  );
+  const deletes = calls.filter((call) => call.method === "chat.delete").map((call) => [call.args.channel, call.args.ts]);
+  assert.deepEqual(deletes, [["CDEV", "100.1"], ["CEXTERNAL", "200.1"]]);
+  assert.equal(await savedTask(), null);
+});
+
+test("removing a requirement drops a task of it still waiting to be posted", async (t) => {
+  mockSlack(t, {
+    stored: [requirementRoot()],
+    "conversations.replies": (args) => ({ messages: [{ ts: args.ts, bot_id: "BCADE" }] }),
+  });
+  await seeded;
+  const waiting = requirementTask().task;
+  await insertTask(env, "CDEV", waiting, {});
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLIENT" },
+      actions: [{ action_id: "delete:confirm", value: requirementDelete }],
+    }),
+  );
+  const { results } = await DB.prepare("SELECT deleted_at FROM tasks").all();
+  assert.ok(results.length === 1 && results[0].deleted_at);
 });
 
 test("the ready to review message doesn't link to the team's task", async (t) => {
