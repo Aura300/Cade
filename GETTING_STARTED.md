@@ -314,7 +314,18 @@ requirement thread if there is one. Statuses show as 📝 To do, ▶️ In progr
 requirement not tracked yet), so no coloured circle but the strip stands
 for a priority. From a requirement thread, Cade replies with a **Track task** button
 (Slack only opens forms from a click) and, once the task is created, turns
-that message into "@you tracked this as a task: *title*", linking to it.
+that message into "@you tracked this as a task: *title*. The team's on
+it!", linking to it.
+
+### Cade's voice
+
+Cade talks like a friendly teammate: in the first person ("I've asked the
+client to review it…"), with contractions, a "could you…?" rather than an
+order, and a "Thanks!" where it fits. Its messages stay short, and the
+cards stay plain: no extra emoji. Its app icon, a smiling "C" with a bow
+tie, is `slack/icon.png` (drawn from `slack/icon.svg`). Slack's manifest
+can't set an icon, so upload it under **Basic Information → Display
+Information** on the app's page at api.slack.com/apps.
 
 ### Requirements
 
@@ -376,8 +387,8 @@ only you see:
 - once it's tracked, **Assign as developer** (or **Assign and move to In
   progress**) assigns them to its task, as in the task's thread.
 
-Either way the task's thread in `#acme-dev` gets "@rex please start
-working on this.", as `@Cade assign developer` would post, since developers
+Either way the task's thread in `#acme-dev` gets "@rex could you pick this
+up when you get a chance? Thanks!", as `@Cade assign developer` would post, since developers
 aren't always in the client's channel. Only developer hand-offs are offered
 there; reviews and testing are asked for in the task's thread.
 
@@ -525,9 +536,9 @@ In a task's thread in `#acme-dev` or the incidents channel:
   so the channel's pins list shows the open tasks. A requirement or
   incident is pinned in the external channel the same way: from when it is
   posted until its task is Done, and again if the task is reopened. When a
-  task reaches Done, Cade posts "@you marked this as ✅ Done." in the
-  requirement thread straight away; Client review posts "@you marked this
-  as ready to review." with the task's PRs and the client's Approve
+  task reaches Done, Cade posts "Great news! @you marked this as ✅ Done."
+  in the requirement thread straight away; Client review posts "Good news!
+  @you says this is ready for you to review." with the task's PRs and the client's Approve
   buttons. Neither links to the task, which is the team's. When the client
   approves, nothing more is posted there.
 - `@Cade release` (or `@Cade deliver`) sends some of a requirement task's

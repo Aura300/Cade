@@ -8,7 +8,7 @@ export async function dispatch(command, context) {
   if (!handler) return usage();
   const scope = { channel: handler.channel, inThread: handler.inThread };
   if (!handler.run) {
-    return `Use \`${handler.slashUsage}\`${channelHint(slashScope(handler), context.env, command.channel)}.`;
+    return `That one's a slash command: try \`${handler.slashUsage}\`${channelHint(slashScope(handler), context.env, command.channel)}.`;
   }
   return runHandler(handler, handler.run, handler.usage, scope, command, context);
 }
@@ -19,7 +19,7 @@ export async function dispatch(command, context) {
 export async function dispatchSlash(command, context) {
   const handler = commands[command.name];
   if (!handler) return usage();
-  if (!handler.slash) return `Use \`${handler.usage}\`${handler.inThread ? " in a task thread" : ""}.`;
+  if (!handler.slash) return `For that one, send \`${handler.usage}\`${handler.inThread ? " in a task thread" : ""}.`;
   return runHandler(handler, handler.slash, handler.slashUsage, slashScope(handler), command, context);
 }
 
@@ -41,7 +41,7 @@ async function runHandler(handler, run, usage, scope, command, context) {
     return await run(command, context);
   } catch (error) {
     console.error("Command failed", { name: handler.name, error: error.message });
-    return `Sorry, \`${handler.name}\` failed. Please try again.`;
+    return `Sorry, something went wrong with \`${handler.name}\`. Could you try again?`;
   }
 }
 
@@ -59,7 +59,7 @@ function checkScope(scope, usage, command, env) {
   if (allowed) return undefined;
 
   const where = scope.inThread ? " in a task thread" : "";
-  return `Use \`${usage}\`${where}${channelHint(scope, env, command.channel)}.`;
+  return `That one works with \`${usage}\`${where}${channelHint(scope, env, command.channel)}.`;
 }
 
 function channelsFor(scope, env) {
@@ -97,9 +97,9 @@ function usage() {
       .join(" · ");
     const words =
       section === "thread"
-        ? "Just say it: write \"@person please look into this\" or paste a PR link, and Cade offers to assign or link. Or: "
+        ? "Just talk to me: write \"@person please look into this\" or paste a PR link, and I'll offer to assign or link it. Or: "
         : "";
     return `*${title}:* ${words}${forms}`;
   });
-  return `${lines.join("\n")}\n\`@Cade help\` or \`/cade help\` shows this.`;
+  return `Here's what I can do:\n${lines.join("\n")}\nSend \`@Cade help\` or \`/cade help\` any time to see this again.`;
 }

@@ -43,8 +43,8 @@ export default {
     const status = input.toUpperCase().replace(/[\s-]+/g, "_");
     if (!STATUSES[status]) {
       const prompt = input
-        ? `"${escapeSlack(input)}" is not a status. Pick one:`
-        : "Pick the new status:";
+        ? `I don't know "${escapeSlack(input)}" as a status. Which one did you mean?`
+        : "What's the new status?";
       return statusPicker(prompt, task.status);
     }
 
@@ -154,8 +154,8 @@ async function afterChange(env, channel, ts, task, status, user, reached) {
   const thread = task.source.link ? `<${task.source.link}|the requirement thread>` : "the requirement thread";
   const what = remaining ? `the remaining PRs, ${remaining.map(prLink).join(", ")},` : "it";
   const told = status === "CLIENT_REVIEW"
-    ? `Cade asked the client to review ${what} in ${thread}.`
-    : `Cade told ${thread} it's ${STATUSES.DONE}.`;
+    ? `I've asked the client to review ${what} in ${thread}.`
+    : `I've let ${thread} know it's ${STATUSES.DONE}.`;
   return { text, told };
 }
 
@@ -167,7 +167,9 @@ async function afterChange(env, channel, ts, task, status, user, reached) {
 // remaining ones, and returns them, so the task's thread can say so too.
 async function announce(env, channel, ts, task, user) {
   const done = task.status === "DONE";
-  const text = done ? `<@${user}> marked this as ${STATUSES.DONE}.` : `<@${user}> marked this as ready to review.`;
+  const text = done
+    ? `Great news! <@${user}> marked this as ${STATUSES.DONE}.`
+    : `Good news! <@${user}> says this is ready for you to review.`;
   const prompt = done ? { body: asMessage(text) } : await reviewPrompt(env, text, channel, ts, task);
   await callSlack(env, "chat.postMessage", {
     channel: task.source.channel,
@@ -185,8 +187,8 @@ async function announce(env, channel, ts, task, user) {
 // `remaining` being the PRs not sent before, when some were.
 async function reviewPrompt(env, text, channel, ts, task) {
   const requirement = await loadRequirement(env, task.source.channel, task.source.threadTs);
-  const who = requirement ? `<@${requirement.createdBy}>, please` : "Please";
-  const request = `${who} review it and approve it, or say what needs to change.`;
+  const who = requirement ? `<@${requirement.createdBy}>, could you` : "Could you";
+  const request = `${who} take a look and approve it, or let us know what needs to change?`;
   const remaining = task.releases?.length ? unsentPrs(task) : null;
   const prs = remaining ?? task.prs;
   const label = remaining ? "Remaining PRs" : "PRs";
@@ -229,10 +231,10 @@ async function review(payload, env, approved) {
 
   let outcome;
   if (!task) {
-    outcome = "This task no longer exists.";
+    outcome = "Hmm, this task doesn't exist anymore.";
   } else if (task.status !== "CLIENT_REVIEW") {
     // The team moved the task on before anyone clicked.
-    outcome = `Not applied: the task is now ${STATUSES[task.status]}.`;
+    outcome = `I didn't change anything: the task has since moved to ${STATUSES[task.status]}.`;
   } else {
     const status = approved ? "DONE" : "IN_PROGRESS";
     await applyStatus(env, request.channel, request.ts, task, status);
@@ -242,16 +244,16 @@ async function review(payload, env, approved) {
     });
     const where = `in <${permalink}|the requirement thread>`;
     const text = approved
-      ? `<@${user}> approved this ${where}, so it is now ${STATUSES.DONE}.`
-      : `<@${user}> did not approve this ${where}, so it is back to ${STATUSES.IN_PROGRESS}. See the thread for what needs to change.`;
+      ? `<@${user}> approved this ${where}, so it's now ${STATUSES.DONE}. Nice work!`
+      : `<@${user}> didn't approve this ${where}, so it's back to ${STATUSES.IN_PROGRESS}. Have a look at the thread for what needs to change.`;
     await callSlack(env, "chat.postMessage", {
       channel: request.channel,
       thread_ts: request.ts,
       ...asMessage(text),
     });
     outcome = approved
-      ? `<@${user}> approved it.`
-      : `<@${user}> did not approve it, so the team will pick it up again.`;
+      ? `<@${user}> approved it. Thanks!`
+      : `<@${user}> didn't approve it, so the team will pick it up again. Thanks for letting us know!`;
   }
   await callSlack(env, "chat.update", {
     channel: payload.channel.id,

@@ -42,7 +42,7 @@ export default {
     const option = command.text.trim();
     const unassigned = /^(?:--?|[—–])unassigned$/i.test(option);
     if (option && !unassigned) {
-      return `"${escapeSlack(option)}" isn't an option. Use \`/cade standup\` to go through everyone's tasks, or \`/cade standup -unassigned\` for those with no developer.`;
+      return `I don't know "${escapeSlack(option)}" as an option. Send \`/cade standup\` to go through everyone's tasks, or \`/cade standup -unassigned\` for those with no developer.`;
     }
     const group = findPair(context.env, command.channel);
     const walk = { m: unassigned ? "unassigned" : "people", g: group.name, l: command.user, i: 0 };
@@ -144,8 +144,8 @@ async function render(env, walk) {
   const all = await steps(env, walk, url);
   if (walk.i >= all.length) {
     const text = walk.m === "unassigned"
-      ? `Every open ${walk.g} task has a developer.`
-      : all.length ? "That's everyone." : `No one has open ${walk.g} tasks.`;
+      ? `Every open ${walk.g} task has a developer. Nice!`
+      : all.length ? "That's everyone. Thanks, all!" : `No one has open ${walk.g} tasks right now.`;
     return { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
   }
 

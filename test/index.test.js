@@ -291,7 +291,7 @@ test("modal submission rejects a blank title", async (t) => {
   assert.equal(calls.length, 0);
   assert.deepEqual(await response.json(), {
     response_action: "errors",
-    errors: { title: "Enter a task title." },
+    errors: { title: "Please give the task a title." },
   });
 });
 
@@ -350,7 +350,7 @@ test("modal submission posts the task and turns the button into a link to it", a
   assert.deepEqual(calls[3].args, { channel: "CDEV", timestamp: "100.1" });
   // The button message becomes the news that it's tracked, with the link, so
   // the thread doesn't grow.
-  const text = "<@UCREATOR> tracked this as a task: <https://slack.example/p100|Fix &lt;login&gt;>";
+  const text = "<@UCREATOR> tracked this as a task: <https://slack.example/p100|Fix &lt;login&gt;>. The team's on it!";
   assert.deepEqual(calls[4].args, {
     channel: "CEXTERNAL",
     ts: "300.1",
@@ -393,7 +393,7 @@ test("modal submission tells the creator when the task cannot be posted", async 
   ]);
   assert.equal(calls[2].args.user, "UCREATOR");
   assert.equal(calls[2].args.thread_ts, "200.1");
-  assert.match(calls[2].args.text, /^Sorry, the task "Fix login" couldn't be posted yet\. Cade will try again in a few minutes\.$/);
+  assert.match(calls[2].args.text, /^Sorry, I couldn't post the task "Fix login" just now\. I'll try again in a few minutes\.$/);
   // The task is stored, waiting to be posted.
   const row = await DB.prepare("SELECT ts, post_attempts, origin FROM tasks").first();
   assert.equal(row.ts, null);
@@ -411,7 +411,7 @@ test("@Cade track only works in a requirement thread", async (t) => {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ...overrides }));
     const reply = calls.at(-1).args;
-    assert.equal(reply.text, "Use `@Cade track` in the thread of a requirement started with `/cade requirement`. For the team's own work, use `/cade track` in <#CDEV>.");
+    assert.equal(reply.text, "I can only track a requirement from its own thread: send `@Cade track` in the thread of one started with `/cade requirement`. For the team's own work, use `/cade track` in <#CDEV>.");
     assert.ok(!reply.blocks, "no Track task button");
   }
 });
@@ -425,7 +425,7 @@ test("a tracked requirement cannot be tracked again", async (t) => {
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
   assert.equal(
     calls[0].args.text,
-    "This requirement is already tracked as <https://slack.example/p100|Fix login>.",
+    "Good news: this requirement is already tracked as <https://slack.example/p100|Fix login>.",
   );
 });
 
@@ -441,7 +441,7 @@ test("a requirement tracked while the form was open is not tracked twice", async
   assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
   assert.equal(calls[0].args.user, "UCREATOR");
   assert.equal(calls[0].args.thread_ts, "200.1");
-  assert.match(calls[0].args.text, /^This requirement is already tracked as/);
+  assert.match(calls[0].args.text, /^Good news: this requirement is already tracked as/);
 });
 test("the Track task button opens the modal for that thread", async (t) => {
   const calls = mockSlack(t);
@@ -504,17 +504,17 @@ test("@Cade assign adds people to a role on the root message", async (t) => {
   assert.deepEqual(calls[1].args, {
     channel: "CDEV",
     thread_ts: "100.1",
-    text: "<@UBOB>, <@UALICE> please start working on this.",
+    text: "<@UBOB>, <@UALICE> could you pick this up when you get a chance? Thanks!",
   });
 });
 
 test("@Cade assign works for each role, in any word order", async (t) => {
   for (const [text, role, reply] of [
     // No PR yet, so the reviewer isn't named, and isn't notified.
-    ["<@UBOT> assign reviewer <@UBOB>", "reviewer", "<@UACTOR> added a reviewer. They'll be asked to review when a PR is linked."],
-    ["<@UBOT> assign tester <@UBOB>", "tester", "<@UBOB> please test this."],
-    ["<@UBOT> assign <@UBOB> as Tester", "tester", "<@UBOB> please test this."],
-    ["<@UBOT> assign developers <@UBOB>", "developer", "<@UBOB> please start working on this."],
+    ["<@UBOT> assign reviewer <@UBOB>", "reviewer", "<@UACTOR> added a reviewer. I'll ask them to review once a PR is linked."],
+    ["<@UBOT> assign tester <@UBOB>", "tester", "<@UBOB> could you give this a test when you get a chance? Thanks!"],
+    ["<@UBOT> assign <@UBOB> as Tester", "tester", "<@UBOB> could you give this a test when you get a chance? Thanks!"],
+    ["<@UBOT> assign developers <@UBOB>", "developer", "<@UBOB> could you pick this up when you get a chance? Thanks!"],
   ]) {
     const calls = mockSlack(t, { stored: [storedTask()] });
     await send("/slack/events", threadEvent(text));
@@ -529,13 +529,13 @@ test("@Cade assign without a role asks for one", async (t) => {
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
   assert.equal(
     calls[0].args.text,
-    "Say which role to assign: `@Cade assign developer @person`, `@Cade assign reviewer @person`, `@Cade assign tester @person`.",
+    "Happy to! Which role should I assign them to? Try `@Cade assign developer @person`, `@Cade assign reviewer @person`, `@Cade assign tester @person`.",
   );
 });
 
 test("@Cade assign without anyone mentioned offers a button per role", async (t) => {
   for (const [text, roles, prompt] of [
-    ["<@UBOT> assign", ["developer", "reviewer", "tester"], "Who works on this task?"],
+    ["<@UBOT> assign", ["developer", "reviewer", "tester"], "Who's working on this task?"],
     ["<@UBOT> assign reviewer", ["reviewer"], "Who should be the reviewer?"],
   ]) {
     const calls = mockSlack(t);
@@ -558,7 +558,7 @@ test("@Cade unassign with a role removes people from that role only", async (t) 
   const { people } = await savedTask();
   assert.deepEqual(people.developer, ["UBOB"]);
   assert.deepEqual(people.reviewer, ["UALICE"]);
-  assert.equal(calls[1].args.text, "<@UALICE>, you no longer need to work on this.");
+  assert.equal(calls[1].args.text, "<@UALICE>, you don't need to work on this anymore. Thanks!");
 });
 
 test("@Cade unassign without a role removes people from every role", async (t) => {
@@ -571,7 +571,7 @@ test("@Cade unassign without a role removes people from every role", async (t) =
     footerLines(calls[0].args)[0],
     "Dev <@UBOB>",
   );
-  assert.equal(calls[1].args.text, "<@UALICE>, you no longer need to work on this.");
+  assert.equal(calls[1].args.text, "<@UALICE>, you don't need to work on this anymore. Thanks!");
 });
 
 test("@Cade unassign without anyone mentioned offers the same role buttons as assign", async (t) => {
@@ -689,7 +689,7 @@ test("a typed status gets a ✅ and never a question", async (t) => {
     // Reaching Client review or Done adds a note that the requirement thread
     // was told; nothing posted here ever asks anything.
     for (const call of calls.filter((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV")) {
-      assert.match(call.args.text, /^Cade (told|asked)/, input);
+      assert.match(call.args.text, /^I've (let|asked)/, input);
       assert.equal(call.args.blocks, undefined, input);
     }
   }
@@ -732,7 +732,7 @@ test("@Cade status without a status replies with a status menu", async (t) => {
 test("@Cade status with an unknown status shows the menu", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> status blocked"));
-  assert.equal(allBlocks(calls[0].args)[0].text.text, '"blocked" is not a status. Pick one:');
+  assert.equal(allBlocks(calls[0].args)[0].text.text, 'I don\'t know "blocked" as a status. Which one did you mean?');
   assert.equal(allBlocks(calls[0].args)[0].accessory.action_id, "status:select");
 });
 
@@ -763,7 +763,7 @@ test("picking a status from the menu updates the task and the menu", async (t) =
   // The menu becomes the confirmation, saying the requirement thread was told.
   const menu = calls[4].args;
   assert.equal(menu.ts, "100.7");
-  assert.equal(menu.text, "<@UPICKER> set the status to :white_check_mark: Done.\nCade told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.");
+  assert.equal(menu.text, "<@UPICKER> set the status to :white_check_mark: Done.\nI've let <https://slack.example/source|the requirement thread> know it's :white_check_mark: Done.");
   assert.equal(menu.blocks.length, 1, "no buttons");
 });
 
@@ -884,7 +884,7 @@ test("@Cade delete in a thread that is not a task says so", async (t) => {
     stored: [],
   });
   await send("/slack/events", threadEvent("<@UBOT> delete"));
-  assert.equal(calls[0].args.text, "This thread is not a tracked task.");
+  assert.equal(calls[0].args.text, "Hmm, I'm not tracking a task in this thread.");
 });
 
 test("@Cade assign in a thread that is not a task says so", async (t) => {
@@ -894,7 +894,7 @@ test("@Cade assign in a thread that is not a task says so", async (t) => {
     calls.map((call) => call.method),
     ["chat.postMessage"],
   );
-  assert.equal(calls[0].args.text, "This thread is not a tracked task.");
+  assert.equal(calls[0].args.text, "Hmm, I'm not tracking a task in this thread.");
 });
 
 test("@Cade assign outside the dev channel points to it", async (t) => {
@@ -902,7 +902,7 @@ test("@Cade assign outside the dev channel points to it", async (t) => {
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }));
   assert.equal(
     calls[0].args.text,
-    "Use `@Cade assign developer @person` in a task thread in <#CDEV>.",
+    "That one works with `@Cade assign developer @person` in a task thread in <#CDEV>.",
   );
 });
 
@@ -915,7 +915,7 @@ test("@Cade track outside the external channels points to them", async (t) => {
   ]) {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent("<@UBOT> track", { channel }));
-    assert.equal(calls[0].args.text, `Use \`@Cade track\` in ${hint}.`, channel);
+    assert.equal(calls[0].args.text, `That one works with \`@Cade track\` in ${hint}.`, channel);
   }
 });
 
@@ -924,7 +924,7 @@ test("/cade track only works in the dev channels", async (t) => {
   const reply = await (await send("/slack/commands", slash("track", "CEXTERNAL"))).json();
   assert.equal(calls.length, 0);
   assert.equal(reply.response_type, "ephemeral");
-  assert.equal(reply.text, "Use `/cade track` in <#CDEV>.");
+  assert.equal(reply.text, "That one works with `/cade track` in <#CDEV>.");
 });
 test("tasks with no external thread never ask to inform it", async (t) => {
   const calls = mockSlack(t, { stored: [ownTask()] });
@@ -984,26 +984,26 @@ test("a missing CHANNEL_PAIRS setting is reported", async (t) => {
     { waitUntil: (promise) => pending.push(promise) },
   );
   await Promise.all(pending);
-  assert.equal(calls[0].args.text, "Sorry, `assign` failed. Please try again.");
+  assert.equal(calls[0].args.text, "Sorry, something went wrong with `assign`. Could you try again?");
 });
 
 test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t) => {
   for (const text of ["<@UBOT> help", "<@UBOT>", "<@UBOT> hello"]) {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent(text));
-    // Three lines, one per section, then how to see it again.
+    // A greeting, three lines, one per section, then how to see it again.
     const lines = calls[0].args.text.split("\n");
     assert.deepEqual(
       lines.map((line) => line.split(":*")[0]),
-      ["*Start", "*In a task thread", "*Your work", "`@Cade help` or `/cade help` shows this."],
+      ["Here's what I can do:", "*Start", "*In a task thread", "*Your work", "Send `@Cade help` or `/cade help` any time to see this again."],
     );
-    assert.match(lines[0], /`\/cade requirement` · `\/cade incident` · `\/cade track` · `@Cade track`$/);
+    assert.match(lines[1], /`\/cade requirement` · `\/cade incident` · `\/cade track` · `@Cade track`$/);
     // Saying it comes first in a task thread; the commands follow.
-    assert.match(lines[1], /^\*In a task thread:\* Just say it: .* Or: `@Cade assign developer @person`/);
+    assert.match(lines[2], /^\*In a task thread:\* Just talk to me: .* Or: `@Cade assign developer @person`/);
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
-      assert.ok(lines[1].includes(`\`@Cade ${usage}\``), usage);
+      assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[2], "*Your work:* `/cade tasks` · `/cade standup`");
+    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup`");
   }
 });
 
@@ -1109,7 +1109,7 @@ test("a channel pair without a name is reported", async (t) => {
     ...env,
     CHANNEL_PAIRS: [{ external: "CEXTERNAL", tasks: "CDEV" }],
   });
-  assert.equal(calls[0].args.text, "Sorry, `assign` failed. Please try again.");
+  assert.equal(calls[0].args.text, "Sorry, something went wrong with `assign`. Could you try again?");
 });
 
 test("assigning people updates the sheet with their names", async (t) => {
@@ -1179,7 +1179,7 @@ test("a sheet failure does not stop the command", async (t) => {
     stored: [storedTask()],
   });
   await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"));
-  assert.equal(calls.at(-1).args.text, "<@UBOB> please test this.");
+  assert.equal(calls.at(-1).args.text, "<@UBOB> could you give this a test when you get a chance? Thanks!");
 });
 
 // Apps Script answers a POST with a redirect to a page holding its reply.
@@ -1320,7 +1320,7 @@ test("/cade requirement opens the requirement form in an external channel only",
   assert.equal(calls.length, 0);
   const reply = await response.json();
   assert.equal(reply.response_type, "ephemeral");
-  assert.equal(reply.text, "Use `/cade requirement` in <#CEXTERNAL>.");
+  assert.equal(reply.text, "That one works with `/cade requirement` in <#CEXTERNAL>.");
 });
 
 test("/cade help and unknown slash commands list the commands privately", async (t) => {
@@ -1337,7 +1337,7 @@ test("/cade help and unknown slash commands list the commands privately", async 
 test("@Cade requirement points to the slash command", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> requirement", { channel: "CEXTERNAL" }));
-  assert.equal(calls[0].args.text, "Use `/cade requirement` in <#CEXTERNAL>.");
+  assert.equal(calls[0].args.text, "That one's a slash command: try `/cade requirement` in <#CEXTERNAL>.");
 });
 
 test("submitting a requirement starts its thread in the external channel", async (t) => {
@@ -1367,7 +1367,7 @@ test("submitting a requirement starts its thread in the external channel", async
     [
       "Requirement  ·  *Export &lt;reports&gt;*",
       ":speech_balloon: In discussion  ·  High  ·  Due 30/11/2026",
-      "Started by <@UCREATOR>  ·  not tracked yet. Discuss it in this thread, then send `@Cade track` here.",
+      "Started by <@UCREATOR>  ·  not tracked yet. Talk it through here, then send `@Cade track` when it's ready.",
     ],
   );
   const requirement = await savedRequirement();
@@ -1394,7 +1394,7 @@ test("a requirement needs a name", async (t) => {
   assert.equal(calls.length, 0);
   assert.deepEqual(await response.json(), {
     response_action: "errors",
-    errors: { title: "Enter a requirement name.", priority: "Select a priority." },
+    errors: { title: "Please give the requirement a name.", priority: "Please pick a priority." },
   });
 });
 
@@ -1486,7 +1486,7 @@ test("@Cade priority in an external thread Cade did not start says so", async (t
     threadEvent("<@UBOT> priority low", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
   );
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
-  assert.match(calls[0].args.text, /^This thread is not a requirement\. Use `\/cade requirement`/);
+  assert.match(calls[0].args.text, /^Hmm, this thread isn't a requirement\. Start one with `\/cade requirement`/);
 });
 
 test("parseDate accepts DD/MM/YYYY and YYYY-MM-DD real dates only", () => {
@@ -1571,7 +1571,7 @@ test("@Cade track in a requirement thread asks only for the title", async (t) =>
   assert.equal(blocks[0].element.initial_value, "Export reports");
   assert.match(
     blocks[1].elements[0].text,
-    /^\*Priority:\* :large_orange_circle: High  ·  \*Due:\* 31\/10\/2026\nFrom the requirement/,
+    /^\*Priority:\* :large_orange_circle: High  ·  \*Due:\* 31\/10\/2026\nThese come from the requirement/,
   );
 });
 
@@ -1651,7 +1651,7 @@ test("a task tracked from a requirement cannot change its priority or due date i
     assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], text);
     assert.equal(
       calls[0].args.text,
-      "The client sets this task's priority and due date. Change them in <https://slack.example/source|the requirement thread>.",
+      "The client owns this task's priority and due date, so they're changed in <https://slack.example/source|the requirement thread>.",
     );
   }
 });
@@ -1726,7 +1726,7 @@ const reviewClick = (actionId) =>
         value: JSON.stringify({
           channel: "CDEV",
           ts: "100.1",
-          text: "<@UACTOR> marked this as ready to review.",
+          text: "<@UACTOR> says this is ready for you to review.",
         }),
       },
     ],
@@ -1756,18 +1756,18 @@ test("Approve moves the task to Done and tells the task's thread", async (t) => 
   assert.equal(calls[5].args.channel, "CDEV");
   assert.equal(
     calls[5].args.text,
-    "<@UCLIENT> approved this in <https://slack.example/review|the requirement thread>, so it is now :white_check_mark: Done.",
+    "<@UCLIENT> approved this in <https://slack.example/review|the requirement thread>, so it's now :white_check_mark: Done. Nice work!",
   );
   assert.deepEqual(calls[6].args, {
     channel: "CEXTERNAL",
     ts: "200.9",
-    text: "<@UACTOR> marked this as ready to review.\n<@UCLIENT> approved it.",
+    text: "<@UACTOR> says this is ready for you to review.\n<@UCLIENT> approved it. Thanks!",
     blocks: [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "<@UACTOR> marked this as ready to review.\n<@UCLIENT> approved it.",
+          text: "<@UACTOR> says this is ready for you to review.\n<@UCLIENT> approved it. Thanks!",
         },
       },
     ],
@@ -1791,9 +1791,9 @@ test("Not approve moves the task back to In progress and tells the task's thread
   assert.equal(note.thread_ts, "100.1");
   assert.equal(
     note.text,
-    "<@UCLIENT> did not approve this in <https://slack.example/review|the requirement thread>, so it is back to :arrow_forward: In progress. See the thread for what needs to change.",
+    "<@UCLIENT> didn't approve this in <https://slack.example/review|the requirement thread>, so it's back to :arrow_forward: In progress. Have a look at the thread for what needs to change.",
   );
-  assert.match(calls.at(-1).args.text, /\n<@UCLIENT> did not approve it, so the team will pick it up again\.$/);
+  assert.match(calls.at(-1).args.text, /\n<@UCLIENT> didn't approve it, so the team will pick it up again\. Thanks for letting us know!$/);
 });
 
 test("Approve and Not approve do nothing once the task has left Client review", async (t) => {
@@ -1801,7 +1801,7 @@ test("Approve and Not approve do nothing once the task has left Client review", 
     const calls = mockSlack(t, { stored: [requirementTask("IN_TESTING")] });
     await send("/slack/interactions", reviewClick(actionId));
     assert.deepEqual(calls.map((call) => call.method), ["chat.update"], actionId);
-    assert.match(calls[0].args.text, /\nNot applied: the task is now :test_tube: In testing\.$/);
+    assert.match(calls[0].args.text, /\nI didn't change anything: the task has since moved to :test_tube: In testing\.$/);
   }
 });
 
@@ -1809,7 +1809,7 @@ test("Approve on a deleted task says so", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/interactions", reviewClick("status:approve"));
   assert.deepEqual(calls.map((call) => call.method), ["chat.update"]);
-  assert.match(calls[0].args.text, /\nThis task no longer exists\.$/);
+  assert.match(calls[0].args.text, /\nHmm, this task doesn't exist anymore\.$/);
 });
 
 test("Client review on a requirement task asks the client straight away", async (t) => {
@@ -1830,7 +1830,7 @@ test("Client review on a requirement task asks the client straight away", async 
   const note = calls.at(-1).args;
   assert.equal(note.channel, "CDEV");
   assert.equal(note.thread_ts, "100.1");
-  assert.equal(note.text, "Cade asked the client to review it in <https://slack.example/source|the requirement thread>.");
+  assert.equal(note.text, "I've asked the client to review it in <https://slack.example/source|the requirement thread>.");
 });
 
 const requirementDelete = JSON.stringify({
@@ -1852,7 +1852,7 @@ test("@Cade remove in a requirement thread asks for confirmation", async (t) => 
   assert.equal(prompt.thread_ts, "200.1");
   assert.equal(
     prompt.text,
-    "<@UCLIENT>, delete the requirement *Export reports*? This cannot be undone.",
+    "<@UCLIENT>, should I delete the requirement *Export reports*? There's no undo.",
   );
   const [cancel, confirm] = prompt.blocks[1].elements;
   assert.equal(confirm.text.text, "Delete requirement");
@@ -1871,12 +1871,12 @@ test("removing a tracked requirement asks to delete its task too", async (t) => 
   const prompt = calls.at(-1).args;
   assert.equal(
     prompt.text,
-    "<@UCLIENT>, delete the requirement *Export reports* and its task <https://slack.example/p100|Fix login> in <#CDEV>? This cannot be undone.",
+    "<@UCLIENT>, should I delete the requirement *Export reports* and its task <https://slack.example/p100|Fix login> in <#CDEV>? There's no undo.",
   );
   const [, confirm] = prompt.blocks[1].elements;
   assert.equal(
     confirm.confirm.text.text,
-    '"Export reports", its task "Fix login", and Cade\'s replies in both threads will be deleted.',
+    'I\'ll delete "Export reports", its task "Fix login", and my replies in both threads.',
   );
 });
 
@@ -1886,7 +1886,7 @@ test("@Cade remove in an external thread Cade did not start says so", async (t) 
     "/slack/events",
     threadEvent("<@UBOT> remove", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
   );
-  assert.match(calls.at(-1).args.text, /^This thread is not a requirement\./);
+  assert.match(calls.at(-1).args.text, /^Hmm, this thread isn't a requirement\./);
 });
 
 test("confirming a requirement's deletion removes Cade's replies and then the requirement", async (t) => {
@@ -1962,8 +1962,8 @@ test("/cade incident opens a form that asks only what the incident is", async (t
 
 test("/cade incident needs an incidents channel and works only in external channels", async (t) => {
   for (const [channel, text] of [
-    ["CTESTEXT", /^Incidents aren't set up for this channel yet/],
-    ["CDEV", /^Use `\/cade incident` in <#CEXTERNAL>\.$/],
+    ["CTESTEXT", /^I can't take incidents in this channel yet/],
+    ["CDEV", /^That one works with `\/cade incident` in <#CEXTERNAL>\.$/],
   ]) {
     const calls = mockSlack(t);
     const reply = await (await send("/slack/commands", slash("incident", channel), {}, incidentEnv)).json();
@@ -2046,7 +2046,7 @@ test("an incident needs a description", async (t) => {
   assert.equal(calls.length, 0);
   assert.deepEqual(await response.json(), {
     response_action: "errors",
-    errors: { title: "Describe the incident." },
+    errors: { title: "Please tell us what's going on." },
   });
 });
 
@@ -2061,7 +2061,7 @@ test("an incident's priority and due date can't be changed in either thread", as
       assert.ok(!calls.some((call) => call.method === "chat.update"), `${channel}: ${text}`);
       assert.equal(
         calls.at(-1).args.text,
-        "Incidents are always :red_circle: Urgent and due Immediate, so their priority and due date can't be changed.",
+        "Incidents are always :red_circle: Urgent and due Immediate, so I can't change their priority or due date.",
       );
     }
   }
@@ -2081,7 +2081,7 @@ test("the incidents channel runs the task commands like the dev channel", async 
   await send("/slack/events", threadEvent("<@UBOT> status client review", { channel: "CINC" }), {}, incidentEnv);
   assert.deepEqual((await savedRequirement()).status, "CLIENT_REVIEW");
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
-  assert.match(review.args.text, /\n<@UCREATOR>, please review it/);
+  assert.match(review.args.text, /\n<@UCREATOR>, could you take a look and approve it/);
   assert.equal(review.args.blocks[1].elements[0].action_id, "status:approve");
 });
 
@@ -2174,7 +2174,7 @@ const historyTask = (ts, { developers = [], reviewers = [], testers = [], ...fie
 
 // What `/cade tasks` says it takes, after saying what was wrong.
 const TASKS_USAGE =
-  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+  "Try `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
 // A response_url's answer: like the API, it refuses a message whose blocks
 // reuse an action_id, with an OK status and { ok: false }.
@@ -2323,7 +2323,7 @@ test("/cade tasks with anything else says what it takes", async (t) => {
     const { now, calls, later } = await tasksCommand(t, `tasks ${word}`, "CDEV", {});
     assert.deepEqual(JSON.parse(now), {
       response_type: "ephemeral",
-      text: `"${word}" is not a role. ${TASKS_USAGE}`,
+      text: `I don't know "${word}" as a role. ${TASKS_USAGE}`,
     });
     assert.equal(calls.length, 0);
     assert.equal(later, undefined);
@@ -2351,7 +2351,7 @@ test("/cade tasks leaves out deleted tasks", async (t) => {
 test("@Cade tasks points to /cade tasks", async (t) => {
   const calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> tasks"));
-  assert.equal(calls[0].args.text, "Use `/cade tasks`.");
+  assert.equal(calls[0].args.text, "That one's a slash command: try `/cade tasks`.");
 });
 
 const PR = "https://github.com/acme/cade/pull/42";
@@ -2390,7 +2390,7 @@ test("@Cade pr add skips pull requests already linked", async (t) => {
   calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
-  assert.equal(calls[0].args.text, "Those pull requests are already linked to this task.");
+  assert.equal(calls[0].args.text, "Those pull requests are already linked to this task, so we're all set.");
 });
 
 test("@Cade pr remove unlinks pull requests", async (t) => {
@@ -2411,17 +2411,17 @@ test("@Cade pr remove unlinks pull requests", async (t) => {
 
   calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent(`<@UBOT> pr remove <${PR}>`));
-  assert.equal(calls.at(-1).args.text, "Those pull requests aren't linked to this task.");
+  assert.equal(calls.at(-1).args.text, "Hmm, those pull requests aren't linked to this task.");
 });
 
 test("@Cade pr needs add or remove and a pull request link", async (t) => {
   for (const [text, reply] of [
-    [`<@UBOT> pr <${PR}>`, "Use `@Cade pr add <link>` or `@Cade pr remove <link>`."],
-    ["<@UBOT> pr", "Use `@Cade pr add <link>` or `@Cade pr remove <link>`."],
-    ["<@UBOT> pr add", "Paste the pull request's link: Use `@Cade pr add <link>` or `@Cade pr remove <link>`."],
+    [`<@UBOT> pr <${PR}>`, "Try `@Cade pr add <link>` or `@Cade pr remove <link>`."],
+    ["<@UBOT> pr", "Try `@Cade pr add <link>` or `@Cade pr remove <link>`."],
+    ["<@UBOT> pr add", "Which pull request? Paste its link. Try `@Cade pr add <link>` or `@Cade pr remove <link>`."],
     [
       "<@UBOT> pr add <https://github.com/acme/cade/issues/3>",
-      "That's not a pull request link: https://github.com/acme/cade/issues/3",
+      "Hmm, that doesn't look like a pull request link: https://github.com/acme/cade/issues/3",
     ],
   ]) {
     const calls = mockSlack(t);
@@ -2439,7 +2439,7 @@ test("@Cade pr works in incidents channels but not in external ones", async (t) 
 
   calls = mockSlack(t);
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`, { channel: "CEXTERNAL" }));
-  assert.equal(calls[0].args.text, "Use `@Cade pr add <link>` in a task thread in <#CDEV>.");
+  assert.equal(calls[0].args.text, "That one works with `@Cade pr add <link>` in a task thread in <#CDEV>.");
 });
 
 test("pull requests on GitHub, GitLab and Bitbucket are read as reponame/number", async () => {
@@ -2459,7 +2459,7 @@ test("linking a PR asks the task's reviewers to review it", async (t) => {
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.equal(
     calls[1].args.text,
-    `<@UACTOR> linked <${PR}|cade/42> and moved the task to :eyes: In review.\n<@URIA>, <@UREX>, please review <${PR}|cade/42>.`,
+    `<@UACTOR> linked <${PR}|cade/42> and moved the task to :eyes: In review.\n<@URIA>, <@UREX>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.equal(calls[1].args.blocks, undefined, "no picker");
 });
@@ -2500,7 +2500,7 @@ test("choosing reviewers assigns them and asks them to review", async (t) => {
   assert.equal(
     calls[1].args.text,
     // Just the request; whoever chose sees the picker become it.
-    `<@URIA>, please review <${PR}|cade/42>.`,
+    `<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.equal(calls[1].args.blocks.length, 1, "the picker is gone");
 });
@@ -2513,7 +2513,7 @@ test("assigning a reviewer once a PR is linked asks them to review it", async (t
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA"]);
   assert.equal(
     calls[1].args.text,
-    `<@URIA>, please review <${PR}|cade/42>, <${MR}|web-app/118>.`,
+    `<@URIA>, could you review <${PR}|cade/42>, <${MR}|web-app/118> when you get a chance? Thanks!`,
   );
 });
 
@@ -2521,7 +2521,7 @@ test("reviewers added before a PR are not named, so not notified", async (t) => 
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> assign reviewer <@URIA> <@UREX>"));
   const reply = calls[1].args.text;
-  assert.equal(reply, "<@UACTOR> added 2 reviewers. They'll be asked to review when a PR is linked.");
+  assert.equal(reply, "<@UACTOR> added 2 reviewers. I'll ask them to review once a PR is linked.");
   assert.ok(!reply.includes("URIA") && !reply.includes("UREX"));
 });
 
@@ -2569,7 +2569,7 @@ test("pull requests pasted into a task's thread are offered for linking, private
   assert.equal(question.user, "UACTOR");
   assert.equal(question.thread_ts, "100.1");
   // Only the PR that isn't linked yet is offered.
-  assert.equal(question.text, `You posted <${PR}|cade/42>. Link it to this task?`);
+  assert.equal(question.text, `I see you posted <${PR}|cade/42>. Should I link it to this task?`);
   const [link, skip] = question.blocks[1].elements;
   assert.equal(link.text.text, "Link PR");
   assert.equal(link.action_id, "pr:suggest-link");
@@ -2616,7 +2616,7 @@ test("Link PRs links them, posts only what is new and removes the question", asy
   // status change, and the reviewer the message didn't mention is asked.
   assert.equal(
     calls[1].args.text,
-    `<@UACTOR> moved the task to :eyes: In review.\n<@URIA>, please review <${PR}|cade/42>.`,
+    `<@UACTOR> moved the task to :eyes: In review.\n<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
@@ -2669,7 +2669,7 @@ test("a pasted PR that mentions people offers them as reviewers too", async (t) 
   const question = calls.find((call) => call.method === "chat.postEphemeral").args;
   assert.equal(
     question.text,
-    `You posted <${PR}|cade/42> and mentioned <@UREX>. Link it to this task and add <@UREX> as reviewer?`,
+    `I see you posted <${PR}|cade/42> and mentioned <@UREX>. Should I link it to this task and add <@UREX> as reviewer?`,
   );
   const [both, link, skip] = question.blocks[1].elements;
   // Each button has its own action_id, as Slack requires.
@@ -2692,7 +2692,7 @@ test("an already linked PR with new people offers just the reviewers", async (t)
   await send("/slack/events", threadReply(`<@UREX> <@URIA> please look at <${PR}>`));
 
   const question = calls.find((call) => call.method === "chat.postEphemeral").args;
-  assert.equal(question.text, `Add <@UREX>, <@URIA> as reviewers of <${PR}|cade/42>?`);
+  assert.equal(question.text, `Should I add <@UREX>, <@URIA> as reviewers of <${PR}|cade/42>?`);
   const [add, skip] = question.blocks[1].elements;
   assert.equal(add.text.text, "Add reviewers");
   assert.equal(add.value, suggestionValue({ mentioned: ["UREX", "URIA"], reviewers: ["UREX", "URIA"] }));
@@ -2716,7 +2716,7 @@ test("Link and add reviewer asks only the reviewers the message did not mention"
   // UREX was mentioned in the message, so only URIA is asked.
   assert.equal(
     post.text,
-    `<@UACTOR> moved the task to :eyes: In review.\n<@URIA>, please review <${PR}|cade/42>.`,
+    `<@UACTOR> moved the task to :eyes: In review.\n<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.equal(sent.length, 1);
 });
@@ -2798,7 +2798,7 @@ test("handing a task over in a message offers to assign them, privately", async 
     assert.ok(question, text);
     assert.equal(question.user, "UACTOR");
     assert.equal(question.thread_ts, "100.1");
-    assert.equal(question.text, `You asked <@UREX> to ${asked}. Assign them as ${label}?`, text);
+    assert.equal(question.text, `Looks like you asked <@UREX> to ${asked}. Should I assign them as ${label}?`, text);
     const [assign, skip] = question.blocks[1].elements;
     assert.equal(assign.text.text, `Assign as ${label}`, text);
     assert.equal(assign.value, assignValue(role, ["UREX"]), text);
@@ -2898,7 +2898,7 @@ test("handing a task to testing offers to assign the tester and move it to In te
     const question = calls.find((call) => call.method === "chat.postEphemeral").args;
     assert.equal(
       question.text,
-      "You asked <@UTESS> to test this. Assign them as tester and move the task to :test_tube: In testing?",
+      "Looks like you asked <@UTESS> to test this. Should I assign them as tester and move the task to :test_tube: In testing?",
       text,
     );
     const [assign] = question.blocks[1].elements;
@@ -2913,7 +2913,7 @@ test("a tester assigned ahead of time is offered just the move to In testing", a
   const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadReply("<@UTESS> ready for testing"));
   const question = calls.find((call) => call.method === "chat.postEphemeral").args;
-  assert.equal(question.text, "You asked <@UTESS> to test this. Move the task to :test_tube: In testing?");
+  assert.equal(question.text, "Looks like you asked <@UTESS> to test this. Should I move the task to :test_tube: In testing?");
   const [move] = question.blocks[1].elements;
   assert.equal(move.text.text, "Move to In testing");
   assert.equal(move.value, assignValue("tester", [], "IN_TESTING"));
@@ -2924,7 +2924,7 @@ test("a testing hand-off once testing has started only offers the assignment", a
     let calls = mockSlack(t, { stored: [withStatus(status)] });
     await send("/slack/events", threadReply("<@UTESS> please test this"));
     const question = calls.find((call) => call.method === "chat.postEphemeral").args;
-    assert.equal(question.text, "You asked <@UTESS> to test this. Assign them as tester?", status);
+    assert.equal(question.text, "Looks like you asked <@UTESS> to test this. Should I assign them as tester?", status);
     assert.equal(question.blocks[1].elements[0].value, assignValue("tester", ["UTESS"]));
 
     // With the tester already there, there's nothing to ask.
@@ -2988,7 +2988,7 @@ test("handing a To do task to a developer offers to move it to In progress", asy
   let question = calls.find((call) => call.method === "chat.postEphemeral").args;
   assert.equal(
     question.text,
-    "You asked <@UREX> to work on this. Assign them as developer and move the task to :arrow_forward: In progress?",
+    "Looks like you asked <@UREX> to work on this. Should I assign them as developer and move the task to :arrow_forward: In progress?",
   );
   assert.equal(question.blocks[1].elements[0].text.text, "Assign and move to In progress");
   assert.equal(question.blocks[1].elements[0].value, assignValue("developer", ["UREX"], "IN_PROGRESS"));
@@ -2997,7 +2997,7 @@ test("handing a To do task to a developer offers to move it to In progress", asy
   calls = mockSlack(t, { stored: [storedTask({ developers: ["UREX"] })] });
   await send("/slack/events", threadReply("<@UREX> you can start working on this now"));
   question = calls.find((call) => call.method === "chat.postEphemeral").args;
-  assert.equal(question.text, "You asked <@UREX> to work on this. Move the task to :arrow_forward: In progress?");
+  assert.equal(question.text, "Looks like you asked <@UREX> to work on this. Should I move the task to :arrow_forward: In progress?");
   assert.equal(question.blocks[1].elements[0].text.text, "Move to In progress");
   assert.equal(question.blocks[1].elements[0].value, assignValue("developer", [], "IN_PROGRESS"));
 });
@@ -3007,7 +3007,7 @@ test("a developer hand-off once work has started only offers the assignment", as
     const calls = mockSlack(t, { stored: [withStatus(status)] });
     await send("/slack/events", threadReply("<@UREX> please look into this"));
     const question = calls.find((call) => call.method === "chat.postEphemeral").args;
-    assert.equal(question.text, "You asked <@UREX> to work on this. Assign them as developer?", status);
+    assert.equal(question.text, "Looks like you asked <@UREX> to work on this. Should I assign them as developer?", status);
   }
 });
 
@@ -3050,14 +3050,14 @@ test("Done is posted in the requirement thread without asking", async (t) => {
     assert.equal(
       post.text,
       // The thread is the requirement, so there's no link to the task.
-      "<@UACTOR> marked this as :white_check_mark: Done.",
+      "Great news! <@UACTOR> marked this as :white_check_mark: Done.",
       from,
     );
     assert.equal(post.blocks.length, 1, "no buttons");
     // The command gets a ✅, and a note that the requirement thread was told.
     assert.ok(calls.some((call) => call.method === "reactions.add"), from);
     assert.equal(calls.at(-1).args.channel, "CDEV", from);
-    assert.equal(calls.at(-1).args.text, "Cade told <https://slack.example/source|the requirement thread> it's :white_check_mark: Done.", from);
+    assert.equal(calls.at(-1).args.text, "I've let <https://slack.example/source|the requirement thread> know it's :white_check_mark: Done.", from);
   }
 });
 
@@ -3106,7 +3106,7 @@ test("asking a developer to start from an untracked requirement offers to track 
   assert.equal(question.channel, "CEXTERNAL");
   assert.equal(question.thread_ts, "200.1");
   assert.equal(question.user, "UACTOR");
-  assert.equal(question.text, "You asked <@UREX> to work on this. Track it as a task and assign them as developer?");
+  assert.equal(question.text, "Looks like you asked <@UREX> to work on this. Should I track it as a task and assign them as developer?");
   const [track, skip] = question.blocks[1].elements;
   assert.equal(track.text.text, "Track and assign");
   assert.equal(track.action_id, "track:assign");
@@ -3184,7 +3184,7 @@ test("asking a developer to start on a tracked requirement offers to assign them
   assert.equal(question.thread_ts, "200.1");
   assert.equal(
     question.text,
-    "You asked <@UREX> to work on this. Assign them as developer of <https://slack.example/p100|Fix login> and move the task to :arrow_forward: In progress?",
+    "Looks like you asked <@UREX> to work on this. Should I assign them as developer of <https://slack.example/p100|Fix login> and move the task to :arrow_forward: In progress?",
   );
   // The button changes the task in the dev channel, and says it came from
   // the requirement thread.
@@ -3208,7 +3208,7 @@ test("a task tracked with Track and assign is announced in the requirement threa
   // There's no button message to turn into the news, so it's posted.
   const post = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   assert.equal(post.thread_ts, "200.1");
-  assert.equal(post.text, "<@UCREATOR> tracked this as a task: <https://slack.example/p100|Export reports>");
+  assert.equal(post.text, "<@UCREATOR> tracked this as a task: <https://slack.example/p100|Export reports>. The team's on it!");
 });
 
 test("a reported incident is not announced as tracked", async (t) => {
@@ -3271,12 +3271,12 @@ test("Client review lists the task's PRs for the client, and keeps them after a 
 
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   const announced = [
-    "<@UACTOR> marked this as ready to review.",
+    "Good news! <@UACTOR> says this is ready for you to review.",
     `*PRs:* <${PR}|cade/42>, <${MR}|web-app/118>`,
   ].join("\n");
   assert.equal(
     review.blocks[0].text.text,
-    `${announced}\n<@UCREATOR>, please review it and approve it, or say what needs to change.`,
+    `${announced}\n<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?`,
   );
   assert.deepEqual(
     review.blocks[1].elements.map((button) => button.action_id),
@@ -3326,8 +3326,8 @@ test("confirming removes the task first, then the requirement", async (t) => {
 
 test("a task from a requirement or incident can't be removed from its own thread", async (t) => {
   for (const [root, environment, channel, text] of [
-    [requirementTask(), env, "CDEV", "This task belongs to a requirement. Remove it from <https://slack.example/source|its thread> with `@Cade remove`, which removes both."],
-    [incidentTask(), incidentEnv, "CINC", "This task belongs to an incident. Remove it from <https://slack.example/source|its thread> with `@Cade remove`, which removes both."],
+    [requirementTask(), env, "CDEV", "This task belongs to a requirement, so I'd remove them together: send `@Cade remove` in <https://slack.example/source|its thread>."],
+    [incidentTask(), incidentEnv, "CINC", "This task belongs to an incident, so I'd remove them together: send `@Cade remove` in <https://slack.example/source|its thread>."],
   ]) {
     if (channel === "CINC") root.task.source.incident = true;
     const calls = mockSlack(t, { stored: [root] });
@@ -3346,7 +3346,7 @@ test("the ready to review message doesn't link to the team's task", async (t) =>
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL").args;
   assert.equal(
     review.text,
-    "<@UACTOR> marked this as ready to review.\n<@UCREATOR>, please review it and approve it, or say what needs to change.",
+    "Good news! <@UACTOR> says this is ready for you to review.\n<@UCREATOR>, could you take a look and approve it, or let us know what needs to change?",
   );
   assert.ok(!review.text.includes("slack.example/p100"));
   // No link to look up for it.
@@ -3364,7 +3364,7 @@ test("asking someone to look into a tracked incident offers to assign them, in e
     await send("/slack/events", threadReply("<@UREX> please look into it", { channel, ...overrides }), {}, incidentEnv);
     const question = calls.find((call) => call.method === "chat.postEphemeral")?.args;
     assert.ok(question, channel);
-    assert.match(question.text, /^You asked <@UREX> to work on this\. Assign them as developer/, channel);
+    assert.match(question.text, /^Looks like you asked <@UREX> to work on this\. Should I assign them as developer/, channel);
     // The button assigns them to the task in the incidents channel.
     assert.equal(JSON.parse(question.blocks[1].elements[0].value).channel, "CINC", channel);
   }
@@ -3372,8 +3372,8 @@ test("asking someone to look into a tracked incident offers to assign them, in e
 
 test("assigning from the requirement thread asks the developer in the task's thread", async (t) => {
   for (const [moveTo, text] of [
-    [null, "<@UREX> please start working on this."],
-    ["IN_PROGRESS", "<@UREX> please start working on this.\n<@UACTOR> moved the task to :arrow_forward: In progress."],
+    [null, "<@UREX> could you pick this up when you get a chance? Thanks!"],
+    ["IN_PROGRESS", "<@UREX> could you pick this up when you get a chance? Thanks!\n<@UACTOR> moved the task to :arrow_forward: In progress."],
   ]) {
     const calls = mockSlack(t, { stored: [requirementTask("TODO")] });
     recordResponses(t);
@@ -3408,7 +3408,7 @@ test("Track and assign asks the developers in the new task's thread", async (t) 
   );
   const ask = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").args;
   assert.equal(ask.channel, "CDEV");
-  assert.equal(ask.text, "<@UREX>, <@UBOB> please start working on this.");
+  assert.equal(ask.text, "<@UREX>, <@UBOB> could you pick this up when you get a chance? Thanks!");
 });
 
 
@@ -3459,7 +3459,7 @@ test("saving the form sets the role, tells those added and removed, and removes 
   const ask = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(ask.thread_ts, "100.1");
   // UREX is asked to start; UBOB, removed, is told they no longer need to.
-  assert.equal(ask.text, "<@UREX> please start working on this.\n<@UBOB>, you no longer need to work on this.");
+  assert.equal(ask.text, "<@UREX> could you pick this up when you get a chance? Thanks!\n<@UBOB>, you don't need to work on this anymore. Thanks!");
   assert.deepEqual(calls.at(-1).args, { channel: "CDEV", ts: "100.8" });
   assert.equal(calls.at(-1).method, "chat.delete");
 });
@@ -3470,7 +3470,7 @@ test("saving with people only removed tells them", async (t) => {
   assert.deepEqual((await savedTask()).people.tester, []);
   assert.equal(
     calls.find((call) => call.method === "chat.postMessage").args.text,
-    "<@UTESS>, you no longer need to test this.",
+    "<@UTESS>, you don't need to test this anymore. Thanks!",
   );
   assert.equal(calls.at(-1).method, "chat.delete");
 });
@@ -3486,15 +3486,15 @@ test("reviewers saved are asked to review only once a PR is linked", async (t) =
   await send("/slack/interactions", savePeopleForm("reviewer", ["URIA"]));
   assert.equal(
     calls.find((call) => call.method === "chat.postMessage").args.text,
-    `<@URIA>, please review <${PR}|cade/42>.`,
+    `<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
 });
 
 test("@Cade unassign of someone not assigned changes nothing", async (t) => {
   for (const [text, reply] of [
-    ["<@UBOT> unassign <@UREX>", "They aren't assigned to this task."],
-    ["<@UBOT> unassign tester <@UALICE>", "They aren't assigned to this task as tester."],
-    ["<@UBOT> unassign <@UREX> <@UBOB>", "None of them are assigned to this task."],
+    ["<@UBOT> unassign <@UREX>", "Looks like they aren't assigned to this task."],
+    ["<@UBOT> unassign tester <@UALICE>", "Looks like they aren't assigned to this task as tester."],
+    ["<@UBOT> unassign <@UREX> <@UBOB>", "Looks like none of them are assigned to this task."],
   ]) {
     const calls = mockSlack(t, { stored: [storedTask({ developers: ["UALICE"] })] });
     await send("/slack/events", threadEvent(text));
@@ -3506,7 +3506,7 @@ test("@Cade unassign of someone not assigned changes nothing", async (t) => {
 test("removed reviewers are told they no longer need to review", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
   await send("/slack/events", threadEvent("<@UBOT> unassign reviewer <@URIA>"));
-  assert.equal(calls.at(-1).args.text, "<@URIA>, you no longer need to review this.");
+  assert.equal(calls.at(-1).args.text, "<@URIA>, you don't need to review this anymore. Thanks!");
 });
 
 test("assign-style hand-offs are caught too", async (t) => {
@@ -3524,7 +3524,7 @@ test("assign-style hand-offs are caught too", async (t) => {
     await send("/slack/events", threadReply(text));
     const question = calls.find((call) => call.method === "chat.postEphemeral")?.args;
     assert.ok(question, text);
-    assert.match(question.text, new RegExp(`Assign them as ${label}`), text);
+    assert.match(question.text, new RegExp(`Should I assign them as ${label}`), text);
   }
 });
 
@@ -3536,8 +3536,8 @@ test("assign-style words without a mention are left alone", async (t) => {
 
 test("\"assigned this to you\" in a requirement thread offers to track or assign", async (t) => {
   for (const [root, start] of [
-    [requirementRoot(), "You asked <@URANDIL> to work on this. Track it as a task"],
-    [requirementRoot({ task: true }), "You asked <@URANDIL> to work on this. Assign them as developer of"],
+    [requirementRoot(), "Looks like you asked <@URANDIL> to work on this. Should I track it as a task"],
+    [requirementRoot({ task: true }), "Looks like you asked <@URANDIL> to work on this. Should I assign them as developer of"],
   ]) {
     const calls = mockSlack(t, threads(root, requirementTask("TODO")));
     await send(
@@ -3554,11 +3554,11 @@ test("CHANNEL_PAIRS can be a JSON string, as the Cloudflare dashboard stores it"
   const calls = mockSlack(t);
   const asJson = { ...env, CHANNEL_PAIRS: JSON.stringify(env.CHANNEL_PAIRS) };
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }), {}, asJson);
-  assert.equal(calls[0].args.text, "Use `@Cade assign developer @person` in a task thread in <#CDEV>.");
+  assert.equal(calls[0].args.text, "That one works with `@Cade assign developer @person` in a task thread in <#CDEV>.");
 
   const broken = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"), {}, { ...env, CHANNEL_PAIRS: "[{" });
-  assert.match(broken[0].args.text, /failed/);
+  assert.match(broken[0].args.text, /something went wrong/);
 });
 
 test("the Slack app manifest is filled in from the Worker's URL, name and command", async () => {
@@ -3790,7 +3790,7 @@ test("a thread with no stored task or requirement is neither", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   // The task is in CDEV; the same ts in another channel is a different message.
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CTESTDEV" }));
-  assert.match(calls.at(-1).args.text, /not a tracked task/);
+  assert.match(calls.at(-1).args.text, /not tracking a task in this thread/);
 });
 
 test("a deleted task is kept in the database and no longer loads", async (t) => {
@@ -3805,7 +3805,7 @@ test("a deleted task is kept in the database and no longer loads", async (t) => 
   calls.length = 0;
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
-  assert.match(calls[0].args.text, /not a tracked task/);
+  assert.match(calls[0].args.text, /not tracking a task in this thread/);
 });
 
 test("the sheet uses the task's stored link instead of looking it up", async (t) => {
@@ -3928,7 +3928,7 @@ test("the cron tells nobody while it keeps trying, and gives up after the last a
   await runCron();
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage", "chat.postEphemeral"]);
   assert.equal(calls[1].args.user, "UCREATOR");
-  assert.equal(calls[1].args.text, 'Sorry, the task "Fix login" could not be created.');
+  assert.equal(calls[1].args.text, 'Sorry, I couldn\'t create the task "Fix login", even after a few tries.');
   // Given up: not tried again, and the requirement can be tracked afresh.
   calls.length = 0;
   await runCron();
@@ -3941,7 +3941,7 @@ test("tracking a requirement whose task is waiting to be posted says so", async 
   await waitingTask();
   await send("/slack/interactions", interaction(titleOnlySubmission("Export reports", requirementOrigin)));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
-  assert.match(calls[0].args.text, /^This requirement is already tracked: its task will be posted/);
+  assert.match(calls[0].args.text, /^This requirement is already tracked\. Its task will show up/);
 });
 
 test("a requirement Slack refused is stored and posted by the cron", async (t) => {
@@ -3961,7 +3961,7 @@ test("a requirement Slack refused is stored and posted by the cron", async (t) =
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage", "chat.postEphemeral"]);
   assert.equal(
     calls[1].args.text,
-    'Sorry, the requirement "Export reports" couldn\'t be posted yet. Cade will try again in a few minutes.',
+    'Sorry, I couldn\'t post the requirement "Export reports" just now. I\'ll try again in a few minutes.',
   );
 
   calls = mockSlack(t, { "chat.postMessage": { ts: "200.1" } });
@@ -4124,16 +4124,16 @@ test("/cade tasks options combine, in any order", async (t) => {
 
 test("/cade tasks says what's wrong with options it can't use", () => {
   for (const [text, start] of [
-    ["-status=blocked", '"-status=blocked" isn\'t a status filter.'],
-    ["-status", '"-status" isn\'t a status filter.'],
-    ["-due=soon", '"-due=soon" isn\'t a due date filter.'],
-    ["-due=31/02/2027", '"-due=31/02/2027" isn\'t a due date filter.'],
-    ["-due<none", '"-due&lt;none" isn\'t a due date filter.'],
-    ["-mine", '"-mine" isn\'t an option.'],
+    ["-status=blocked", 'I don\'t know "-status=blocked" as a status filter.'],
+    ["-status", 'I don\'t know "-status" as a status filter.'],
+    ["-due=soon", 'I don\'t know "-due=soon" as a due date filter.'],
+    ["-due=31/02/2027", 'I don\'t know "-due=31/02/2027" as a due date filter.'],
+    ["-due<none", 'I don\'t know "-due&lt;none" as a due date filter.'],
+    ["-mine", 'I don\'t know "-mine" as an option.'],
     ["-all dev", "`-all` shows everyone's tasks, so it can't take a role or a person."],
     ["-all <@UBOB>", "`-all` shows everyone's tasks, so it can't take a role or a person."],
-    ["<@UBOB> <@UALICE>", "Name one person at a time."],
-    ["dev review", "Name one role at a time."],
+    ["<@UBOB> <@UALICE>", "I can only look up one person at a time."],
+    ["dev review", "I can only show one role at a time."],
   ]) {
     assert.equal(parseTaskFilters(text).error, `${start} ${TASKS_USAGE}`, text);
   }
@@ -4266,7 +4266,7 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
   assert.deepEqual((await savedTask("CDEV", "100.2")).people.developer, ["UALICE"]);
   const post = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(post.thread_ts, "100.2");
-  assert.equal(post.text, "<@UACTOR> assigned this to <@UALICE>.\n<@UALICE> please start working on this.");
+  assert.equal(post.text, "<@UACTOR> assigned this to <@UALICE>.\n<@UALICE> could you pick this up when you get a chance? Thanks!");
   // Assigned, it leaves the walk: the next one takes its place.
   const next = sent.at(-1);
   assert.equal(next.blocks[0].text.text, "*Unassigned aura300 tasks*  ·  1 of 1");
@@ -4278,7 +4278,7 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
     "/slack/interactions",
     standupClick({ action_id: last.accessory.action_id, block_id: last.block_id, selected_user: "UBOB" }),
   );
-  assert.equal(sent.at(-1).text, "Every open aura300 task has a developer.");
+  assert.equal(sent.at(-1).text, "Every open aura300 task has a developer. Nice!");
 });
 
 test("End and Finish remove the standup", async (t) => {
@@ -4291,16 +4291,16 @@ test("End and Finish remove the standup", async (t) => {
 
 test("/cade standup says so when there's nothing to go through, and takes only -unassigned", async (t) => {
   const empty = await tasksCommand(t, "standup", "CDEV", {});
-  assert.equal(empty.later.text, "No one has open aura300 tasks.");
+  assert.equal(empty.later.text, "No one has open aura300 tasks right now.");
 
   const wrong = await tasksCommand(t, "standup everyone", "CDEV", {});
   assert.equal(
     JSON.parse(wrong.now).text,
-    '"everyone" isn\'t an option. Use `/cade standup` to go through everyone\'s tasks, or `/cade standup -unassigned` for those with no developer.',
+    'I don\'t know "everyone" as an option. Send `/cade standup` to go through everyone\'s tasks, or `/cade standup -unassigned` for those with no developer.',
   );
   // It's the team's, so it runs in its channels.
   const outside = await tasksCommand(t, "standup", "CEXTERNAL", {});
-  assert.equal(JSON.parse(outside.now).text, "Use `/cade standup` in <#CDEV>.");
+  assert.equal(JSON.parse(outside.now).text, "That one works with `/cade standup` in <#CDEV>.");
 });
 
 test("/cade tasks -unassigned lists open tasks with no developer", async (t) => {
@@ -4308,8 +4308,8 @@ test("/cade tasks -unassigned lists open tasks with no developer", async (t) => 
   assert.equal(later.text, "There is 1 open aura300 unassigned task.");
   assert.equal(later.blocks[0].text.text, "Unassigned aura300 tasks");
   assert.match(later.blocks[1].text.text, /^\*To do \(1\)\*\n• <[^|]+\|Nobody's>.*<@UALICE>$/);
-  assert.equal(parseTaskFilters("-unassigned <@UBOB>").error.split(" Use ")[0], "`-unassigned` shows tasks with no developer, so it can't take a role or a person.");
-  assert.equal(parseTaskFilters("-all -unassigned").error.split(" Use ")[0], "Use `-all` or `-unassigned`, not both.");
+  assert.equal(parseTaskFilters("-unassigned <@UBOB>").error.split(" Try ")[0], "`-unassigned` shows tasks with no developer, so it can't take a role or a person.");
+  assert.equal(parseTaskFilters("-all -unassigned").error.split(" Try ")[0], "Use `-all` or `-unassigned`, not both.");
 });
 
 // `@Cade release`: some of a requirement task's PRs sent to the client.
@@ -4349,7 +4349,7 @@ const releaseClick = (actionId, id = 1) =>
     message: {
       ts: "200.9",
       thread_ts: "200.1",
-      blocks: [{ type: "section", text: { type: "mrkdwn", text: "<@UDEV> sent these PRs for approval" } }],
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "<@UDEV> sent these PRs for your approval" } }],
     },
     actions: [{ action_id: actionId, value: JSON.stringify({ channel: "CDEV", ts: "100.1", id }) }],
   });
@@ -4374,9 +4374,9 @@ const rootPrs = (calls) => shownPrs(calls);
 
 test("@Cade release needs a requirement task with PRs not sent yet", async (t) => {
   const cases = [
-    [{ stored: [ownTask()] }, /no client thread/],
-    [releaseThreads([]), /Link the PRs to release first/],
-    [releaseThreads([PR], [inReview([PR])]), /sent to the client already/],
+    [{ stored: [ownTask()] }, /doesn't have a client thread/],
+    [releaseThreads([]), /There aren't any PRs to send yet/],
+    [releaseThreads([PR], [inReview([PR])]), /already with the client/],
   ];
   for (const [responses, reply] of cases) {
     const calls = mockSlack(t, responses);
@@ -4415,8 +4415,8 @@ test("the release form needs PRs and what they complete", async (t) => {
   mockSlack(t, releaseThreads([PR]));
   const response = await send("/slack/interactions", releaseSubmission([], ""));
   assert.deepEqual((await response.json()).errors, {
-    prs: "Choose at least one PR.",
-    note: "Say what these PRs complete.",
+    prs: "Please choose at least one PR.",
+    note: "Please say what these PRs complete.",
   });
 });
 
@@ -4438,8 +4438,8 @@ test("sending PRs asks the client in the requirement thread and says so in the t
   const ask = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(ask.channel, "CEXTERNAL");
   assert.equal(ask.thread_ts, "200.1");
-  assert.equal(ask.blocks[0].text.text, `<@UDEV> sent these PRs for approval: <${PR}|cade/42>\n*Completes:* Login and sign-up`);
-  assert.match(ask.blocks[1].text.text, /^<@UCREATOR>, please review them/);
+  assert.equal(ask.blocks[0].text.text, `<@UDEV> sent these PRs for your approval: <${PR}|cade/42>\n*Completes:* Login and sign-up`);
+  assert.match(ask.blocks[1].text.text, /^<@UCREATOR>, could you take a look and approve them/);
   assert.deepEqual(ask.blocks[2].elements.map((button) => button.action_id), ["release:approve", "release:reject"]);
 
   const told = calls.at(-1);
@@ -4447,7 +4447,7 @@ test("sending PRs asks the client in the requirement thread and says so in the t
   assert.equal(told.args.ts, "100.7");
   assert.equal(
     told.args.text,
-    `<@UDEV> sent <${PR}|cade/42> to the client for approval in <https://slack.example/release|the requirement thread>.\n*Completes:* Login and sign-up`,
+    `<@UDEV> sent <${PR}|cade/42> to the client for approval in <https://slack.example/release|the requirement thread>. I'll let you know when they reply.\n*Completes:* Login and sign-up`,
   );
 });
 
@@ -4468,13 +4468,13 @@ test("Approve marks the PRs approved and tells both threads", async (t) => {
   assert.equal(told.thread_ts, "100.1");
   assert.equal(
     told.text,
-    `<@UDEV>: <@UCLIENT> approved <${PR}|cade/42> in <https://slack.example/release|the requirement thread>.`,
+    `<@UDEV>, good news! <@UCLIENT> approved <${PR}|cade/42> in <https://slack.example/release|the requirement thread>.`,
   );
   const decided = calls.at(-1).args;
   assert.equal(decided.ts, "200.9");
   assert.equal(
     decided.text,
-    `<@UDEV> sent these PRs for approval\n<@UCLIENT> approved them. Thanks, <@UDEV>.`,
+    `<@UDEV> sent these PRs for your approval\n<@UCLIENT> approved them. Thanks, <@UDEV>!`,
   );
 });
 
@@ -4494,14 +4494,14 @@ test("Not approve removes the release and tells both threads", async (t) => {
   assert.equal(shownPrs(calls, "100.1"), shown);
   const told = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(told.channel, "CDEV");
-  assert.match(told.text, /^<@UDEV>: <@UCLIENT> did not approve .*send them again with `@Cade release`\.$/);
-  assert.match(calls.at(-1).args.text, /\n<@UCLIENT> did not approve them\. <@UDEV>, see this thread/);
+  assert.match(told.text, /^<@UDEV>, <@UCLIENT> didn't approve .*send them again with `@Cade release`\.$/);
+  assert.match(calls.at(-1).args.text, /\n<@UCLIENT> didn't approve them\. <@UDEV>, have a look at this thread/);
 });
 
 test("a release decided already, or gone, is not applied again", async (t) => {
   const released = { ...inReview([PR]), status: "APPROVED" };
   const rejected = { ...inReview([PR]), status: "NOT_APPROVED" };
-  for (const [releases, outcome] of [[[released], /approved already/], [[rejected], /no longer waiting for approval/], [[], /no longer waiting for approval/]]) {
+  for (const [releases, outcome] of [[[released], /already approved/], [[rejected], /aren't waiting for approval anymore/], [[], /aren't waiting for approval anymore/]]) {
     const calls = mockSlack(t, releaseThreads([PR], releases));
     await send("/slack/interactions", releaseClick("release:reject"));
     assert.deepEqual(calls.map((call) => call.method), ["chat.update"]);
@@ -4522,7 +4522,7 @@ test("Client review after a release sends the remaining PRs, and both threads sa
   assert.equal(note.thread_ts, "100.1");
   assert.equal(
     note.text,
-    `Cade asked the client to review the remaining PRs, <${MR}|web-app/118>, in <https://slack.example/source|the requirement thread>.`,
+    `I've asked the client to review the remaining PRs, <${MR}|web-app/118>, in <https://slack.example/source|the requirement thread>.`,
   );
 });
 

@@ -46,10 +46,10 @@ export default {
     // A tracked requirement takes its task with it.
     const task = item.task;
     const also = task ? ` and its task <${task.link}|${escapeSlack(task.title)}> in <#${task.channel}>` : "";
-    const question = `<@${command.user}>, delete the ${noun} *${escapeSlack(item.title)}*${also}? This cannot be undone.`;
+    const question = `<@${command.user}>, should I delete the ${noun} *${escapeSlack(item.title)}*${also}? There's no undo.`;
     const deleted = task
-      ? `"${item.title}", its task "${task.title}", and Cade's replies in both threads will be deleted.`
-      : `"${item.title}" and Cade's replies in its thread will be deleted.`;
+      ? `I'll delete "${item.title}", its task "${task.title}", and my replies in both threads.`
+      : `I'll delete "${item.title}" and my replies in its thread.`;
     const value = JSON.stringify({
       kind,
       channel: command.channel,
@@ -119,7 +119,7 @@ async function authorize(payload, env) {
     channel: request.channel,
     thread_ts: request.ts,
     user: payload.user.id,
-    text: `Only <@${request.requestedBy}> can confirm this deletion. Send \`@Cade delete\` to ask for your own.`,
+    text: `Only <@${request.requestedBy}> can confirm this one. If you'd like to delete it, send \`@Cade delete\` and I'll ask you.`,
   });
   return null;
 }
@@ -153,7 +153,7 @@ async function deleteRequirement(env, channel, ts, user) {
 function belongsToRequirement(task) {
   const noun = task.source.incident ? "an incident" : "a requirement";
   const thread = task.source.link ? `<${task.source.link}|its thread>` : "its thread";
-  return `This task belongs to ${noun}. Remove it from ${thread} with \`@Cade remove\`, which removes both.`;
+  return `This task belongs to ${noun}, so I'd remove them together: send \`@Cade remove\` in ${thread}.`;
 }
 
 // Deletes Cade's replies in a thread. They go first, so the root is not left

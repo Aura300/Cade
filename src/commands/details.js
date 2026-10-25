@@ -36,8 +36,8 @@ export const priority = {
     const value = Object.keys(PRIORITIES).find((name) => name.toLowerCase() === input.toLowerCase());
     if (!value) {
       const prompt = input
-        ? `"${escapeSlack(input)}" is not a priority. Pick one:`
-        : "Pick the new priority:";
+        ? `I don't know "${escapeSlack(input)}" as a priority. Which one did you mean?`
+        : "Which priority should it be?";
       return priorityPicker(prompt, found.item.priority);
     }
     await change(env, found, { priority: value }, command.user);
@@ -74,8 +74,8 @@ export const due = {
     const dueDate = parseDate(input);
     if (!dueDate) {
       const prompt = input
-        ? `"${escapeSlack(input)}" is not a date. Use DD/MM/YYYY, or pick one:`
-        : "Pick the new due date:";
+        ? `I couldn't read "${escapeSlack(input)}" as a date. Try DD/MM/YYYY, or pick one here:`
+        : "When is it due?";
       return datePicker(prompt, found.item.dueDate);
     }
     await change(env, found, { dueDate }, command.user);
@@ -101,7 +101,7 @@ function cannotChange(env, channel, found) {
   const thread = found.item.source.link
     ? `<${found.item.source.link}|the requirement thread>`
     : "the requirement thread";
-  return `The client sets this task's priority and due date. Change them in ${thread}.`;
+  return `The client owns this task's priority and due date, so they're changed in ${thread}.`;
 }
 
 // Saves the change and returns the confirmation. A change to a requirement

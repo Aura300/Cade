@@ -25,7 +25,7 @@ export default {
     }
     if (!removed.size) {
       const as = role ? ` as ${ROLES[role].toLowerCase()}` : "";
-      return `${command.mentions.length === 1 ? "They aren't" : "None of them are"} assigned to this task${as}.`;
+      return `Looks like ${command.mentions.length === 1 ? "they aren't" : "none of them are"} assigned to this task${as}.`;
     }
     await saveTask(env, command.channel, command.threadTs, task);
     return noLonger([...removed], role);

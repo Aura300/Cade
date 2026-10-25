@@ -43,7 +43,7 @@ function requirementView(origin) {
 async function submit(payload, context) {
   const { title, dueDate, priority, errors } = readTaskForm(
     payload.view.state.values,
-    "Enter a requirement name.",
+    "Please give the requirement a name.",
   );
   if (errors) return { response_action: "errors", errors };
 
@@ -73,7 +73,7 @@ export const incident = {
   channel: "external",
   async slash(command, { env }) {
     if (!pairFor(env, command.channel).incidents) {
-      return "Incidents aren't set up for this channel yet: add an `incidents` channel to its pair in `CHANNEL_PAIRS`.";
+      return "I can't take incidents in this channel yet. Add an `incidents` channel to its pair in `CHANNEL_PAIRS`, and I'll be ready.";
     }
     await callSlack(env, "views.open", {
       trigger_id: command.triggerId,
@@ -98,7 +98,7 @@ function incidentView(origin) {
         elements: [
           {
             type: "mrkdwn",
-            text: "Incidents are :red_circle: Urgent and due Immediate, and go straight to the team.",
+            text: "Incidents are :red_circle: Urgent and due Immediate. I'll pass this straight to the team.",
           },
         ],
       },
@@ -107,7 +107,7 @@ function incidentView(origin) {
 }
 
 async function submitIncident(payload, context) {
-  const { title, errors } = readTaskForm(payload.view.state.values, "Describe the incident.");
+  const { title, errors } = readTaskForm(payload.view.state.values, "Please tell us what's going on.");
   if (errors) return { response_action: "errors", errors };
 
   const { channel } = JSON.parse(payload.view.private_metadata || "{}");
@@ -146,8 +146,8 @@ export async function publishRequirement(env, { id, channel, requirement, attemp
     console.warn("Could not post the requirement", { id, attempts: tried, error: error.message });
     if (attempts === 0 || tried >= POST_ATTEMPTS) {
       const text = tried >= POST_ATTEMPTS
-        ? `Sorry, the ${noun} "${escapeSlack(requirement.title)}" could not be posted.`
-        : `Sorry, the ${noun} "${escapeSlack(requirement.title)}" couldn't be posted yet. Cade will try again in a few minutes.`;
+        ? `Sorry, I couldn't post the ${noun} "${escapeSlack(requirement.title)}", even after a few tries.`
+        : `Sorry, I couldn't post the ${noun} "${escapeSlack(requirement.title)}" just now. I'll try again in a few minutes.`;
       await callSlack(env, "chat.postEphemeral", { channel, user: requirement.createdBy, text }).catch(() => {});
     }
     return;

@@ -20,16 +20,16 @@ const OPEN_ACTION = "track:open";
 export const TRACK_ASSIGN_ACTION = "track:assign";
 
 function notInRequirement(env, channel) {
-  return `Use \`@Cade track\` in the thread of a requirement started with \`/cade requirement\`. For the team's own work, use \`/cade track\` in <#${tasksChannelFor(env, channel)}>.`;
+  return `I can only track a requirement from its own thread: send \`@Cade track\` in the thread of one started with \`/cade requirement\`. For the team's own work, use \`/cade track\` in <#${tasksChannelFor(env, channel)}>.`;
 }
 
 function alreadyTracked(requirement) {
   const { link, title } = requirement.task;
-  return `This requirement is already tracked as <${link}|${escapeSlack(title)}>.`;
+  return `Good news: this requirement is already tracked as <${link}|${escapeSlack(title)}>.`;
 }
 
 const ALREADY_WAITING =
-  "This requirement is already tracked: its task will be posted in the tasks channel in a few minutes.";
+  "This requirement is already tracked. Its task will show up in the tasks channel in a few minutes.";
 
 // Each channel has one way to track a task:
 //
@@ -139,8 +139,8 @@ function trackView(origin) {
               mrkdwn(
                 `*Priority:* ${PRIORITIES[origin.priority]} ${origin.priority}  ·  *Due:* ${origin.dueDate || "_None_"}\n${
                   origin.incident
-                    ? "Incidents are always urgent and fixed as soon as possible."
-                    : "From the requirement. The client changes them in the requirement thread."
+                    ? "Incidents are always urgent, so we fix them as soon as we can."
+                    : "These come from the requirement. The client changes them in the requirement thread."
                 }`,
               ),
             ],
@@ -153,7 +153,7 @@ function trackView(origin) {
 async function submit(payload, context) {
   const { title, dueDate, priority, errors } = readTaskForm(
     payload.view.state.values,
-    "Enter a task title.",
+    "Please give the task a title.",
   );
   if (errors) return { response_action: "errors", errors };
 
@@ -251,8 +251,8 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
     console.warn("Could not post the task", { id, attempts: tried, error: error.message });
     if (attempts === 0 || tried >= POST_ATTEMPTS) {
       const text = tried >= POST_ATTEMPTS
-        ? `Sorry, the task "${escapeSlack(task.title)}" could not be created.`
-        : `Sorry, the task "${escapeSlack(task.title)}" couldn't be posted yet. Cade will try again in a few minutes.`;
+        ? `Sorry, I couldn't create the task "${escapeSlack(task.title)}", even after a few tries.`
+        : `Sorry, I couldn't post the task "${escapeSlack(task.title)}" just now. I'll try again in a few minutes.`;
       await callSlack(env, "chat.postEphemeral", {
         channel: origin.channel,
         thread_ts: origin.threadTs,
@@ -313,7 +313,7 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
   // has no button message, posts it. Incidents are tracked as they are
   // reported, and `/cade track` in a tasks channel has no thread to tell.
   if (task.source && !origin.reported) {
-    const text = `<@${task.createdBy}> tracked this as a task: <${permalink}|${escapeSlack(task.title)}>`;
+    const text = `<@${task.createdBy}> tracked this as a task: <${permalink}|${escapeSlack(task.title)}>. The team's on it!`;
     const body = { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
     if (origin.promptTs) {
       await callSlack(env, "chat.update", { channel: origin.channel, ts: origin.promptTs, ...body });

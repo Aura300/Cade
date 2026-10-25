@@ -25,7 +25,7 @@ const ROLE_WORDS = {
 export const OPEN = Object.keys(STATUSES).filter((status) => status !== "DONE");
 
 const USAGE =
-  "Use `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+  "Try `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
 // `/cade tasks` in any channel lists the open tasks you are assigned to, by
 // group (channel pair): each group's dev channel's and incidents channel's.
@@ -91,7 +91,7 @@ export function parseTaskFilters(text) {
     const person = /^<@([UW][A-Z0-9]+)(?:\|[^>]*)?>$/.exec(word);
     const option = /^(?:--?|[—–])([a-z]+)(.*)$/i.exec(word);
     if (person) {
-      if (filters.user && filters.user !== person[1]) return fail("Name one person at a time.");
+      if (filters.user && filters.user !== person[1]) return fail("I can only look up one person at a time.");
       filters.user = person[1];
     } else if (option) {
       const name = option[1].toLowerCase();
@@ -102,19 +102,19 @@ export function parseTaskFilters(text) {
         filters.unassigned = true;
       } else if (name === "status") {
         const statuses = readStatuses(rest);
-        if (!statuses) return fail(`"${escapeSlack(word)}" isn't a status filter.`);
+        if (!statuses) return fail(`I don't know "${escapeSlack(word)}" as a status filter.`);
         filters.statuses = statuses;
       } else if (name === "due") {
         const due = readDue(rest);
-        if (!due) return fail(`"${escapeSlack(word)}" isn't a due date filter.`);
+        if (!due) return fail(`I don't know "${escapeSlack(word)}" as a due date filter.`);
         filters.due = due;
       } else {
-        return fail(`"${escapeSlack(word)}" isn't an option.`);
+        return fail(`I don't know "${escapeSlack(word)}" as an option.`);
       }
     } else {
       const found = Object.keys(ROLE_WORDS).find((name) => ROLE_WORDS[name].includes(word.toLowerCase()));
-      if (!found) return fail(`"${escapeSlack(word)}" is not a role.`);
-      if (role && role !== found) return fail("Name one role at a time.");
+      if (!found) return fail(`I don't know "${escapeSlack(word)}" as a role.`);
+      if (role && role !== found) return fail("I can only show one role at a time.");
       role = found;
     }
   }

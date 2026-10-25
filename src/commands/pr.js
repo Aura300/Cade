@@ -15,7 +15,7 @@ const SUGGEST_SKIP_ACTION = "pr:suggest-skip";
 // hold bare addresses.
 const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 
-const HOW = "Use `@Cade pr add <link>` or `@Cade pr remove <link>`.";
+const HOW = "Try `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 
 // `@Cade pr add <link> [<link> …]` in a task thread links pull requests to the
 // task, shown on the task's message as reponame/number; `@Cade pr remove
@@ -43,10 +43,10 @@ export default {
     if (!adding && action.toLowerCase() !== "remove") return HOW;
 
     const links = [...command.text.slice(action.length).matchAll(LINK)].map((match) => match[1] ?? match[2]);
-    if (!links.length) return `Paste the pull request's link: ${HOW}`;
+    if (!links.length) return `Which pull request? Paste its link. ${HOW}`;
     const prs = links.map(parsePullRequest);
     const notPr = links.find((link, i) => !prs[i]);
-    if (notPr) return `That's not a pull request link: ${escapeSlack(notPr)}`;
+    if (notPr) return `Hmm, that doesn't look like a pull request link: ${escapeSlack(notPr)}`;
     // The same request linked twice in one message counts once.
     const urls = [...new Set(prs.map((pr) => pr.url))];
 
@@ -55,7 +55,7 @@ export default {
 
     if (adding) {
       const linked = await addPullRequests(env, command.channel, command.threadTs, task, urls);
-      if (!linked) return "Those pull requests are already linked to this task.";
+      if (!linked) return "Those pull requests are already linked to this task, so we're all set.";
       const status = linked.moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
       const text = `<@${command.user}> linked ${linked.added.map(prLink).join(", ")}${status}.`;
       const reviewers = task.people.reviewer;
@@ -64,7 +64,7 @@ export default {
     }
 
     const removed = urls.filter((url) => task.prs.includes(url));
-    if (!removed.length) return "Those pull requests aren't linked to this task.";
+    if (!removed.length) return "Hmm, those pull requests aren't linked to this task.";
     task.prs = task.prs.filter((url) => !removed.includes(url));
     await saveTask(env, command.channel, command.threadTs, task);
     await reflectOnRequirement(env, command.threadTs, task, {});
@@ -190,11 +190,11 @@ async function suggestPullRequests(message, env) {
 function suggestion(unlinked, urls, reviewers) {
   const people = mentions(reviewers);
   const as = reviewers.length === 1 ? "as reviewer" : "as reviewers";
-  if (!unlinked.length) return `Add ${people} ${as} of ${urls.map(prLink).join(", ")}?`;
+  if (!unlinked.length) return `Should I add ${people} ${as} of ${urls.map(prLink).join(", ")}?`;
   const them = unlinked.length === 1 ? "it" : "them";
-  const posted = `You posted ${unlinked.map(prLink).join(", ")}`;
-  if (!reviewers.length) return `${posted}. Link ${them} to this task?`;
-  return `${posted} and mentioned ${people}. Link ${them} to this task and add ${people} ${as}?`;
+  const posted = `I see you posted ${unlinked.map(prLink).join(", ")}`;
+  if (!reviewers.length) return `${posted}. Should I link ${them} to this task?`;
+  return `${posted} and mentioned ${people}. Should I link ${them} to this task and add ${people} ${as}?`;
 }
 
 // Applies the chosen suggestion, adding the reviewers and linking the pull
@@ -232,7 +232,7 @@ async function acceptSuggestion(payload, env) {
 }
 
 function reviewRequest(reviewers, urls) {
-  return `${mentions(reviewers)}, please review ${urls.map(prLink).join(", ")}.`;
+  return `${mentions(reviewers)}, could you review ${urls.map(prLink).join(", ")} when you get a chance? Thanks!`;
 }
 
 // Asks who should review the pull requests, after `lead` (what happened, if

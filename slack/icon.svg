@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Cade's app icon: a friendly "C" face with a bow tie, a helper at your
+       service. Full-bleed square; Slack rounds the corners itself. Upload the
+       PNG export (icon.png) under Basic Information → Display Information. -->
+  <rect width="1024" height="1024" fill="#2c2d30"/>
+  <!-- The "C": a thick arc open to the right. -->
+  <path d="M 703.5 259.3 A 250 250 0 1 0 703.5 580.7"
+        fill="none" stroke="#ffffff" stroke-width="120" stroke-linecap="round"/>
+  <!-- Eyes and smile, inside the curve. -->
+  <circle cx="455" cy="380" r="36" fill="#ffffff"/>
+  <circle cx="575" cy="380" r="36" fill="#ffffff"/>
+  <path d="M 440 470 Q 515 540 590 470"
+        fill="none" stroke="#ffffff" stroke-width="32" stroke-linecap="round"/>
+  <!-- The bow tie, in the Low priority green. -->
+  <g fill="#2EB67D" stroke="#2EB67D" stroke-width="30" stroke-linejoin="round">
+    <path d="M 512 845 L 402 795 L 402 895 Z"/>
+    <path d="M 512 845 L 622 795 L 622 895 Z"/>
+  </g>
+  <circle cx="512" cy="845" r="34" fill="#2EB67D" stroke="#2c2d30" stroke-width="14"/>
+</svg>

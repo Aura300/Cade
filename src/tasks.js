@@ -45,7 +45,7 @@ export const ROLES = {
 // The roles as a task's card shows them, by who works on it.
 const SHORT_ROLES = { developer: "Dev", reviewer: "Review", tester: "Test" };
 
-export const NOT_A_TASK = "This thread is not a tracked task.";
+export const NOT_A_TASK = "Hmm, I'm not tracking a task in this thread.";
 
 // The task's pull requests that are pending: not sent for approval, nor
 // approved.
@@ -83,11 +83,12 @@ export function prLines(task) {
   ].filter(Boolean);
 }
 
-// What Cade asks of people when they are assigned to a role. Reviewers are
-// asked once there's a pull request to review instead (see pr.js).
+// What Cade asks of people when they are assigned to a role, after their
+// names. Reviewers are asked once there's a pull request to review instead
+// (see pr.js).
 export const REQUESTS = {
-  developer: "please start working on this.",
-  tester: "please test this.",
+  developer: "could you pick this up when you get a chance? Thanks!",
+  tester: "could you give this a test when you get a chance? Thanks!",
 };
 
 // Returns the first role named in `text` ("developers" works too), or null.
@@ -283,7 +284,7 @@ export function readTaskForm(values, titleError) {
 
   const errors = {};
   if (!title) errors.title = titleError;
-  if (values.priority && !PRIORITIES[priority]) errors.priority = "Select a priority.";
+  if (values.priority && !PRIORITIES[priority]) errors.priority = "Please pick a priority.";
   return { title, dueDate, priority, errors: Object.keys(errors).length ? errors : null };
 }
 

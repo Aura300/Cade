@@ -12,9 +12,9 @@ const RELEASE_VIEW = "release";
 const MAX_CHECKBOXES = 10;
 
 const NOT_FOR_OWN_WORK =
-  "Only tasks tracked from a requirement or incident can be released to the client: there's no client thread to send this one to.";
-const NO_PRS = "Link the PRs to release first, with `@Cade pr add <link>`.";
-const ALL_SENT = "All of this task's PRs have been sent to the client already.";
+  "I can only send PRs to the client for tasks tracked from a requirement or incident, and this one doesn't have a client thread.";
+const NO_PRS = "There aren't any PRs to send yet. Link them first with `@Cade pr add <link>`.";
+const ALL_SENT = "All of this task's PRs are already with the client.";
 
 // `@Cade release` (or `@Cade deliver`) in a task thread sends some of the
 // task's PRs to the client before the whole requirement is done. It replies
@@ -133,7 +133,7 @@ function releaseView(origin, prs) {
       },
       {
         type: "context",
-        elements: [mrkdwn("The client approves them in the requirement thread. If they don't, the PRs can be sent again.")],
+        elements: [mrkdwn("The client approves them in the requirement thread. If they don't, you can send them again.")],
       },
     ],
   };
@@ -144,8 +144,8 @@ async function submit(payload, context) {
   const prs = (values.prs.value.selected_options ?? []).map((option) => option.value);
   const note = values.note.value.value?.trim() ?? "";
   const errors = {};
-  if (!prs.length) errors.prs = "Choose at least one PR.";
-  if (!note) errors.note = "Say what these PRs complete.";
+  if (!prs.length) errors.prs = "Please choose at least one PR.";
+  if (!note) errors.note = "Please say what these PRs complete.";
   if (Object.keys(errors).length) return { response_action: "errors", errors };
 
   const origin = JSON.parse(payload.view.private_metadata || "{}");
@@ -160,7 +160,7 @@ async function send(env, origin, chosen, note, user) {
   // Someone else may have sent some of them while the form was open.
   const prs = found.problem ? [] : chosen.filter((url) => found.unsent.includes(url));
   if (!prs.length) {
-    const text = found.problem ?? "Those PRs have been sent to the client already.";
+    const text = found.problem ?? "Those PRs are already with the client.";
     await callSlack(env, "chat.postEphemeral", { channel: origin.channel, thread_ts: origin.ts, user, text });
     return;
   }
@@ -173,8 +173,8 @@ async function send(env, origin, chosen, note, user) {
   console.log("Release sent", { ts: origin.ts, id, prs: prs.length });
 
   const list = prs.map(prLink).join(", ");
-  const sent = `<@${user}> sent these PRs for approval: ${list}\n*Completes:* ${escapeSlack(note)}`;
-  const request = `<@${requirement.createdBy}>, please review them and approve them, or say what needs to change.`;
+  const sent = `<@${user}> sent these PRs for your approval: ${list}\n*Completes:* ${escapeSlack(note)}`;
+  const request = `<@${requirement.createdBy}>, could you take a look and approve them, or let us know what needs to change?`;
   // The buttons carry the task's thread, which holds the release.
   const value = JSON.stringify({ channel: origin.channel, ts: origin.ts, id });
   const posted = await callSlack(env, "chat.postMessage", {
@@ -197,7 +197,7 @@ async function send(env, origin, chosen, note, user) {
   });
 
   const where = await threadLink(env, channel, posted.ts ?? threadTs);
-  const text = `<@${user}> sent ${list} to the client for approval ${where}.\n*Completes:* ${escapeSlack(note)}`;
+  const text = `<@${user}> sent ${list} to the client for approval ${where}. I'll let you know when they reply.\n*Completes:* ${escapeSlack(note)}`;
   const body = { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
   if (origin.promptTs) {
     await callSlack(env, "chat.update", { channel: origin.channel, ts: origin.promptTs, ...body });
@@ -237,12 +237,12 @@ async function review(payload, env, approved) {
   let outcome;
   if (!release) {
     // Not approved already, or its task was deleted.
-    outcome = "These PRs are no longer waiting for approval.";
+    outcome = "These PRs aren't waiting for approval anymore.";
   } else if (release.status === "APPROVED") {
-    outcome = "These PRs are approved already.";
+    outcome = "These PRs are already approved.";
   } else if (!(await decideRelease(env, id, approved ? "APPROVED" : "NOT_APPROVED", user))) {
     // Someone else clicked first.
-    outcome = "Someone has already decided on these PRs.";
+    outcome = "Someone's already decided on these PRs.";
   } else {
     const list = release.prs.map(prLink).join(", ");
     if (approved) Object.assign(release, { status: "APPROVED", decidedBy: user });
@@ -251,8 +251,8 @@ async function review(payload, env, approved) {
     console.log("Release reviewed", { ts, id, approved });
 
     outcome = approved
-      ? `<@${user}> approved them. Thanks, <@${release.sentBy}>.`
-      : `<@${user}> did not approve them. <@${release.sentBy}>, see this thread for what needs to change.`;
+      ? `<@${user}> approved them. Thanks, <@${release.sentBy}>!`
+      : `<@${user}> didn't approve them. <@${release.sentBy}>, have a look at this thread for what needs to change.`;
     await tellTask(env, channel, ts, task, payload, release, list, approved);
   }
   const text = sent ? `${sent}\n${outcome}` : outcome;
@@ -268,8 +268,8 @@ async function tellTask(env, channel, ts, task, payload, release, list, approved
   const where = await threadLink(env, payload.channel.id, payload.message.ts);
   const people = [...new Set([release.sentBy, ...task.people.developer])];
   const text = approved
-    ? `${mentions(people)}: <@${payload.user.id}> approved ${list} ${where}.`
-    : `${mentions(people)}: <@${payload.user.id}> did not approve ${list} ${where}. See the thread for what needs to change, then send them again with \`@Cade release\`.`;
+    ? `${mentions(people)}, good news! <@${payload.user.id}> approved ${list} ${where}.`
+    : `${mentions(people)}, <@${payload.user.id}> didn't approve ${list} ${where}. Have a look at the thread for what needs to change, then send them again with \`@Cade release\`.`;
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,

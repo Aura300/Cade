@@ -28,10 +28,10 @@ export function clientStatus(taskStatus) {
 export const INCIDENT = { priority: "Urgent", dueDate: "Immediate" };
 
 export const INCIDENT_IS_FIXED =
-  "Incidents are always :red_circle: Urgent and due Immediate, so their priority and due date can't be changed.";
+  "Incidents are always :red_circle: Urgent and due Immediate, so I can't change their priority or due date.";
 
 export const NOT_A_REQUIREMENT =
-  "This thread is not a requirement. Use `/cade requirement` to start one, then change its priority and due date in its thread.";
+  "Hmm, this thread isn't a requirement. Start one with `/cade requirement`, then you can change its priority and due date in its thread.";
 
 export function requirementMessage(requirement, trackedTask) {
   // The requirement, then in small text its status, priority and due date
@@ -50,7 +50,7 @@ export function requirementMessage(requirement, trackedTask) {
     `${requirement.incident ? "Reported" : "Started"} by <@${requirement.createdBy}>`,
     task
       ? `tracked by <@${task.trackedBy}> in <${task.link}|the task thread>`
-      : "not tracked yet. Discuss it in this thread, then send `@Cade track` here.",
+      : "not tracked yet. Talk it through here, then send `@Cade track` when it's ready.",
   ];
   const lines = trackedTask ? prLines(trackedTask) : [];
   const card = [

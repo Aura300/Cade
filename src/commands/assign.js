@@ -85,7 +85,7 @@ export default {
       const examples = Object.keys(ROLES)
         .map((name) => `\`@Cade assign ${name} @person\``)
         .join(", ");
-      return `Say which role to assign: ${examples}.`;
+      return `Happy to! Which role should I assign them to? Try ${examples}.`;
     }
 
     const task = await loadTask(env, command.channel, command.threadTs);
@@ -95,9 +95,9 @@ export default {
     if (role === "reviewer") {
       if (!task.prs.length) {
         const count = command.mentions.length === 1 ? "a reviewer" : `${command.mentions.length} reviewers`;
-        return `<@${command.user}> added ${count}. They'll be asked to review when a PR is linked.`;
+        return `<@${command.user}> added ${count}. I'll ask them to review once a PR is linked.`;
       }
-      return `${mentions(command.mentions)}, please review ${task.prs.map(prLink).join(", ")}.`;
+      return `${mentions(command.mentions)}, could you review ${task.prs.map(prLink).join(", ")} when you get a chance? Thanks!`;
     }
     return `${mentions(command.mentions)} ${REQUESTS[role]}`;
   },
@@ -123,7 +123,7 @@ export default {
 // Shared with `@Cade unassign`, whose form is the same: it shows who's
 // assigned, to remove people as well as add them.
 export function roleButtons(roles) {
-  const prompt = roles.length === 1 ? `Who should be the ${ROLES[roles[0]].toLowerCase()}?` : "Who works on this task?";
+  const prompt = roles.length === 1 ? `Who should be the ${ROLES[roles[0]].toLowerCase()}?` : "Who's working on this task?";
   return {
     text: prompt,
     blocks: [
@@ -195,7 +195,7 @@ function savePeople(payload, context) {
       const lines = [];
       if (added.length && REQUESTS[role]) lines.push(`${mentions(added)} ${REQUESTS[role]}`);
       if (added.length && role === "reviewer" && task.prs.length) {
-        lines.push(`${mentions(added)}, please review ${task.prs.map(prLink).join(", ")}.`);
+        lines.push(`${mentions(added)}, could you review ${task.prs.map(prLink).join(", ")} when you get a chance? Thanks!`);
       }
       if (removed.length) lines.push(noLonger(removed, role));
       if (lines.length) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
@@ -207,7 +207,7 @@ function savePeople(payload, context) {
 // Tells people removed from a role, or from every role (`role` null), that
 // they no longer need to do it.
 export function noLonger(people, role) {
-  return `${mentions(people)}, you no longer need to ${ASKED[role] ?? ASKED.developer}.`;
+  return `${mentions(people)}, you don't need to ${ASKED[role] ?? ASKED.developer} anymore. Thanks!`;
 }
 
 // A hand-off intent's handler: for a message handing the task to the people
@@ -243,15 +243,15 @@ async function suggestAssignment(message, env, role) {
 
   const label = ROLES[role].toLowerCase();
   const them = people.length > 1 ? "them all" : "them";
-  const asked = `You asked ${mentions(people.length ? people : mentioned)} to ${ASKED[role]}.`;
-  let question = `${asked} Assign ${them} as ${label}${of}?`;
+  const asked = `Looks like you asked ${mentions(people.length ? people : mentioned)} to ${ASKED[role]}.`;
+  let question = `${asked} Should I assign ${them} as ${label}${of}?`;
   let button = `Assign as ${label}`;
   if (moveTo) {
     const status = STATUSES[moveTo];
     const name = statusName(moveTo);
     question = people.length
-      ? `${asked} Assign ${them} as ${label}${of} and move the task to ${status}?`
-      : `${asked} Move the task to ${status}?`;
+      ? `${asked} Should I assign ${them} as ${label}${of} and move the task to ${status}?`
+      : `${asked} Should I move the task to ${status}?`;
     button = people.length ? `Assign and move to ${name}` : `Move to ${name}`;
   }
   // Asked from the requirement thread, the people may not be in it, so the
@@ -302,7 +302,7 @@ function nextStatus(role, status) {
 // the people asked to start working on it as developers.
 async function offerTracking(env, message, requirement, developers) {
   const them = developers.length > 1 ? "them all" : "them";
-  const question = `You asked ${mentions(developers)} to work on this. Track it as a task and assign ${them} as developer?`;
+  const question = `Looks like you asked ${mentions(developers)} to work on this. Should I track it as a task and assign ${them} as developer?`;
   const { title, priority, dueDate, incident } = requirement;
   const origin = {
     channel: message.channel,
