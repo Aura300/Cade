@@ -5024,7 +5024,7 @@ test("Move copies the message into the requirement thread and points the origina
   assert.deepEqual(
     posts.map((post) => [post.thread_ts, post.text]),
     [
-      ["200.1", "Moved from <@UCLIENT>'s <https://slack.example/400.1|message>:\n> Also add a CSV export\n> with totals"],
+      ["200.1", "Moved from <@UCLIENT>'s <https://slack.example/400.1?thread_ts=400.1&cid=CEXTERNAL|message>:\n> Also add a CSV export\n> with totals"],
       ["400.1", "<@UCLIENT> moved this message to the requirement thread <https://slack.example/200.9|Export reports>. Please carry on the conversation there."],
     ],
   );
@@ -5218,7 +5218,7 @@ test("Move in the dev channel copies the message into the task thread", async (t
   await send("/slack/interactions", devMoveClick("100.1"));
   const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => [call.args.channel, call.args.thread_ts, call.args.text]);
   assert.deepEqual(posts, [
-    ["CDEV", "100.1", "Moved from <@UACTOR>'s <https://slack.example/100.7|message>:\n> The login bug also hits SSO"],
+    ["CDEV", "100.1", "Moved from <@UACTOR>'s <https://slack.example/100.7?thread_ts=100.7&cid=CDEV|message>:\n> The login bug also hits SSO"],
     ["CDEV", "100.7", "<@UACTOR> moved this message to the task thread <https://slack.example/100.9|Fix login>. Please carry on the conversation there."],
   ]);
   assert.ok(calls.some((call) => call.method === "reactions.add" && call.args.timestamp === "100.7"));
@@ -5325,7 +5325,7 @@ test("a requirement started from a message takes the message into its thread", a
   const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => [call.args.thread_ts, call.args.text]);
   assert.equal(posts[0][1], "Requirement: CSV export");
   assert.deepEqual(posts.slice(1), [
-    ["200.1", "Moved from <@UCLIENT>'s <https://slack.example/400.1|message>:\n> Also add a CSV export\n> with totals"],
+    ["200.1", "Moved from <@UCLIENT>'s <https://slack.example/400.1?thread_ts=400.1&cid=CEXTERNAL|message>:\n> Also add a CSV export\n> with totals"],
     ["400.1", "<@UCLIENT> moved this message to the requirement thread <https://slack.example/200.9|CSV export>. Please carry on the conversation there."],
   ]);
   assert.ok(calls.some((call) => call.method === "reactions.add" && call.args.timestamp === "400.1"));
@@ -5440,7 +5440,7 @@ test("a task tracked from a message in the dev channel takes the message into it
   const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => [call.args.thread_ts, call.args.text]);
   assert.equal(posts[0][1], "High task: SSO login");
   assert.deepEqual(posts.slice(1), [
-    ["100.1", "Moved from <@UACTOR>'s <https://slack.example/100.7|message>:\n> The login bug also hits SSO"],
+    ["100.1", "Moved from <@UACTOR>'s <https://slack.example/100.7?thread_ts=100.7&cid=CDEV|message>:\n> The login bug also hits SSO"],
     ["100.7", "<@UCREATOR> moved this message to the task thread <https://slack.example/100.9|SSO login>. Please carry on the conversation there."],
   ]);
   assert.ok(calls.some((call) => call.method === "reactions.add" && call.args.timestamp === "100.7"));

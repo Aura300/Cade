@@ -351,7 +351,10 @@ export async function moveMessage(env, { channel, ts, targetTs, user }) {
   if (thread.movedTo) return `This message was already moved: <${thread.movedTo}|see it there>.`;
   const { root } = thread;
 
-  const { permalink: original } = await callSlack(env, "chat.getPermalink", { channel, message_ts: ts });
+  // A top-level message's link only scrolls to it; thread_ts opens its
+  // thread too, where its replies stayed.
+  const { permalink } = await callSlack(env, "chat.getPermalink", { channel, message_ts: ts });
+  const original = `${permalink}?thread_ts=${ts}&cid=${channel}`;
   const quoted = (root.text ?? "").split("\n").map((line) => `> ${line}`).join("\n");
   const files = root.files?.length ? "\n_It has attachments: see the original._" : "";
   const copy = await callSlack(env, "chat.postMessage", {
@@ -360,11 +363,11 @@ export async function moveMessage(env, { channel, ts, targetTs, user }) {
     text: `Moved from <@${root.user}>'s <${original}|message>:\n${quoted}${files}`,
   });
 
-  const { permalink } = await callSlack(env, "chat.getPermalink", { channel, message_ts: copy.ts });
+  const { permalink: moved } = await callSlack(env, "chat.getPermalink", { channel, message_ts: copy.ts });
   await callSlack(env, "chat.postMessage", {
     channel,
     thread_ts: ts,
-    text: `<@${user}> moved this message to the ${targets.noun(target)} thread <${permalink}|${escapeSlack(target.title)}>. Please carry on the conversation there.`,
+    text: `<@${user}> moved this message to the ${targets.noun(target)} thread <${moved}|${escapeSlack(target.title)}>. Please carry on the conversation there.`,
   });
   // The reaction is only a signal, so the move stands without it.
   await callSlack(env, "reactions.add", { channel, timestamp: ts, name: MOVED_REACTION }).catch((error) => {
