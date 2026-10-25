@@ -260,7 +260,7 @@ Information**); `not_in_channel` means the app isn't invited;
 ## Updating
 
 Bring Cade's changes into your copy with **Sync fork** on its GitHub page
-(or `git pull https://github.com/Aura300/project-helper.git main`), then:
+(or `git pull https://github.com/XTECLK/Cade.git main`), then:
 
 ```sh
 git pull
@@ -303,5 +303,5 @@ the app's page (step 6); the bot token usually stays the same.
 ## Using Cade
 
 Once it's set up, send `@Cade help` or `/cade help` in Slack for the short
-list, and see the [commands guide](https://aura300.github.io/project-helper/commands.html)
+list, and see the [commands guide](https://xteclk.github.io/Cade/commands.html)
 for every command, where it works and what it does.

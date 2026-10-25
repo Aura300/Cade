@@ -6,9 +6,9 @@ requirements and reports incidents in a shared channel, and
 the team tracks them as tasks in its own channels. It runs as a single
 Cloudflare Worker, with its tasks in a D1 database.
 
-- **Start here:** [the Cade website](https://aura300.github.io/project-helper/)
-  shows what it does, [how to set it up](https://aura300.github.io/project-helper/setup.html)
-  with an AI agent, and [every command](https://aura300.github.io/project-helper/commands.html).
+- **Start here:** [the Cade website](https://xteclk.github.io/Cade/)
+  shows what it does, [how to set it up](https://xteclk.github.io/Cade/setup.html)
+  with an AI agent, and [every command](https://xteclk.github.io/Cade/commands.html).
 - [GETTING_STARTED.md](GETTING_STARTED.md) is the step-by-step setup the
   agent follows, if you'd rather follow it yourself.
 - This page is for working on the code.
