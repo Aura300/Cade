@@ -251,32 +251,33 @@ export async function deleteCanvas(env, channel) {
   await env.DB.prepare("DELETE FROM canvases WHERE channel = ?").bind(channel).run();
 }
 
-// The group's last posted executive summary, as { id, postedAt }, or null.
+// The group's last posted executive summary, as { id, postedAt, until }, or
+// null. `until` is the end of the period it covered, if it had one.
 export async function lastExecSummary(env, group) {
   const row = await env.DB.prepare(
-    `SELECT id, posted_at FROM exec_summaries
+    `SELECT id, posted_at, until FROM exec_summaries
      WHERE group_name = ? AND posted_at IS NOT NULL
      ORDER BY posted_at DESC LIMIT 1`,
   )
     .bind(group)
     .first();
-  return row ? { id: row.id, postedAt: row.posted_at } : null;
+  return row ? { id: row.id, postedAt: row.posted_at, until: row.until } : null;
 }
 
 // Starts an executive summary draft, `summary` being { group, channel,
-// createdBy, since }, and returns its id. `channel` is where it is written
-// and will be posted.
+// createdBy, since, until }, and returns its id. `channel` is where it is
+// written and will be posted; `since` and `until` bound its period.
 export async function insertExecSummary(env, summary) {
   const { id } = await env.DB.prepare(
-    "INSERT INTO exec_summaries (group_name, channel, created_by, since) VALUES (?, ?, ?, ?) RETURNING id",
+    "INSERT INTO exec_summaries (group_name, channel, created_by, since, until) VALUES (?, ?, ?, ?, ?) RETURNING id",
   )
-    .bind(summary.group, summary.channel, summary.createdBy, summary.since)
+    .bind(summary.group, summary.channel, summary.createdBy, summary.since, summary.until)
     .first();
   return id;
 }
 
 // The executive summary `id`, as { id, group, channel, createdBy, since,
-// postedAt, postedChannel, postedTs }, or null.
+// until, postedAt, postedChannel, postedTs }, or null.
 export async function getExecSummary(env, id) {
   const row = await env.DB.prepare("SELECT * FROM exec_summaries WHERE id = ?").bind(id).first();
   return row
@@ -286,6 +287,7 @@ export async function getExecSummary(env, id) {
         channel: row.channel,
         createdBy: row.created_by,
         since: row.since,
+        until: row.until,
         postedAt: row.posted_at,
         postedChannel: row.posted_channel,
         postedTs: row.posted_ts,
@@ -303,6 +305,13 @@ export async function execItems(env, id) {
       { included: Boolean(row.included), health: row.health, progress: row.progress, notes: row.notes },
     ]),
   );
+}
+
+// Sets the period the draft `id` covers.
+export async function setExecPeriod(env, id, since, until) {
+  await env.DB.prepare("UPDATE exec_summaries SET since = ?, until = ? WHERE id = ? AND posted_at IS NULL")
+    .bind(since, until, id)
+    .run();
 }
 
 export async function putExecItem(env, id, channel, ts, item) {

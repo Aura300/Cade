@@ -6442,19 +6442,29 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
   await storeExecWork();
   // Run in a channel outside the group, which has the only group.
-  const { now, later: first } = await runTasksCommand("exec", "CLEADS", execEnv);
+  const { now, later: period } = await runTasksCommand("exec", "CLEADS", execEnv);
   assert.equal(now, "");
 
-  // Step 1: the requirement completed in the past week, ticked to mention.
+  // Step 1: the period, the past week to today the first time.
+  assert.match(blockText(period.blocks[0]), /^\*Executive summary: acme\*  ·  Step 1 of 6$/);
+  const today = todayIn(execEnv);
+  const weekAgo = new Date(Date.parse(`${today}T00:00:00Z`) - 7 * 86400000).toISOString().slice(0, 10);
+  assert.equal(execField(period, "from").element.initial_date, weekAgo);
+  assert.equal(execField(period, "to").element.initial_date, today);
+
+  const sent = recordResponses(t);
+  await send("/slack/interactions", execClick(period, "exec:next"), {}, execEnv);
+  const first = sent.at(-1);
+
+  // Step 2: the requirement completed in the period, ticked to mention.
   // Its task, tracked from it, isn't listed again; old work is left out.
-  assert.match(blockText(first.blocks[0]), /^\*Executive summary: acme\*  ·  Step 1 of 5$/);
+  assert.match(blockText(first.blocks[0]), /Step 2 of 6$/);
   const done = first.blocks.filter((block) => block.accessory?.type === "checkboxes");
   assert.deepEqual(done.map((block) => block.text.text.match(/\|([^>]+)>/)[1]), ["Export reports"]);
   assert.match(done[0].text.text, /^• <https:\/\/acme\.slack\.com\/archives\/CEXTERNAL\/p2001\?thread_ts=200\.1&cid=CEXTERNAL\|Export reports>  ·  Done/);
   assert.deepEqual(done[0].accessory.initial_options, done[0].accessory.options);
 
-  const sent = recordResponses(t);
-  // Step 2: the incident, most urgent, with its incident and task threads to
+  // Step 3: the incident, most urgent, with its incident and task threads to
   // peek at.
   await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
   const incident = sent.at(-1);
@@ -6466,12 +6476,12 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
   ]);
   await send("/slack/interactions", execClick(incident, "exec:next", execFields(incident, { health: "BLOCKED", progress: "", notes: "Waiting on the payment provider\nETA Monday" })), {}, execEnv);
 
-  // Step 3: the requirement in discussion, not tracked yet.
+  // Step 4: the requirement in discussion, not tracked yet.
   const dark = sent.at(-1);
   assert.match(messageText(dark), /Requirements and incidents\*  ·  2 of 2[\s\S]*Dark mode>  ·  In discussion  ·  :large_green_circle: Low  ·  Due _none_  ·  _Not tracked yet_/);
   await send("/slack/interactions", execClick(dark, "exec:next", execFields(dark, { health: "ON_TRACK", progress: "", notes: "", included: false })), {}, execEnv);
 
-  // Step 4: the team's own task, with its dev thread to peek at.
+  // Step 5: the team's own task, with its dev thread to peek at.
   const own = sent.at(-1);
   assert.match(messageText(own), /The team's own tasks\*  ·  1 of 1[\s\S]*Upgrade Node>  ·  In review/);
   assert.deepEqual(JSON.parse(own.blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory.value), [
@@ -6486,10 +6496,12 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
   assert.equal(execField(ownAgain, "health").element.initial_option.value, "AT_RISK");
   await send("/slack/interactions", execClick(ownAgain, "exec:next", execFields(ownAgain, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
 
-  // Step 5: the summary as it will read, worst first, without what was left
+  // Step 6: the summary as it will read, worst first, without what was left
   // out.
   const review = sent.at(-1);
-  assert.match(messageText(review), /Step 5 of 5[\s\S]*This is what I'll post in <#CLEADS>/);
+  assert.match(messageText(review), /Step 6 of 6[\s\S]*This is what I'll post in <#CLEADS>/);
+  const show = (day) => day.split("-").reverse().join("/");
+  assert.ok(messageText(review).includes(`_Period: ${show(weekAgo)} – ${show(today)}_`));
   const expected = [
     "*Completed (1)*",
     `• <${execLink("CEXTERNAL", "200.1")}|Export reports>`,
@@ -6513,7 +6525,7 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
   assert.equal(posts[0].args.channel, "CLEADS");
   assert.ok(posts[0].args.text.startsWith("*acme executive summary*"));
   assert.ok(posts[0].args.text.includes(expected));
-  assert.equal(sent.at(-1).text, "Posted the executive summary. The next one starts from now.");
+  assert.equal(sent.at(-1).text, `Posted the executive summary for ${show(weekAgo)} – ${show(today)}.`);
 
   // Posting again does nothing.
   await send("/slack/interactions", execClick(review, "exec:post"), {}, execEnv);
@@ -6539,6 +6551,7 @@ test("Peek at threads shows each thread's latest replies in a modal", async (t) 
   const { later: first } = await runTasksCommand("exec", "CDEV", execEnv);
   const sent = recordResponses(t);
   await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:next"), {}, execEnv);
   const peek = sent.at(-1).blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory;
   calls.length = 0;
   await send("/slack/interactions", interaction({
@@ -6563,7 +6576,7 @@ test("Peek at threads shows each thread's latest replies in a modal", async (t) 
     "_No replies yet._",
   ]);
   // Peeking leaves the step as it was.
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
 });
 
 test("the next /cade exec starts from the last one, with its health and progress", async (t) => {
@@ -6571,15 +6584,19 @@ test("the next /cade exec starts from the last one, with its health and progress
   await storeExecWork();
   const { later: first } = await runTasksCommand("exec", "CDEV", execEnv);
   const sent = recordResponses(t);
-  await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
+  for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1) ?? first, "exec:next"), {}, execEnv);
   const incident = sent.at(-1);
   await send("/slack/interactions", execClick(incident, "exec:next", execFields(incident, { health: "DELAYED", progress: "1/2", notes: "Once only" })), {}, execEnv);
   for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1), "exec:next"), {}, execEnv);
   await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
 
-  // Nothing has been done since, so it starts with the incident.
-  const { later: next } = await runTasksCommand("exec", "CDEV", execEnv);
-  assert.match(messageText(next), /Step 1 of 4[\s\S]*Checkout is down/);
+  // The last period ended today, so the next starts today too; nothing was
+  // completed today, so after the period comes the incident.
+  const { later: period } = await runTasksCommand("exec", "CDEV", execEnv);
+  assert.equal(execField(period, "from").element.initial_date, todayIn(execEnv));
+  await send("/slack/interactions", execClick(period, "exec:next"), {}, execEnv);
+  const next = sent.at(-1);
+  assert.match(messageText(next), /Step 2 of 5[\s\S]*Checkout is down/);
   assert.equal(execField(next, "health").element.initial_option.value, "DELAYED");
   assert.equal(execField(next, "progress").element.initial_value, "1/2");
   // Notes are for one summary only.
@@ -6594,7 +6611,7 @@ test("/cade exec says so when Cade isn't in the channel", async (t) => {
   const fakeFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) =>
     String(url).endsWith("/chat.postMessage") ? Response.json({ ok: false, error: "not_in_channel" }) : fakeFetch(url, init);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     await send("/slack/interactions", execClick(sent.at(-1) ?? first, "exec:next"), {}, execEnv);
   }
   await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
@@ -6602,7 +6619,7 @@ test("/cade exec says so when Cade isn't in the channel", async (t) => {
   // It can be posted once Cade is invited.
   globalThis.fetch = fakeFetch;
   await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
-  assert.equal(sent.at(-1).text, "Posted the executive summary. The next one starts from now.");
+  assert.match(sent.at(-1).text, /^Posted the executive summary for /);
 });
 
 test("/cade exec outside a group asks which, when there are several", async (t) => {
@@ -6614,4 +6631,47 @@ test("/cade exec outside a group asks which, when there are several", async (t) 
   const { now: named, later } = await runTasksCommand("exec test", "CLEADS");
   assert.equal(named, "");
   assert.match(blockText(later.blocks[0]), /Executive summary: test/);
+});
+
+test("/cade exec offers what was completed in the period picked, from the start of From to the end of To", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+  await storeExecWork();
+  const { later: period } = await runTasksCommand("exec", "CDEV", execEnv);
+  const sent = recordResponses(t);
+  const pick = (from, to) => ({
+    [execField(period, "from").block_id]: { value: { type: "datepicker", selected_date: from } },
+    [execField(period, "to").block_id]: { value: { type: "datepicker", selected_date: to } },
+  });
+  const day = (daysBack) => todayIn(execEnv, new Date(Date.now() - daysBack * 86400000));
+
+  // A period that ended before "Export reports" was done offers only the
+  // older work.
+  await send("/slack/interactions", execClick(period, "exec:next", pick(day(40), day(3))), {}, execEnv);
+  let text = messageText(sent.at(-1));
+  assert.match(text, /Completed .* \(1–1 of 1\)[\s\S]*Old work/);
+  assert.ok(!text.includes("Export reports>  ·  Done"));
+
+  // To is counted to the end of its day: "Export reports" is in.
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:back"), {}, execEnv);
+  const again = sent.at(-1);
+  assert.equal(execField(again, "from").element.initial_date, day(40));
+  await send("/slack/interactions", execClick(again, "exec:next", pick(day(2), day(2))), {}, execEnv);
+  text = messageText(sent.at(-1));
+  assert.match(text, /Completed .* \(1–1 of 1\)[\s\S]*Export reports/);
+
+  // From after To goes no further.
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:back"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "exec:next", pick(day(1), day(5))), {}, execEnv);
+  assert.match(messageText(sent.at(-1)), /From\* must be on or before \*To\*[\s\S]*Step 1 of/);
+});
+
+test("a period's days start and end in TIMEZONE", async () => {
+  const { dayBoundary } = await import("../src/commands/exec.js");
+  const colombo = { TIMEZONE: "Asia/Colombo" };
+  assert.equal(dayBoundary(colombo, "2026-10-25"), "2026-10-24T18:30:00.000Z");
+  assert.equal(dayBoundary(colombo, "2026-10-25", { end: true }), "2026-10-25T18:29:59.999Z");
+  assert.equal(dayBoundary({}, "2026-10-25"), "2026-10-25T00:00:00.000Z");
+  // Across a change of clocks, in London.
+  assert.equal(dayBoundary({ TIMEZONE: "Europe/London" }, "2026-10-25"), "2026-10-24T23:00:00.000Z");
+  assert.equal(dayBoundary({ TIMEZONE: "Europe/London" }, "2026-10-25", { end: true }), "2026-10-25T23:59:59.999Z");
 });

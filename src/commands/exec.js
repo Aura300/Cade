@@ -10,12 +10,13 @@ import {
   putExecItem,
   recordExecPost,
   releaseExecPost,
+  setExecPeriod,
 } from "../db.js";
 import { REQUIREMENT_STATUSES } from "../requirements.js";
 import { formatTime } from "../sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
-import { byUrgency, groupTasks, threadLink } from "./tasks.js";
+import { byUrgency, groupTasks, threadLink, todayIn } from "./tasks.js";
 
 // Back, Next and Post carry the summary's id and the step to show; Slack
 // wants each button in a block to have its own action_id.
@@ -29,8 +30,8 @@ const PEEK_ACTION = "exec:peek";
 const MAX_SHOWN = 20;
 const DONE_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `exec:done:${i}`);
 
-// The first summary of a group covers the past week.
-const FIRST_SINCE_DAYS = 7;
+// The first summary of a group covers the past week, to today.
+const FIRST_PERIOD_DAYS = 7;
 
 // Peek shows each thread's latest replies, each cut to PEEK_LENGTH
 // characters.
@@ -54,8 +55,11 @@ const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 // `/cade exec acme`. It goes through the group's work as the client sees
 // it, its requirements and incidents, then the team's own tasks, those with
 // no requirement:
-//   1. what was completed since the group's last summary (the past week,
-//      for the first), each ticked to be mentioned as done;
+//   0. the period it covers, from one day to another, counted in TIMEZONE:
+//      from the day after the last summary's period (the past week, for
+//      the first) to today, unless changed;
+//   1. what was completed in the period, from the start of its first day
+//      to the end of its last, each ticked to be mentioned as done;
 //   2. each requirement or incident not done, most urgent first, then each
 //      such task, to say how it's going (on track, at risk, delayed or
 //      blocked), its progress, such as 3/5, and any notes; health and
@@ -64,7 +68,6 @@ const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 //   3. the summary as it will read, to post.
 // What's chosen is saved as a draft (see migrations/0004) whenever a step
 // is left, so Back shows it again. Nothing about the work itself changes.
-// Once posted, the summary's time is where the next one starts.
 export default {
   name: "exec",
   aliases: ["executive"],
@@ -78,12 +81,17 @@ export default {
     context.waitUntil(
       (async () => {
         const last = await lastExecSummary(env, group.name);
-        const since = last?.postedAt ?? new Date(Date.now() - FIRST_SINCE_DAYS * 86400000).toISOString();
+        const to = todayIn(env);
+        let from = addDays(to, -FIRST_PERIOD_DAYS);
+        if (last?.until) from = addDays(todayIn(env, new Date(last.until)), 1);
+        else if (last) from = todayIn(env, new Date(last.postedAt));
+        if (from > to) from = to;
         const id = await insertExecSummary(env, {
           group: group.name,
           channel: command.channel,
           createdBy: command.user,
-          since,
+          since: dayBoundary(env, from),
+          until: dayBoundary(env, to, { end: true }),
         });
         await respondLater(command.responseUrl, await render(env, { s: id, i: 0 }));
       })(),
@@ -209,21 +217,75 @@ function isoTime(timestamp) {
   return new Date(`${timestamp.replace(" ", "T")}Z`).toISOString();
 }
 
+// The instant a day (YYYY-MM-DD) starts in TIMEZONE, or with `end` the
+// last millisecond before it ends, as an ISO timestamp.
+export function dayBoundary(env, day, { end = false } = {}) {
+  const [year, month, date] = day.split("-").map(Number);
+  const wall = end ? Date.UTC(year, month - 1, date, 23, 59, 59, 999) : Date.UTC(year, month - 1, date);
+  // How far the zone's clock is ahead of UTC at `at`; asked twice, in case
+  // it changes between the guess and the answer.
+  const offset = (at) => {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: env.TIMEZONE || "UTC",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      })
+        .formatToParts(at)
+        .map(({ type, value }) => [type, Number(value)]),
+    );
+    const local = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    return local - Math.floor(at / 1000) * 1000;
+  };
+  const guess = wall - offset(wall);
+  return new Date(wall - offset(guess)).toISOString();
+}
+
+// YYYY-MM-DD, `days` later (earlier, if negative).
+function addDays(day, days) {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+}
+
+// A day (YYYY-MM-DD) as DD/MM/YYYY.
+function showDay(day) {
+  const [year, month, date] = day.split("-");
+  return `${date}/${month}/${year}`;
+}
+
+// The summary's period as days in TIMEZONE: { from, to }, as YYYY-MM-DD.
+function period(env, summary) {
+  return {
+    from: todayIn(env, new Date(summary.since)),
+    to: summary.until ? todayIn(env, new Date(summary.until)) : todayIn(env),
+  };
+}
+
+// "18/10/2026 – 25/10/2026"
+function periodLabel(env, summary) {
+  const { from, to } = period(env, summary);
+  return `${showDay(from)} – ${showDay(to)}`;
+}
+
 // A status label without its emoji.
 function label(text) {
   return text.replace(/^:[a-z0-9_+-]+:\s*/, "");
 }
 
 // The summary's work, read afresh: { done, active, steps }. `done` is what
-// was completed since the summary's start, oldest first; `active` what isn't
-// done: requirements most urgent first, then tasks. The steps are pages of
-// done work, then each active entry, then the review.
+// was completed in the summary's period, oldest first; `active` what isn't
+// done: requirements most urgent first, then tasks. The steps are the
+// period, pages of done work, each active entry, then the review.
 async function walk(env, summary, url) {
   const group = channelPairs(env).find((pair) => pair.name === summary.group);
   const { requirements, own } = group ? await entries(env, group, url) : { requirements: [], own: [] };
   const all = [...requirements, ...own];
   const done = all
-    .filter((entry) => entry.done && entry.completedAt >= summary.since)
+    .filter((entry) => entry.done && entry.completedAt >= summary.since && (!summary.until || entry.completedAt <= summary.until))
     .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
   const active = [
     ...requirements.filter((entry) => !entry.done).sort(byUrgency),
@@ -233,7 +295,7 @@ async function walk(env, summary, url) {
   for (let start = 0; start < done.length; start += MAX_SHOWN) {
     pages.push({ done: done.slice(start, start + MAX_SHOWN), first: start });
   }
-  return { done, active, steps: [...pages, ...active.map((entry, n) => ({ entry, n })), { review: true }] };
+  return { done, active, steps: [{ period: true }, ...pages, ...active.map((entry, n) => ({ entry, n })), { review: true }] };
 }
 
 // What has been chosen for each entry: chosen(entry) gives { included,
@@ -254,6 +316,7 @@ async function choices(env, summary) {
 // state. Each block's id names its entry and field (see fieldId).
 async function saveStep(env, id, values = {}) {
   const updates = {};
+  const days = {};
   for (const [blockId, elements] of Object.entries(values)) {
     let field;
     try {
@@ -261,17 +324,22 @@ async function saveStep(env, id, values = {}) {
     } catch {
       continue;
     }
-    if (!field?.c || !field?.t) continue;
     const value = Object.values(elements)[0] ?? {};
+    if ((field?.f === "from" || field?.f === "to") && value.selected_date) days[field.f] = value.selected_date;
+    if (!field?.c || !field?.t) continue;
     const update = (updates[`${field.c}:${field.t}`] ??= { channel: field.c, ts: field.t });
     if (field.f === "include") update.included = (value.selected_options ?? []).length > 0;
     if (field.f === "health" && HEALTH[value.selected_option?.value]) update.health = value.selected_option.value;
     if (field.f === "progress") update.progress = (value.value ?? "").trim();
     if (field.f === "notes") update.notes = (value.value ?? "").trim();
   }
-  if (!Object.keys(updates).length) return;
+  if (!Object.keys(updates).length && !Object.keys(days).length) return;
   const summary = await getExecSummary(env, id);
   if (!summary || summary.postedAt) return;
+  if (Object.keys(days).length) {
+    const { from, to } = { ...period(env, summary), ...days };
+    await setExecPeriod(env, id, dayBoundary(env, from), dayBoundary(env, to, { end: true }));
+  }
   const chosen = await choices(env, summary);
   for (const { channel, ts, ...fields } of Object.values(updates)) {
     await putExecItem(env, id, channel, ts, { ...chosen({ channel, ts }), ...fields });
@@ -311,10 +379,15 @@ async function render(env, at, notice) {
   // Links are built from the workspace's address.
   const { url } = await callSlack(env, "auth.test", {});
   const { done, active, steps } = await walk(env, summary, url);
-  const i = Math.min(at.i, steps.length - 1);
+  let i = Math.min(at.i, steps.length - 1);
+  const { from, to } = period(env, summary);
+  // The period must be right before going on.
+  if (from > to && i > 0) {
+    i = 0;
+    notice = ":warning: *From* must be on or before *To*.";
+  }
   const step = steps[i];
   const chosen = await choices(env, summary);
-  const since = formatTime(env, new Date(summary.since));
 
   const blocks = [];
   if (notice) blocks.push({ type: "section", text: mrkdwn(notice) });
@@ -323,11 +396,27 @@ async function render(env, at, notice) {
     text: mrkdwn(`*Executive summary: ${summary.group}*  ·  Step ${i + 1} of ${steps.length}`),
   });
 
-  if (step.done) {
+  if (step.period) {
+    const zone = env.TIMEZONE || "UTC";
+    const day = (field, labelText, initial) => ({
+      type: "input",
+      block_id: JSON.stringify({ f: field, s: summary.id }),
+      label: plainText(labelText),
+      element: { type: "datepicker", action_id: "value", initial_date: initial },
+    });
+    blocks.push(
+      {
+        type: "context",
+        elements: [mrkdwn(`*Period.* Work completed from the start of *From* to the end of *To* (${zone}) is offered as completed.`)],
+      },
+      day("from", "From", from),
+      day("to", "To", to),
+    );
+  } else if (step.done) {
     const shown = `${step.first + 1}–${step.first + step.done.length} of ${done.length}`;
     blocks.push({
       type: "context",
-      elements: [mrkdwn(`*Completed since ${since}* (${shown}). Untick any not to mention as done.`)],
+      elements: [mrkdwn(`*Completed ${periodLabel(env, summary)}* (${shown}). Untick any not to mention as done.`)],
     });
     const option = { text: plainText("Mention as done"), value: "yes" };
     step.done.forEach((entry, place) => {
@@ -437,6 +526,7 @@ async function render(env, at, notice) {
 }
 
 function stepName(step) {
+  if (step.period) return "Period";
   if (step.done) return "Completed";
   if (step.entry) return step.entry.title;
   return "Review";
@@ -452,7 +542,7 @@ export function summaryText(env, summary, done, active, chosen) {
   const going = active.filter((entry) => chosen(entry).included);
   const lines = [
     `*${summary.group} executive summary*  ·  ${formatTime(env, new Date()).slice(0, 10)}`,
-    `_Since ${formatTime(env, new Date(summary.since))}_`,
+    `_Period: ${periodLabel(env, summary)}_`,
   ];
   const section = (heading, entries, line) => {
     if (!entries.length) return;
@@ -555,6 +645,6 @@ async function post(payload, env, at) {
   console.log("Executive summary posted", { id: summary.id, group: summary.group, user: payload.user.id });
   await respondLater(payload.response_url, {
     replace_original: true,
-    text: "Posted the executive summary. The next one starts from now.",
+    text: `Posted the executive summary for ${periodLabel(env, summary)}.`,
   });
 }
