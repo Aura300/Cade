@@ -6177,7 +6177,11 @@ const canvasMarkdown = (call) =>
 
 // A summary's table rows, without its header and divider.
 const summaryRows = (markdown) =>
-  markdown.split("\n").filter((line) => line.startsWith("| ") && !/^\| (Title|---) /.test(line));
+  markdown.split("\n").filter((line) => line.startsWith("| ") && !/^\| (Title|---) /.test(line)).map(unbroken);
+
+// Short cells, such as priorities, are kept on one line with non-breaking
+// spaces; shown here as `~`.
+const unbroken = (row) => row.replace(/\u00a0/g, "~");
 
 const canvasResponses = {
   "auth.test": { url: "https://acme.slack.com/" },
@@ -6188,7 +6192,7 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   const calls = mockSlack(t, canvasResponses);
   for (const [channel, record] of [
     ["CDEV", historyTask("100.1", { title: "Low task", priority: "Low", developers: ["UALICE"] })],
-    ["CDEV", historyTask("100.2", { title: "High | later", priority: "High", dueDate: "05/11/2026", reviewers: ["UBOB"] })],
+    ["CDEV", historyTask("100.2", { title: "High | [later]", priority: "High", dueDate: "05/11/2026", reviewers: ["UBOB"] })],
     ["CDEV", historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", status: "IN_PROGRESS" })],
     ["CDEV", historyTask("100.4", { title: "Done task", status: "DONE" })],
     ["CINC", historyTask("100.8", { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", testers: ["UALICE", "UBOB"] })],
@@ -6202,14 +6206,14 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   assert.equal(create.args.title, "Open acme tasks");
   const markdown = canvasMarkdown(create);
   assert.match(markdown, /^4 open, most urgent first\. _Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\./);
-  assert.ok(markdown.includes("| Title | Status | Priority | Dev | Reviewer | Tester | Due date | Thread |"));
+  assert.ok(markdown.includes("| Title | Status | Priority | Due date | Dev | Reviewer | Tester |"));
   const thread = (channel, ts) =>
-    `[Go to thread](https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
+    `(https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
   assert.deepEqual(summaryRows(markdown), [
-    `| **Incident:** Checkout is down | :memo: To do | :red_circle: Urgent | — | — | ![](@UALICE), ![](@UBOB) | Immediate | ${thread("CINC", "100.8")} |`,
-    `| High, sooner | :arrow_forward: In progress | :large_orange_circle: High | — | — | — | 01/11/2026 | ${thread("CDEV", "100.3")} |`,
-    `| High \\| later | :memo: To do | :large_orange_circle: High | — | ![](@UBOB) | — | 05/11/2026 | ${thread("CDEV", "100.2")} |`,
-    `| Low task | :memo: To do | :large_green_circle: Low | ![](@UALICE) | — | — | 31/10/2026 | ${thread("CDEV", "100.1")} |`,
+    `| **Incident:** [Checkout is down]${thread("CINC", "100.8")} | :memo:~To~do | :red_circle:~Urgent | Immediate | — | — | ![](@UALICE), ![](@UBOB) |`,
+    `| [High, sooner]${thread("CDEV", "100.3")} | :arrow_forward:~In~progress | :large_orange_circle:~High | 01/11/2026 | — | — | — |`,
+    `| [High \\| \\[later\\]]${thread("CDEV", "100.2")} | :memo:~To~do | :large_orange_circle:~High | 05/11/2026 | — | ![](@UBOB) | — |`,
+    `| [Low task]${thread("CDEV", "100.1")} | :memo:~To~do | :large_green_circle:~Low | 31/10/2026 | ![](@UALICE) | — | — |`,
   ]);
 
   // Sent again, the same canvas is rewritten.
@@ -6248,12 +6252,12 @@ test("/cade summary in the external channel lists open requirements and incident
   assert.equal(create.args.title, "Open acme requirements");
   const markdown = canvasMarkdown(create);
   assert.match(markdown, /^3 open, most urgent first\./);
-  assert.ok(markdown.includes("| Title | Priority | Due date | Status | Tracked | Thread |"));
-  const thread = (ts) => `[Go to thread](https://acme.slack.com/archives/CEXTERNAL/p${ts.replace(".", "")}?thread_ts=${ts}&cid=CEXTERNAL)`;
+  assert.ok(markdown.includes("| Title | Priority | Due date | Status | Tracked |"));
+  const thread = (ts) => `(https://acme.slack.com/archives/CEXTERNAL/p${ts.replace(".", "")}?thread_ts=${ts}&cid=CEXTERNAL)`;
   assert.deepEqual(summaryRows(markdown), [
-    `| **Incident:** Checkout is down | :red_circle: Urgent | Immediate | :arrow_forward: In progress | Not yet | ${thread("200.4")} |`,
-    `| Export reports | :large_orange_circle: High | 31/10/2026 | :arrow_forward: In progress | :white_check_mark: Yes | ${thread("200.1")} |`,
-    `| Dark mode | :large_green_circle: Low | — | :speech_balloon: In discussion | Not yet | ${thread("200.2")} |`,
+    `| **Incident:** [Checkout is down]${thread("200.4")} | :red_circle:~Urgent | Immediate | :arrow_forward:~In~progress | Not yet |`,
+    `| [Export reports]${thread("200.1")} | :large_orange_circle:~High | 31/10/2026 | :arrow_forward:~In~progress | :white_check_mark: Yes |`,
+    `| [Dark mode]${thread("200.2")} | :large_green_circle:~Low | — | :speech_balloon:~In~discussion | Not yet |`,
   ]);
 });
 
@@ -6301,7 +6305,7 @@ test("a task change rewrites the summaries of its group that have one", async (t
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
   const edit = calls.find((call) => call.method === "canvases.edit");
   assert.equal(edit.args.canvas_id, "F0CANVAS");
-  assert.match(summaryRows(canvasMarkdown(edit))[0], /^\| Fix login \| :memo: To do \| :large_orange_circle: High \| !\[\]\(@UBOB\) \|/);
+  assert.match(summaryRows(canvasMarkdown(edit))[0], /^\| \[Fix login\]\(https:[^)]+\) \| :memo:~To~do \| :large_orange_circle:~High \| 31\/10\/2026 \| !\[\]\(@UBOB\) \|/);
 });
 
 test("a task change touches no canvas until /cade summary has made one", async (t) => {
@@ -6312,12 +6316,12 @@ test("a task change touches no canvas until /cade summary has made one", async (
 
 test("a long summary continues in another table, as a canvas table holds 300 cells", async (t) => {
   const calls = mockSlack(t, canvasResponses);
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 45; i++) {
     const record = historyTask(`100.${String(i).padStart(2, "0")}`, { title: `Task ${i}` });
     await putTask(env, "CDEV", record.ts, record.task);
   }
   await runTasksCommand("summary", "CDEV");
   const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   const tables = markdown.split("\n\n").filter((part) => part.startsWith("| Title"));
-  assert.deepEqual(tables.map((part) => part.split("\n").length - 2), [36, 4]);
+  assert.deepEqual(tables.map((part) => part.split("\n").length - 2), [41, 4]);
 });

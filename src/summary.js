@@ -19,8 +19,8 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 // summaries continue in another table.
 const MAX_CELLS = 300;
 
-const TASK_COLUMNS = ["Title", "Status", "Priority", "Dev", "Reviewer", "Tester", "Due date", "Thread"];
-const REQUIREMENT_COLUMNS = ["Title", "Priority", "Due date", "Status", "Tracked", "Thread"];
+const TASK_COLUMNS = ["Title", "Status", "Priority", "Due date", "Dev", "Reviewer", "Tester"];
+const REQUIREMENT_COLUMNS = ["Title", "Priority", "Due date", "Status", "Tracked"];
 
 // The canvas's title, which heads the summary.
 export function summaryTitle(env, channel) {
@@ -39,24 +39,22 @@ export async function summaryMarkdown(env, channel) {
       .map(({ ts, requirement }) => ({ incident: requirement.incident, task: requirement, link: threadLink(url, channel, ts) }))
       .sort(byUrgency)
       .map(({ task: requirement, incident, link }) => [
-        title(requirement.title, incident),
+        title(requirement.title, incident, link),
         priority(requirement.priority),
         requirement.dueDate || "—",
-        REQUIREMENT_STATUSES[requirement.status],
+        unbroken(REQUIREMENT_STATUSES[requirement.status]),
         requirement.task ? ":white_check_mark: Yes" : "Not yet",
-        `[Go to thread](${link})`,
       ]);
     return document(updated, REQUIREMENT_COLUMNS, rows, "No open requirements or incidents.");
   }
   const rows = (await groupTasks(env, group, OPEN, url)).sort(byUrgency).map(({ task, incident, link }) => [
-    title(task.title, incident),
-    STATUSES[task.status],
+    title(task.title, incident, link),
+    unbroken(STATUSES[task.status]),
     priority(task.priority),
+    task.dueDate || "—",
     people(task.people.developer),
     people(task.people.reviewer),
     people(task.people.tester),
-    task.dueDate || "—",
-    `[Go to thread](${link})`,
   ]);
   return document(updated, TASK_COLUMNS, rows, "No open tasks.");
 }
@@ -151,14 +149,21 @@ function table(columns, rows) {
   return [line(columns), line(columns.map(() => "---")), ...rows.map(line)].join("\n");
 }
 
-// A title as a table cell: on one line, with its pipes escaped.
-function title(text, incident) {
-  const cell = text.replace(/\s+/g, " ").replace(/\|/g, "\\|");
+// A title as a table cell linking to its thread: on one line, with what
+// would end the link or the cell escaped.
+function title(text, incident, link) {
+  const cell = `[${text.replace(/\s+/g, " ").replace(/([[\]|\\])/g, "\\$1")}](${link})`;
   return incident ? `**Incident:** ${cell}` : cell;
 }
 
 function priority(name) {
-  return PRIORITIES[name] ? `${PRIORITIES[name]} ${name}` : "—";
+  return PRIORITIES[name] ? unbroken(`${PRIORITIES[name]} ${name}`) : "—";
+}
+
+// Slack sizes a canvas table's columns itself, so a short value such as a
+// priority could wrap; non-breaking spaces keep it on one line.
+function unbroken(text) {
+  return text.replace(/ /g, "\u00a0");
 }
 
 // People as canvas mentions, or a dash for no one.
