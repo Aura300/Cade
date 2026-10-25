@@ -304,12 +304,12 @@ Either way, Cade posts the task to `#acme-dev` and pins it. Task and
 requirement cards look the same: the title, then, beside a strip in the
 priority's colour (red Urgent, orange High, yellow Medium, green Low, the
 same colours as the priority menus' emoji), a small line with the status,
-priority and due date (left out when there's none), then the card's own
-lines, then who made it in small text. On a task card those lines are who
-works on it ("Dev @a · Review @b · Test @c", only the roles with someone,
-or "Unassigned") and its PRs (see `@Cade release` below), and the small
-text says who tracked it, with a link back to the requirement thread if
-there is one. Statuses show as 📝 To do, ▶️ In progress, 👀 In review,
+priority and due date (left out when there's none), then the card's PRs
+(see `@Cade release` below), then who made it. Everything but the title is
+the same small text, with `·` between items. On a task card the last lines
+are who works on it ("Dev @a · Review @b · Test @c", only the roles with
+someone, or "Unassigned") and who tracked it, with a link back to the
+requirement thread if there is one. Statuses show as 📝 To do, ▶️ In progress, 👀 In review,
 🧪 In testing, 🙋 Client review and ✅ Done (💬 In discussion for a
 requirement not tracked yet), so no coloured circle but the strip stands
 for a priority. From a requirement thread, Cade replies with a **Track task** button
@@ -544,7 +544,7 @@ In a task's thread in `#acme-dev` or the incidents channel:
   leaving out empty ones, with releases named by what they complete:
 
   ```
-  Approved: Login (cade/42, web/7)  |  Profile page (web/9)
+  Approved: Login (cade/42, web/7)  ·  Profile page (web/9)
   Pending approval: Search (web/11)
   Pending: web/12, web/13
   ```
