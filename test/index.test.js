@@ -6788,9 +6788,55 @@ test("a period's days start and end in TIMEZONE", async () => {
   assert.equal(dayBoundary({ TIMEZONE: "Europe/London" }, "2026-10-25", { end: true }), "2026-10-25T23:59:59.999Z");
 });
 
+// Clicks `actionId` on a private question, as posted or sent to a
+// response_url, as UACTOR. Returns what was sent to its response_url.
+async function answerPrivately(t, question, actionId = "detach:confirm", environment = env) {
+  const responses = recordResponses(t);
+  const button = question.blocks[1].elements.find((element) => element.action_id === actionId);
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UACTOR" },
+      channel: { id: "CDEV" },
+      message: { ts: "100.9" },
+      response_url: RESPONSE_URL,
+      actions: [{ action_id: actionId, value: button.value }],
+    }),
+    {},
+    environment,
+  );
+  return responses;
+}
+
+test("@Cade detach asks privately first, and Cancel leaves the task linked", async (t) => {
+  const calls = mockSlack(t, { stored: [requirementRoot({ task: true }), storedTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> detach"));
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
+  const question = calls[0].args;
+  assert.equal(question.user, "UACTOR");
+  assert.equal(question.thread_ts, "100.1");
+  assert.equal(
+    question.text,
+    "Should I detach *Fix login* from its requirement? The team owns it from then on, and I stop updating the requirement.",
+  );
+  const [cancel, detach] = question.blocks[1].elements;
+  assert.equal(cancel.action_id, "detach:cancel");
+  assert.equal(cancel.style, "primary");
+  assert.equal(detach.text.text, "Detach");
+  assert.equal(detach.confirm.confirm.text, "Detach");
+  assert.match(detach.confirm.text.text, /Both threads are told\. There's no undo\.$/);
+
+  const responses = await answerPrivately(t, question, "detach:cancel");
+  assert.deepEqual(responses, [{ response_type: "ephemeral", delete_original: true }]);
+  assert.ok((await savedTask()).source);
+});
+
 test("@Cade detach in a task thread hands it to the team and closes its requirement", async (t) => {
   const calls = mockSlack(t, { stored: [requirementRoot({ task: true }), storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> detach"));
+  const responses = await answerPrivately(t, calls[0].args);
+  assert.deepEqual(responses, [{ response_type: "ephemeral", replace_original: true, text: "Detached *Fix login* from its requirement." }]);
 
   // The task no longer follows the requirement, but still links to it.
   const task = await savedTask();
@@ -6822,8 +6868,9 @@ test("@Cade detach in a task thread hands it to the team and closes its requirem
 test("@Cade detach frees an incident's task to change its priority and due date", async (t) => {
   const incidentTask = inChannel("CINC", storedTask());
   incidentTask.task.source.incident = true;
-  mockSlack(t, { stored: [incidentTask] });
+  const calls = mockSlack(t, { stored: [incidentTask] });
   await send("/slack/events", threadEvent("<@UBOT> detach", { channel: "CINC" }), {}, incidentEnv);
+  await answerPrivately(t, calls[0].args, "detach:confirm", incidentEnv);
   mockSlack(t, { stored: [{ ...incidentTask, task: await savedTask("CINC") }] });
   await send("/slack/events", threadEvent("<@UBOT> due 5/1/2027", { channel: "CINC" }), {}, incidentEnv);
   assert.equal((await savedTask("CINC")).dueDate, "05/01/2027");
@@ -6832,6 +6879,7 @@ test("@Cade detach frees an incident's task to change its priority and due date"
 test("@Cade detach works only in a linked task's thread", async (t) => {
   let calls = mockSlack(t, { stored: [ownTask()] });
   await send("/slack/events", threadEvent("<@UBOT> detach"));
+  assert.equal(calls.at(-1).method, "chat.postEphemeral");
   assert.equal(calls.at(-1).args.text, "This task isn't linked to a requirement or incident, so there's nothing to detach.");
 
   // From the client's thread it points to the task's.
@@ -6966,7 +7014,12 @@ test("/cade detach <link> detaches quietly, from anywhere, and tells only whoeve
   const link = "https://acme.slack.com/archives/CDEV/p1700000000000100";
   const { now, later } = await runTasksCommand(`detach <${link}>`, "COTHER");
   assert.equal(now, "");
-  assert.equal(later.text, "Detached <https://slack.example/p100|Fix login> from its requirement. I didn't post in either thread.");
+  // Asked privately first, saying nothing is posted.
+  assert.match(later.text, /^Should I detach <https:\/\/slack\.example\/p100\|Fix login> from its requirement\?/);
+  assert.match(later.blocks[1].elements[1].confirm.text.text, /Nothing is posted in either thread\./);
+  assert.ok((await savedTask("CDEV", ts)).source);
+  const responses = await answerPrivately(t, later);
+  assert.equal(responses[0].text, "Detached <https://slack.example/p100|Fix login> from its requirement. I didn't post in either thread.");
 
   const saved = await savedTask("CDEV", ts);
   assert.equal(saved.source, undefined);
@@ -6988,4 +7041,70 @@ test("/cade detach needs a link to a linked task's thread", async (t) => {
     const { now, later } = await runTasksCommand(text, "CDEV");
     assert.match(now ? JSON.parse(now).text : later.text, reply, text);
   }
+});
+
+test("/cade remove <link> asks privately, then removes what the link points at", async (t) => {
+  // A task at a timestamp a Slack link can name.
+  const ts = "1700000000.000100";
+  const removing = (responses = {}) =>
+    mockSlack(t, {
+      stored: [{ ...ownTask(), ts }],
+      "conversations.replies": { messages: [{ ts: "1700000000.000500", bot_id: "BCADE" }] },
+      ...responses,
+    });
+
+  // The task's root: deleted as `@Cade delete` would, asked privately.
+  let calls = removing();
+  let { now, later } = await runTasksCommand("remove <https://acme.slack.com/archives/CDEV/p1700000000000100>", "COTHER");
+  assert.equal(now, "");
+  assert.match(later.text, /^<@UACTOR>, should I delete the task \*Fix login\*\?/);
+  assert.equal(JSON.parse(later.blocks[1].elements[1].value).private, true);
+  let responses = await answerPrivately(t, later, "delete:confirm");
+  assert.equal(await savedTask("CDEV", ts), null);
+  assert.deepEqual(responses, [{ response_type: "ephemeral", replace_original: true, text: "Done, it's gone." }]);
+
+  // A reply: just that message.
+  calls = removing();
+  ({ later } = await runTasksCommand(
+    "remove <https://acme.slack.com/archives/CDEV/p1700000000000900?thread_ts=1700000000.000100&cid=CDEV>",
+    "COTHER",
+  ));
+  assert.equal(later.text, "<@UACTOR>, should I remove that message? There's no undo.");
+  assert.equal(later.blocks[1].elements[1].text.text, "Delete message");
+  responses = await answerPrivately(t, later, "delete:confirm");
+  assert.deepEqual(calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts), ["1700000000.000900"]);
+  assert.equal(responses[0].text, "Done, that message is gone.");
+  assert.ok(await savedTask("CDEV", ts));
+
+  // Someone else's reply stays.
+  removing({ "chat.delete": { ok: false, error: "cant_delete_message" } });
+  ({ later } = await runTasksCommand(
+    "remove <https://acme.slack.com/archives/CDEV/p1700000000000900?thread_ts=1700000000.000100&cid=CDEV>",
+    "COTHER",
+  ));
+  responses = await answerPrivately(t, later, "delete:confirm");
+  assert.equal(responses[0].text, "I can only remove my own messages, so that one stays.");
+
+  // Any other message: Cade's replies in its thread, and the message if it's
+  // Cade's.
+  calls = removing({
+    "chat.delete": (args) => (args.ts === "1700000000.000700" ? { ok: false, error: "cant_delete_message" } : {}),
+  });
+  ({ later } = await runTasksCommand("remove <https://acme.slack.com/archives/CDEV/p1700000000000700>", "COTHER"));
+  assert.equal(later.text, "<@UACTOR>, should I remove my messages in that thread? There's no undo.");
+  responses = await answerPrivately(t, later, "delete:confirm");
+  assert.deepEqual(calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts), ["1700000000.000500", "1700000000.000700"]);
+  assert.equal(responses[0].text, "Done, my replies are gone. The message itself isn't mine, so it stays.");
+
+  // Cancel just drops the question.
+  removing();
+  ({ later } = await runTasksCommand("remove <https://acme.slack.com/archives/CDEV/p1700000000000700>", "COTHER"));
+  responses = await answerPrivately(t, later, "delete:cancel");
+  assert.deepEqual(responses, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("/cade remove needs a link", async (t) => {
+  mockSlack(t);
+  const { now } = await runTasksCommand("remove", "CDEV");
+  assert.match(JSON.parse(now).text, /^Paste the link to what to remove/);
 });

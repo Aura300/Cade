@@ -8,7 +8,7 @@ import {
   markUnpostedTasksDeleted,
 } from "../db.js";
 import { NOT_A_REQUIREMENT, loadRequirement } from "../requirements.js";
-import { callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
+import { callSlack, escapeSlack, linkedMessage, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, refreshSummary, syncTask } from "../tasks.js";
 
 const DELETE_ACTION = "delete:confirm";
@@ -16,6 +16,13 @@ const CANCEL_ACTION = "delete:cancel";
 
 // Slack's errors for a message or thread that is already gone.
 const GONE = /message_not_found|thread_not_found/;
+// Slack's error for a message the bot didn't post, which it can't delete.
+const NOT_OURS = /cant_delete_message/;
+
+const NO_LINK = "Paste the link to what to remove: `/cade remove <link>`, with the link from Copy link on its message.";
+
+// What the buttons say is deleted, by kind.
+const NOUNS = { task: "task", requirement: "requirement", message: "message", thread: "messages" };
 
 // `@Cade delete` (or `@Cade remove`) in a task or requirement thread replies
 // with Delete and Cancel buttons. Delete opens a second "are you sure"
@@ -38,37 +45,90 @@ const GONE = /message_not_found|thread_not_found/;
 //
 // A bot token can only delete the bot's own messages, so people's replies
 // stay behind under Slack's "This message was deleted" placeholder.
+//
+// `/cade remove <link>` (or `/cade delete <link>`) asks the same privately,
+// from anywhere, about whatever the link points at: a task or requirement,
+// as above; any other message's thread, whose root goes too if Cade posted
+// it; or a single reply, if Cade posted it. The answer, too, is private.
 export default {
   name: "delete",
   aliases: ["remove"],
-  description: "Delete the task or requirement and Cade's messages in its thread",
+  description: "Delete the task or requirement and Cade's messages in its thread, or what a link points at",
   usage: "@Cade delete",
+  slashUsage: "/cade remove <link>",
   section: "thread",
   channel: ["tasks", "incidents", "external"],
+  slashChannel: [],
   inThread: true,
   async run(command, { env }) {
     return roleOf(env, command.channel) === "external"
       ? askRequirement(env, command)
       : askTask(env, command);
   },
+  async slash(command, context) {
+    const link = linkedMessage(command.text);
+    if (!link) return NO_LINK;
+    // Reading the thread can take longer than Slack waits for a slash
+    // command's answer, so the question follows.
+    context.waitUntil(
+      (async () => respondLater(command.responseUrl, await askLinked(context.env, link, command.user)))(),
+    );
+  },
   actions: {
     [DELETE_ACTION]: async (payload, context) => {
       const request = await authorize(payload, context.env);
       if (!request) return;
-      const remove = request.kind === "requirement" ? deleteRequirement : deleteTaskOnly;
-      context.waitUntil(remove(context.env, request.channel, request.ts, payload.user.id));
+      // Buttons from before requirements could be deleted have no kind.
+      const remove = REMOVERS[request.kind] ?? deleteTaskOnly;
+      context.waitUntil(
+        (async () => {
+          const result = await remove(context.env, request.channel, request.ts, payload.user.id);
+          // A private question is replaced by how it went.
+          if (request.private) {
+            await respondLater(payload.response_url, { replace_original: true, text: result ?? "Done, it's gone." });
+          }
+        })(),
+      );
     },
     [CANCEL_ACTION]: async (payload, context) => {
       const request = await authorize(payload, context.env);
-      if (request) {
-        await callSlack(context.env, "chat.delete", {
-          channel: request.channel,
-          ts: payload.message.ts,
-        });
+      if (!request) return;
+      if (request.private) {
+        await respondLater(payload.response_url, { delete_original: true });
+        return;
       }
+      await callSlack(context.env, "chat.delete", {
+        channel: request.channel,
+        ts: payload.message.ts,
+      });
     },
   },
 };
+
+const REMOVERS = {
+  task: deleteTaskOnly,
+  requirement: deleteRequirement,
+  message: deleteOne,
+  thread: deleteThread,
+};
+
+// The question for `/cade remove <link>`, about what the link points at.
+async function askLinked(env, link, user) {
+  const asked = { channel: link.channel, threadTs: link.ts, user, private: true };
+  if (link.threadTs) {
+    return confirmation(asked, "message", "should I remove that message?", "", null, "I'll delete that message, if I posted it.");
+  }
+  if (await getTaskIncludingDeleted(env, link.channel, link.ts)) return askTask(env, asked);
+  if (await loadRequirement(env, link.channel, link.ts)) return askRequirement(env, asked);
+  return confirmation(
+    asked,
+    "thread",
+    "should I remove my messages in that thread?",
+    "",
+    null,
+    "I'll delete my replies in that thread, and the message itself if I posted it.",
+  );
+}
 
 async function askTask(env, command) {
   const task = await getTaskIncludingDeleted(env, command.channel, command.threadTs);
@@ -102,10 +162,13 @@ async function askRequirement(env, command) {
 }
 
 // The Delete and Cancel buttons, under `question`, which is put to whoever
-// asked. `title` is what's deleted, and `task` the task deleted with it.
-function confirmation(command, kind, question, title, task) {
+// asked. `title` is what's deleted, and `task` the task deleted with it;
+// `deleted` says what goes instead, for messages that are neither. A
+// `private` command, from `/cade remove`, is answered through its
+// response_url.
+function confirmation(command, kind, question, title, task, deleted) {
   const text = `<@${command.user}>, ${question} There's no undo.`;
-  const deleted = task
+  deleted ??= task
     ? `I'll delete "${title}", its task "${task.title}", and my replies in both threads.`
     : `I'll delete "${title}" and my replies in its thread.`;
   const value = JSON.stringify({
@@ -113,7 +176,9 @@ function confirmation(command, kind, question, title, task) {
     channel: command.channel,
     ts: command.threadTs,
     requestedBy: command.user,
+    ...(command.private && { private: true }),
   });
+  const noun = NOUNS[kind];
   return {
     text,
     blocks: [
@@ -133,13 +198,13 @@ function confirmation(command, kind, question, title, task) {
           {
             type: "button",
             action_id: DELETE_ACTION,
-            text: plainText(`Delete ${kind}`),
+            text: plainText(`Delete ${noun}`),
             value,
             confirm: {
-              title: plainText(`Delete ${kind}?`),
+              title: plainText(`Delete ${noun}?`),
               text: plainText(deleted.slice(0, 300)),
               confirm: plainText("Delete"),
-              deny: plainText(`Keep ${kind}`),
+              deny: plainText(`Keep ${noun}`),
               style: "danger",
             },
           },
@@ -243,6 +308,31 @@ async function deleteRequirement(env, channel, ts, user) {
   await markRequirementDeleted(env, channel, ts);
   await refreshSummary(env, channel);
   console.log("Requirement deleted", { ts, user });
+}
+
+// Deletes a single message, if Cade posted it, and says how it went.
+async function deleteOne(env, channel, ts, user) {
+  try {
+    await callSlack(env, "chat.delete", { channel, ts });
+  } catch (error) {
+    if (NOT_OURS.test(error.message)) return "I can only remove my own messages, so that one stays.";
+    if (!GONE.test(error.message)) throw error;
+  }
+  console.log("Message removed", { ts, user });
+  return "Done, that message is gone.";
+}
+
+// Deletes Cade's replies in a thread that is neither a task nor a
+// requirement, and its root if Cade posted it, and says how it went.
+async function deleteThread(env, channel, ts, user) {
+  await deleteReplies(env, channel, ts);
+  let mine = true;
+  await callSlack(env, "chat.delete", { channel, ts }).catch((error) => {
+    if (NOT_OURS.test(error.message)) mine = false;
+    else if (!GONE.test(error.message)) throw error;
+  });
+  console.log("Thread cleared", { ts, user });
+  return mine ? "Done, that message and my replies are gone." : "Done, my replies are gone. The message itself isn't mine, so it stays.";
 }
 
 function belongsToRequirement(task) {

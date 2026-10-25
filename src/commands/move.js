@@ -2,7 +2,7 @@ import { pairFor, roleOf } from "../channels.js";
 import { activeRequirements, tasksWithStatus } from "../db.js";
 import { intent } from "../intents.js";
 import { loadRequirement } from "../requirements.js";
-import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
+import { acknowledge, callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.js";
 import { STATUSES, loadTask, setPinned, statusName } from "../tasks.js";
 import { incidentView, requirementView } from "./requirement.js";
 import { trackView } from "./track.js";
@@ -21,10 +21,6 @@ const DISMISS_ACTION = "move:dismiss";
 const MOVED_REACTION = "outbox_tray";
 
 const NOT_IN_THREAD = "Reply `@Cade move` in the thread of the message you want to move.";
-
-// A message's link, from Copy link: …/archives/<channel>/p<ts without its
-// dot>, with ?thread_ts=… when the message is a reply.
-const MESSAGE_LINK = /https?:\/\/[^/\s<>|]+\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})(\?[^\s<>|]*)?/;
 
 // What a message can be moved to: requirements and incidents in the external
 // channel, tasks in a tasks or incidents channel. Each lists the open ones,
@@ -267,15 +263,6 @@ async function checkRoot(env, channel, ts) {
   if (!thread || thread.root.bot_id) return { problem: "I can only move people's messages." };
   if (thread.movedTo) return { moved: `This message was already moved: <${thread.movedTo}|see it there>.` };
   return { root: thread.root };
-}
-
-// The channel and thread root of the first Slack message link in `text`, or
-// null if there is none. A link to a reply stands for its thread.
-export function linkedThread(text) {
-  const match = MESSAGE_LINK.exec(text.replace(/&amp;/g, "&"));
-  if (!match) return null;
-  const threadTs = new URLSearchParams(match[4] ?? "").get("thread_ts");
-  return { channel: match[1], ts: threadTs ?? `${match[2]}.${match[3]}` };
 }
 
 // Moves the command's thread into the one `link` points to, acknowledging
