@@ -22,6 +22,12 @@ const MAX_CELLS = 300;
 const TASK_COLUMNS = ["Title", "Status", "Priority", "Dev", "Reviewer", "Tester", "Due date", "Thread"];
 const REQUIREMENT_COLUMNS = ["Title", "Priority", "Due date", "Status", "Tracked", "Thread"];
 
+// The canvas's title, which heads the summary.
+export function summaryTitle(env, channel) {
+  const { name } = findPair(env, channel);
+  return roleOf(env, channel) === "external" ? `Open ${name} requirements` : `Open ${name} tasks`;
+}
+
 // The channel's summary, as canvas markdown.
 export async function summaryMarkdown(env, channel) {
   const group = findPair(env, channel);
@@ -40,7 +46,7 @@ export async function summaryMarkdown(env, channel) {
         requirement.task ? ":white_check_mark: Yes" : "Not yet",
         `[Go to thread](${link})`,
       ]);
-    return document(`Open ${group.name} requirements`, updated, REQUIREMENT_COLUMNS, rows, "No open requirements or incidents.");
+    return document(updated, REQUIREMENT_COLUMNS, rows, "No open requirements or incidents.");
   }
   const rows = (await groupTasks(env, group, OPEN, url)).sort(byUrgency).map(({ task, incident, link }) => [
     title(task.title, incident),
@@ -52,7 +58,7 @@ export async function summaryMarkdown(env, channel) {
     task.dueDate || "—",
     `[Go to thread](${link})`,
   ]);
-  return document(`Open ${group.name} tasks`, updated, TASK_COLUMNS, rows, "No open tasks.");
+  return document(updated, TASK_COLUMNS, rows, "No open tasks.");
 }
 
 // Rewrites the summary a change in `channel` touches: the external
@@ -73,13 +79,16 @@ export async function refreshSummary(env, channel) {
 
 // For `/cade summary`: writes the channel's summary to its canvas, the one
 // Slack shows in the channel's header, making it if there is none. What the
-// canvas held is replaced. Returns what happened, to tell whoever asked.
+// canvas held is replaced, and it takes the summary's title. Returns what
+// happened, to tell whoever asked.
 export async function publishSummary(env, channel, user) {
+  const title = summaryTitle(env, channel);
   const markdown = await summaryMarkdown(env, channel);
   const canvasId = await getCanvas(env, channel);
   if (canvasId) {
     try {
       await writeCanvas(env, canvasId, markdown);
+      await renameCanvas(env, canvasId, title);
       return "Updated the summary in this channel's canvas.";
     } catch (error) {
       // Deleted by hand: a new one is made below.
@@ -90,6 +99,7 @@ export async function publishSummary(env, channel, user) {
   try {
     const { canvas_id: created } = await callSlack(env, "conversations.canvases.create", {
       channel_id: channel,
+      title,
       document_content: { type: "markdown", markdown },
     });
     await putCanvas(env, channel, created, user);
@@ -106,6 +116,7 @@ export async function publishSummary(env, channel, user) {
   const existing = info.properties?.canvas?.file_id;
   if (!existing) throw new Error("conversations.info gave no canvas for a channel that has one");
   await writeCanvas(env, existing, markdown);
+  await renameCanvas(env, existing, title);
   await putCanvas(env, channel, existing, user);
   return "Added the summary to this channel's canvas. I'll keep it up to date.";
 }
@@ -117,16 +128,22 @@ async function writeCanvas(env, canvasId, markdown) {
   });
 }
 
-// The heading, when it was updated, and the rows in as many tables as they
-// need.
-function document(heading, updated, columns, rows, empty) {
+async function renameCanvas(env, canvasId, title) {
+  await callSlack(env, "canvases.edit", {
+    canvas_id: canvasId,
+    changes: [{ operation: "rename", title_content: { type: "markdown", markdown: title } }],
+  });
+}
+
+// When it was updated, and the rows in as many tables as they need.
+function document(updated, columns, rows, empty) {
   const count = rows.length ? `${rows.length} open, most urgent first.` : empty;
   const perTable = Math.floor(MAX_CELLS / columns.length) - 1;
   const tables = [];
   for (let start = 0; start < rows.length; start += perTable) {
     tables.push(table(columns, rows.slice(start, start + perTable)));
   }
-  return [`# ${heading}`, `${count} ${updated}`, ...tables].join("\n\n");
+  return [`${count} ${updated}`, ...tables].join("\n\n");
 }
 
 function table(columns, rows) {

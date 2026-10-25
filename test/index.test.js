@@ -6199,8 +6199,9 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
   const create = calls.find((call) => call.method === "conversations.canvases.create");
   assert.equal(create.args.channel_id, "CDEV");
+  assert.equal(create.args.title, "Open acme tasks");
   const markdown = canvasMarkdown(create);
-  assert.match(markdown, /^# Open acme tasks\n\n4 open, most urgent first\. _Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\./);
+  assert.match(markdown, /^4 open, most urgent first\. _Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\./);
   assert.ok(markdown.includes("| Title | Status | Priority | Dev | Reviewer | Tester | Due date | Thread |"));
   const thread = (channel, ts) =>
     `[Go to thread](https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
@@ -6215,9 +6216,10 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   calls.length = 0;
   const again = await runTasksCommand("summary", "CDEV", incidentEnv);
   assert.equal(again.later.text, "Updated the summary in this channel's canvas.");
-  const edit = calls.find((call) => call.method === "canvases.edit");
-  assert.equal(edit.args.canvas_id, "F0CANVAS");
-  assert.equal(JSON.parse(edit.args.changes)[0].operation, "replace");
+  const edits = calls.filter((call) => call.method === "canvases.edit");
+  assert.deepEqual(edits.map((call) => call.args.canvas_id), ["F0CANVAS", "F0CANVAS"]);
+  assert.deepEqual(edits.map((call) => JSON.parse(call.args.changes)[0].operation), ["replace", "rename"]);
+  assert.equal(JSON.parse(edits[1].args.changes)[0].title_content.markdown, "Open acme tasks");
   assert.ok(!calls.some((call) => call.method === "conversations.canvases.create"));
 });
 
@@ -6242,8 +6244,10 @@ test("/cade summary in the external channel lists open requirements and incident
   const { later } = await runTasksCommand("summary", "CEXTERNAL");
 
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
-  const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
-  assert.match(markdown, /^# Open acme requirements\n\n3 open, most urgent first\./);
+  const create = calls.find((call) => call.method === "conversations.canvases.create");
+  assert.equal(create.args.title, "Open acme requirements");
+  const markdown = canvasMarkdown(create);
+  assert.match(markdown, /^3 open, most urgent first\./);
   assert.ok(markdown.includes("| Title | Priority | Due date | Status | Tracked | Thread |"));
   const thread = (ts) => `[Go to thread](https://acme.slack.com/archives/CEXTERNAL/p${ts.replace(".", "")}?thread_ts=${ts}&cid=CEXTERNAL)`;
   assert.deepEqual(summaryRows(markdown), [
@@ -6266,9 +6270,12 @@ test("/cade summary uses the canvas the channel already has", async (t) => {
 
   const { later } = await runTasksCommand("summary", "CDEV");
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
-  const edit = calls.find((call) => call.method === "canvases.edit");
+  const [edit, rename] = calls.filter((call) => call.method === "canvases.edit");
   assert.equal(edit.args.canvas_id, "F0THEIRS");
   assert.match(canvasMarkdown(edit), /No open tasks\./);
+  // It takes the summary's title.
+  assert.equal(rename.args.canvas_id, "F0THEIRS");
+  assert.equal(JSON.parse(rename.args.changes)[0].title_content.markdown, "Open acme tasks");
 
   // Saved, so it is used from now on.
   calls.length = 0;
