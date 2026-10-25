@@ -14,8 +14,8 @@
       {
         "command": "{{COMMAND}}",
         "url": "{{WORKER_URL}}/slack/commands",
-        "description": "Start a requirement, report an incident, track a task or list your tasks",
-        "usage_hint": "requirement | incident | track | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned]",
+        "description": "Start a requirement, report an incident, track or migrate a task, or list your tasks",
+        "usage_hint": "requirement | incident | track | migrate | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned]",
         "should_escape": true
       }
     ]
