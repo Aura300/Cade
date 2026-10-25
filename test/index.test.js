@@ -996,7 +996,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
       lines.map((line) => line.split(":*")[0]),
       ["Here's what I can do:", "*Start", "*In a task thread", "*Your work", "Send `@Cade help` or `/cade help` any time to see this again."],
     );
-    assert.match(lines[1], /`\/cade requirement` · `@Cade requirement` · `\/cade incident` · `@Cade incident` · `\/cade track` · `@Cade track`$/);
+    assert.match(lines[1], /`\/cade requirement` · `@Cade requirement` · `\/cade incident` · `@Cade incident` · `\/cade track` · `@Cade track` · `\/cade migrate`$/);
     // Saying it comes first in a task thread; the commands follow.
     assert.match(lines[2], /^\*In a task thread:\* Just talk to me: .* Or: `@Cade assign developer @person`/);
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
@@ -6094,4 +6094,359 @@ test("/cade tasks -all with nothing to show says so", async (t) => {
   const { later } = await tasksCommand(t, "tasks -all", "CDEV", {});
   assert.equal(later.text, "There are no open acme tasks.");
   assert.equal(later.blocks.at(-1).text.text, "There are no open tasks.");
+});
+
+// `/cade migrate`: two old requirement threads in the external channel (the
+// second linked by one of its replies) and an old dev thread, pinned, in the
+// dev channel. Each mentions a pull request somewhere in its thread.
+const OLD = { first: "1700000000.000100", second: "1700000500.000200", dev: "1700000700.000400" };
+const oldLink = (channel, ts, query = "") => `https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}${query}`;
+const OLD_THREADS = {
+  [OLD.first]: [
+    { ts: OLD.first, user: "UCLIENT", text: "*Export reports*\nas CSV please" },
+    { ts: "1700000001.000100", user: "UDEV", text: `Started in <${PR}>` },
+  ],
+  [OLD.second]: [{ ts: OLD.second, user: "UCLIENT", text: "And with totals" }],
+  [OLD.dev]: [
+    { ts: OLD.dev, user: "UDEV", text: "Export work", pinned_to: ["CDEV"] },
+    { ts: "1700000701.000400", user: "UDEV", text: `Also <${MR}> and <${PR}>` },
+  ],
+};
+
+// Posts get ts 200.1 for the requirement and 100.1 for the task, and .9 in a
+// thread; permalinks end with the message's ts.
+const migrateSlack = (threads = OLD_THREADS) => ({
+  "conversations.replies": (args) => ({ messages: threads[args.ts] ?? [] }),
+  "chat.postMessage": (args) =>
+    args.thread_ts
+      ? { ts: `${args.thread_ts.split(".")[0]}.9`, channel: args.channel }
+      : { ts: args.channel === "CEXTERNAL" ? "200.1" : "100.1", channel: args.channel },
+  "chat.getPermalink": (args) => ({ permalink: `https://slack.example/${args.message_ts}` }),
+});
+
+const threadsSubmission = (requirements, dev = "") =>
+  interaction({
+    type: "view_submission",
+    user: { id: "UACTOR" },
+    view: {
+      callback_id: "migrate:threads",
+      private_metadata: JSON.stringify({ channel: "CEXTERNAL" }),
+      state: { values: { requirements: { value: { value: requirements } }, dev: { value: { value: dev } } } },
+    },
+  });
+
+const migration = { channel: "CEXTERNAL", requirements: [OLD.first, OLD.second], dev: [OLD.dev], linkPrs: true };
+
+test("/cade migrate asks for requirement and dev threads, or in the dev channel dev threads only", async (t) => {
+  for (const [channel, blocks] of [
+    ["CEXTERNAL", [["requirements", true], ["dev", true], ["prs", true]]],
+    ["CDEV", [["dev", false], ["prs", true]]],
+  ]) {
+    const calls = mockSlack(t);
+    await send("/slack/commands", slash("migrate", channel));
+    assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
+    const { view } = calls[0].args;
+    assert.equal(view.callback_id, "migrate:threads");
+    assert.deepEqual(JSON.parse(view.private_metadata), { channel });
+    assert.deepEqual(view.blocks.slice(1).map((block) => [block.block_id, !!block.optional]), blocks);
+    // Linking the PRs found is ticked to start with.
+    const { element } = view.blocks.at(-1);
+    assert.equal(element.type, "checkboxes");
+    assert.deepEqual(element.initial_options, element.options);
+  }
+});
+
+test("the threads form asks for the requirement, named from the oldest thread", async (t) => {
+  const calls = mockSlack(t, migrateSlack());
+  const reply = oldLink("CEXTERNAL", "1700000600.000300", `?thread_ts=${OLD.second}&cid=CEXTERNAL`);
+  const response = await send(
+    "/slack/interactions",
+    threadsSubmission(`${reply}\n${oldLink("CEXTERNAL", OLD.first)}  ${oldLink("CEXTERNAL", OLD.first)}`, `<${oldLink("CDEV", OLD.dev)}>`),
+  );
+  const { response_action, view } = await response.json();
+  assert.equal(response_action, "update");
+  assert.equal(view.callback_id, "migrate:details");
+  assert.deepEqual(JSON.parse(view.private_metadata), migration);
+  assert.equal(view.blocks[0].element.initial_value, "Export reports");
+  assert.deepEqual(view.blocks.slice(0, 3).map((block) => block.block_id), ["title", "due_date", "priority"]);
+  assert.equal(
+    view.blocks[3].elements[0].text,
+    "I'll start the requirement with 2 old threads moved into it, and track its task with the same name, then move 1 dev thread into its thread.",
+  );
+  // Only the oldest thread is read, to name the requirement.
+  assert.deepEqual(calls.map((call) => [call.method, call.args.ts]), [["conversations.replies", OLD.first]]);
+});
+
+test("the threads form remembers whether to link the PRs found", async (t) => {
+  for (const [selected, linkPrs] of [[[{ value: "link" }], true], [[], false]]) {
+    mockSlack(t, migrateSlack());
+    const payload = JSON.parse(new URLSearchParams(threadsSubmission(oldLink("CEXTERNAL", OLD.first))).get("payload"));
+    payload.view.state.values.prs = { value: { selected_options: selected } };
+    const { view } = await (await send("/slack/interactions", interaction(payload))).json();
+    assert.equal(JSON.parse(view.private_metadata).linkPrs, linkPrs);
+  }
+});
+
+test("the threads form says what's wrong with the links", async (t) => {
+  for (const [requirements, dev, errors] of [
+    ["", "", { requirements: "Please paste a link to at least one message." }],
+    ["https://example.com", "", { requirements: "That doesn't look like a link to a Slack message: https://example.com" }],
+    [oldLink("CDEV", OLD.dev), oldLink("CEXTERNAL", OLD.first), {
+      requirements: `That message isn't in this channel: ${oldLink("CDEV", OLD.dev)}`,
+      dev: `That message isn't in the dev channel: ${oldLink("CEXTERNAL", OLD.first)}`,
+    }],
+    [oldLink("CEXTERNAL", "200.1".padEnd(17, "0")), "", { requirements: "I can't find the first of those messages. Has it been deleted?" }],
+  ]) {
+    mockSlack(t, migrateSlack());
+    const response = await send("/slack/interactions", threadsSubmission(requirements, dev));
+    assert.deepEqual(await response.json(), { response_action: "errors", errors }, requirements);
+  }
+
+  const stored = requirementRoot();
+  stored.ts = OLD.first;
+  mockSlack(t, { ...migrateSlack(), stored: [stored] });
+  const response = await send("/slack/interactions", threadsSubmission(oldLink("CEXTERNAL", OLD.first)));
+  assert.deepEqual((await response.json()).errors, { requirements: "One of those is already a requirement thread." });
+});
+
+const migrateSubmission = (values = { title: "Export reports", dueDate: "2026-11-30", priority: "High" }, metadata = migration) => {
+  const payload = submission(values);
+  payload.user = { id: "UACTOR" };
+  payload.view.callback_id = "migrate:details";
+  payload.view.private_metadata = JSON.stringify(metadata);
+  return interaction(payload);
+};
+
+test("migrating starts the requirement, moves the old threads in and tracks its task", async (t) => {
+  const calls = mockSlack(t, migrateSlack());
+  const response = await send("/slack/interactions", migrateSubmission());
+  assert.deepEqual(await response.json(), { response_action: "clear" });
+
+  const requirement = await savedRequirement();
+  assert.equal(requirement.title, "Export reports");
+  assert.equal(requirement.status, "IN_PROGRESS");
+  assert.deepEqual(requirement.task.ts, "100.1");
+  const task = await savedTask();
+  assert.equal(task.title, "Export reports");
+  assert.equal(task.priority, "High");
+  assert.equal(task.dueDate, "30/11/2026");
+  assert.equal(task.source.threadTs, "200.1");
+
+  // The old threads' roots are copied in, oldest first, the requirement's
+  // before its task is tracked, and the dev thread's into the task's thread.
+  const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => [call.args.channel, call.args.thread_ts, call.args.text]);
+  const copies = posts.filter(([, , text]) => text.startsWith("Moved from"));
+  assert.deepEqual(copies.map(([channel, threadTs]) => [channel, threadTs]), [["CEXTERNAL", "200.1"], ["CEXTERNAL", "200.1"], ["CDEV", "100.1"]]);
+  assert.match(copies[0][2], /\n> \*Export reports\*\n> as CSV please$/);
+  const tracked = posts.findIndex(([, threadTs, text]) => threadTs === "200.1" && text.includes("tracked this as a task"));
+  assert.ok(tracked > posts.indexOf(copies[1]) && tracked < posts.indexOf(copies[2]));
+
+  // The pinned dev thread is followed in the task's thread now.
+  assert.deepEqual(
+    calls.filter((call) => call.method === "pins.remove").map((call) => call.args),
+    [{ channel: "CDEV", timestamp: OLD.dev }],
+  );
+
+  // The PRs found anywhere in the old threads are linked, each once, and
+  // the thread hears it; reviewers are asked for privately instead.
+  assert.deepEqual(task.prs, [PR, MR]);
+  assert.equal(task.status, "IN_REVIEW");
+  assert.deepEqual(posts.at(-1), ["CDEV", "100.1", `<@UACTOR> linked <${PR}|cade/42>, <${MR}|web-app/118> and moved the task to :eyes: In review.`]);
+
+  const [summary, setup, ...more] = calls.filter((call) => call.method === "chat.postEphemeral").map((call) => call.args);
+  assert.deepEqual(more, []);
+  for (const told of [summary, setup]) assert.deepEqual([told.channel, told.thread_ts, told.user], ["CDEV", "100.1", "UACTOR"]);
+  assert.equal(
+    summary.text,
+    "Migrated! I moved 2 old threads into <https://slack.example/200.1|the requirement thread> and 1 old thread into <https://slack.example/100.1|the task thread>.",
+  );
+  // Where it's at and who's on it: a status menu starting where the task is,
+  // and a people menu per role, any of which can be left empty.
+  assert.equal(setup.text, "Where's this task at, and who's on it? Leave out anyone you don't know yet.");
+  assert.deepEqual(
+    setup.blocks.slice(1, 5).map((block) => [block.block_id, block.text.text, block.accessory.type]),
+    [
+      ["migrate:status", "*Status*", "static_select"],
+      ["migrate:developer", "*Developers*", "multi_users_select"],
+      ["migrate:reviewer", "*Reviewers*", "multi_users_select"],
+      ["migrate:tester", "*Testers*", "multi_users_select"],
+    ],
+  );
+  assert.equal(setup.blocks[1].accessory.initial_option.value, "IN_REVIEW");
+  const [save, skip] = setup.blocks[5].elements;
+  assert.deepEqual([save.action_id, skip.action_id], ["migrate:save", "migrate:skip-setup"]);
+  assert.deepEqual(JSON.parse(save.value), { channel: "CDEV", ts: "100.1", status: "IN_REVIEW" });
+});
+
+test("with Link the PRs unticked, migrating leaves the PRs found alone", async (t) => {
+  const calls = mockSlack(t, migrateSlack());
+  await send("/slack/interactions", migrateSubmission(undefined, { ...migration, linkPrs: false }));
+  const task = await savedTask();
+  assert.deepEqual(task.prs, []);
+  assert.equal(task.status, "TODO");
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage" && /linked/.test(call.args.text)));
+  const setup = calls.filter((call) => call.method === "chat.postEphemeral").at(-1).args;
+  assert.equal(setup.blocks[1].accessory.initial_option.value, "TODO");
+});
+
+test("migrating says which old threads didn't move", async (t) => {
+  const threads = { ...OLD_THREADS, [OLD.second]: [{ ts: OLD.second, bot_id: "BOTHER", text: "Deployed" }], [OLD.dev]: [] };
+  const calls = mockSlack(t, migrateSlack(threads));
+  await send("/slack/interactions", migrateSubmission());
+  const [summary] = calls.filter((call) => call.method === "chat.postEphemeral").map((call) => call.args);
+  assert.equal(
+    summary.text,
+    [
+      "Migrated! I moved 1 old thread into <https://slack.example/200.1|the requirement thread> and 0 old threads into <https://slack.example/100.1|the task thread>.",
+      "These didn't move:",
+      `• <https://slack.example/${OLD.second}|This thread>: I can only move people's messages.`,
+      `• <https://slack.example/${OLD.dev}|This thread>: it has been deleted.`,
+    ].join("\n"),
+  );
+  // Only the threads that moved give their PRs.
+  assert.deepEqual((await savedTask()).prs, [PR]);
+});
+
+test("a migrator who can't see the dev channel is told in the requirement thread", async (t) => {
+  let tried = 0;
+  const calls = mockSlack(t, migrateSlack());
+  const fakeFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith("/chat.postEphemeral") && init.body.get("channel") === "CDEV" && !tried++) {
+      return Response.json({ ok: false, error: "user_not_in_channel" });
+    }
+    return fakeFetch(url, init);
+  };
+  t.after(() => (globalThis.fetch = fakeFetch));
+  await send("/slack/interactions", migrateSubmission());
+  const told = calls.filter((call) => call.method === "chat.postEphemeral").map((call) => [call.args.channel, call.args.thread_ts]);
+  assert.deepEqual(told, [["CEXTERNAL", "200.1"], ["CEXTERNAL", "200.1"]]);
+});
+
+// Clicks Save on the migration's setup question, with `status` and people
+// per role chosen; the menu started at `initial`.
+const setupSave = ({ status = "TODO", initial = "TODO", developer = [], reviewer = [], tester = [] } = {}) =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    channel: { id: "CDEV" },
+    container: { is_ephemeral: true },
+    response_url: RESPONSE_URL,
+    state: {
+      values: {
+        "migrate:status": { "migrate:pick:status": { selected_option: { value: status } } },
+        "migrate:developer": { "migrate:pick:developer": { selected_users: developer } },
+        "migrate:reviewer": { "migrate:pick:reviewer": { selected_users: reviewer } },
+        "migrate:tester": { "migrate:pick:tester": { selected_users: tester } },
+      },
+    },
+    actions: [{ action_id: "migrate:save", value: JSON.stringify({ channel: "CDEV", ts: "100.1", status: initial }) }],
+  });
+
+test("saving the setup question sets the status and asks the people chosen", async (t) => {
+  const root = storedTask({ reviewers: ["URUTH"] });
+  root.task.status = "TODO";
+  root.task.prs = [PR];
+  const calls = mockSlack(t, { stored: [root, requirementRoot({ task: true })] });
+  const responses = recordResponses(t);
+  await send("/slack/interactions", setupSave({ status: "IN_PROGRESS", developer: ["UDEV"], reviewer: ["URUTH", "UREV"], tester: ["UTEST"] }));
+
+  const task = await savedTask();
+  assert.equal(task.status, "IN_PROGRESS");
+  assert.deepEqual(task.people, { developer: ["UDEV"], reviewer: ["URUTH", "UREV"], tester: ["UTEST"] });
+  const reply = calls.filter((call) => call.method === "chat.postMessage").at(-1).args;
+  assert.equal(reply.thread_ts, "100.1");
+  assert.equal(
+    reply.text,
+    [
+      "<@UACTOR> set the status to :arrow_forward: In progress.",
+      "<@UDEV> you're down as developer on this, and it's :arrow_forward: In progress.",
+      `<@UREV>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+      "<@UTEST> could you give this a test when you get a chance? Thanks!",
+    ].join("\n"),
+  );
+  assert.equal((await savedRequirement()).status, "IN_PROGRESS");
+  assert.deepEqual(responses, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("saving the setup question keeps what changed in the thread meanwhile", async (t) => {
+  // It moved to In testing in the thread, and a reviewer was chosen there,
+  // while the menu still showed In review.
+  const root = storedTask({ reviewers: ["URUTH"] });
+  root.task.status = "IN_TESTING";
+  const calls = mockSlack(t, { stored: [root] });
+  recordResponses(t);
+  await send("/slack/interactions", setupSave({ status: "IN_REVIEW", initial: "IN_REVIEW", developer: ["UDEV"] }));
+
+  const task = await savedTask();
+  assert.equal(task.status, "IN_TESTING");
+  assert.deepEqual(task.people, { developer: ["UDEV"], reviewer: ["URUTH"], tester: [] });
+  // Past In progress, the card shows the developer; there's nothing to ask.
+  assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 0);
+
+  // Nothing chosen changes nothing.
+  const quiet = mockSlack(t, { stored: [storedTask()] });
+  recordResponses(t);
+  await send("/slack/interactions", setupSave());
+  assert.deepEqual(quiet.map((call) => call.method), []);
+});
+
+test("Move unpins a pinned message it moves", async (t) => {
+  const calls = mockSlack(t, { ...moveSlack({ ...strayMessage, pinned_to: ["CEXTERNAL"] }), stored: [requirementRoot()] });
+  recordResponses(t);
+  await send("/slack/interactions", moveClick("200.1"));
+  assert.deepEqual(
+    calls.filter((call) => call.method === "pins.remove").map((call) => call.args),
+    [{ channel: "CEXTERNAL", timestamp: "400.1" }],
+  );
+});
+
+const threadsFrom = (channel, dev) =>
+  interaction({
+    type: "view_submission",
+    user: { id: "UACTOR" },
+    view: {
+      callback_id: "migrate:threads",
+      private_metadata: JSON.stringify({ channel }),
+      state: { values: { dev: { value: { value: dev } } } },
+    },
+  });
+
+test("with only dev threads, the threads form asks for the task, named from the oldest", async (t) => {
+  for (const [request, channel] of [
+    [threadsSubmission("", oldLink("CDEV", OLD.dev)), "CEXTERNAL"],
+    [threadsFrom("CDEV", oldLink("CDEV", OLD.dev)), "CDEV"],
+  ]) {
+    mockSlack(t, migrateSlack());
+    const { response_action, view } = await (await send("/slack/interactions", request)).json();
+    assert.equal(response_action, "update", channel);
+    assert.deepEqual(JSON.parse(view.private_metadata), { channel, requirements: [], dev: [OLD.dev], linkPrs: true });
+    assert.equal(view.blocks[0].label.text, "Task title");
+    assert.equal(view.blocks[0].element.initial_value, "Export work");
+    assert.deepEqual(view.blocks.slice(0, 3).map((block) => block.block_id), ["title", "due_date", "priority"]);
+    assert.equal(view.blocks[3].elements[0].text, "I'll track the task and move 1 dev thread into its thread.");
+  }
+
+  mockSlack(t, migrateSlack());
+  const response = await send("/slack/interactions", threadsFrom("CDEV", ""));
+  assert.deepEqual((await response.json()).errors, { dev: "Please paste a link to at least one message." });
+});
+
+test("migrating only dev threads tracks the team's own task, as /cade track does", async (t) => {
+  const calls = mockSlack(t, migrateSlack());
+  await send("/slack/interactions", migrateSubmission(undefined, { channel: "CDEV", requirements: [], dev: [OLD.dev], linkPrs: true }));
+
+  const task = await savedTask();
+  assert.equal(task.title, "Export reports");
+  assert.equal(task.priority, "High");
+  assert.equal(task.dueDate, "30/11/2026");
+  assert.equal(task.source, undefined);
+  assert.deepEqual(task.prs, [MR, PR]);
+  assert.equal(await savedRequirement(), null);
+  const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => [call.args.channel, call.args.thread_ts]);
+  assert.ok(posts.every(([channel]) => channel === "CDEV"));
+  assert.ok(posts.some(([, threadTs]) => threadTs === "100.1"));
+
+  const [summary] = calls.filter((call) => call.method === "chat.postEphemeral").map((call) => call.args);
+  assert.equal(summary.text, "Migrated! I moved 1 old thread into <https://slack.example/100.1|the task thread>.");
 });

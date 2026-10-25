@@ -54,13 +54,8 @@ export default {
     if (!task) return NOT_A_TASK;
 
     if (adding) {
-      const linked = await addPullRequests(env, command.channel, command.threadTs, task, urls);
-      if (!linked) return "Those pull requests are already linked to this task, so we're all set.";
-      const status = linked.moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
-      const text = `<@${command.user}> linked ${linked.added.map(prLink).join(", ")}${status}.`;
-      const reviewers = task.people.reviewer;
-      if (reviewers.length) return `${text}\n${reviewRequest(reviewers, linked.added)}`;
-      return reviewerPicker(text, linked.added);
+      const reply = await linkPullRequests(env, command.channel, command.threadTs, task, urls, command.user);
+      return reply ?? "Those pull requests are already linked to this task, so we're all set.";
     }
 
     const removed = urls.filter((url) => task.prs.includes(url));
@@ -114,6 +109,23 @@ async function addPullRequests(env, channel, ts, task, urls) {
   await saveTask(env, channel, ts, task);
   await reflectOnRequirement(env, ts, task, {});
   return { added, moved };
+}
+
+// Links the pull requests to the task as `user` would with `@Cade pr add`,
+// and returns the reply for its thread: who linked them, then a request to
+// its reviewers or, with none yet, a picker to choose them. Null when they
+// were all linked already. `/cade migrate` links the PRs it finds this way,
+// with `askReviewers: false`, since it asks for reviewers itself: the reply
+// is then only who linked them.
+export async function linkPullRequests(env, channel, ts, task, urls, user, { askReviewers = true } = {}) {
+  const linked = await addPullRequests(env, channel, ts, task, urls);
+  if (!linked) return null;
+  const status = linked.moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
+  const text = `<@${user}> linked ${linked.added.map(prLink).join(", ")}${status}.`;
+  if (!askReviewers) return text;
+  const reviewers = task.people.reviewer;
+  if (reviewers.length) return `${text}\n${reviewRequest(reviewers, linked.added)}`;
+  return reviewerPicker(text, linked.added);
 }
 
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;

@@ -3,7 +3,7 @@ import { activeRequirements, tasksWithStatus } from "../db.js";
 import { intent } from "../intents.js";
 import { loadRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
-import { STATUSES, loadTask, statusName } from "../tasks.js";
+import { STATUSES, loadTask, setPinned, statusName } from "../tasks.js";
 import { incidentView, requirementView } from "./requirement.js";
 import { trackView } from "./track.js";
 
@@ -65,7 +65,7 @@ const targetsIn = (env, channel) => (roleOf(env, channel) === "external" ? REQUI
 // the copy, asking people to carry on there, and reacts to the original with
 // :outbox_tray:. Only the message moves, not its replies, which the copy's
 // link back still reaches. A bot token can't delete people's messages, so
-// the original stays.
+// the original stays, unpinned if it was pinned.
 //
 // A message posted on its own in the external channel, not in a thread, gets
 // a private question for whoever posted it: start a requirement or report
@@ -270,7 +270,7 @@ async function privately(env, command, body) {
 
 // The message's first line, without formatting marks, as a name to start
 // the form with.
-function firstLine(text) {
+export function firstLine(text) {
   return text.split("\n").find((line) => line.trim())?.replace(/[*_~`>]/g, "").trim().slice(0, 150) ?? "";
 }
 
@@ -336,6 +336,9 @@ export async function moveMessage(env, { channel, ts, targetTs, user }) {
   await callSlack(env, "reactions.add", { channel, timestamp: ts, name: MOVED_REACTION }).catch((error) => {
     console.warn("Could not mark the message moved", { ts, error: error.message });
   });
+  // A pinned original is now followed in the thread it moved to, so it no
+  // longer needs its pin. setPinned only logs a failure.
+  if (root.pinned_to?.includes(channel)) await setPinned(env, channel, ts, false);
   console.log("Message moved", { ts, targetTs, user });
   return null;
 }

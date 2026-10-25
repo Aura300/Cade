@@ -149,15 +149,17 @@ async function submitIncident(payload, context) {
 // Stores the requirement (or incident), then posts it, and moves the message
 // at `moveTs`, if any, into its thread. The move is only made if it is
 // posted straight away, since a retry doesn't know of it; `@Cade move` is
-// there for that.
-async function createRequirement(env, channel, requirement, moveTs) {
+// there for that. Returns the root message's ts, if it was posted.
+export async function createRequirement(env, channel, requirement, moveTs) {
   const id = await insertRequirement(env, channel, requirement);
   const ts = await publishRequirement(env, { id, channel, requirement, attempts: 0 });
-  if (!ts || !moveTs) return;
-  const problem = await moveMessage(env, { channel, ts: moveTs, targetTs: ts, user: requirement.createdBy }).catch(
-    (error) => error.message,
-  );
-  if (problem) console.warn("Could not move the message", { ts: moveTs, problem });
+  if (ts && moveTs) {
+    const problem = await moveMessage(env, { channel, ts: moveTs, targetTs: ts, user: requirement.createdBy }).catch(
+      (error) => error.message,
+    );
+    if (problem) console.warn("Could not move the message", { ts: moveTs, problem });
+  }
+  return ts;
 }
 
 // Posts a stored requirement that has no root message yet and pins it; an

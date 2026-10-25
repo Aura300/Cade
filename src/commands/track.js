@@ -206,6 +206,7 @@ async function submit(payload, context) {
 // Stores the task, then posts it and announces it. `origin` is where it was
 // tracked from, as for the form; `/cade incident` uses this too, with
 // `incident: true`, so the task goes to the pair's incidents channel.
+// Returns the task's root message ts, if it was posted.
 export async function createTask(env, task, origin) {
   if (origin.requirement) {
     // The requirement's current state, in case the client changed its
@@ -270,13 +271,14 @@ export async function createTask(env, task, origin) {
     moveTs: origin.moveTs,
   };
   const id = await insertTask(env, tasksChannel, task, after);
-  await publishTask(env, { id, channel: tasksChannel, task, origin: after, attempts: 0 });
+  return publishTask(env, { id, channel: tasksChannel, task, origin: after, attempts: 0 });
 }
 
 // Posts a stored task that has no root message yet, then pins it, tells the
 // requirement thread and records it in the Sheet. If Slack refuses the post,
 // the task waits for the next retry, and the person who tracked it is told,
-// the first time and when Cade gives up.
+// the first time and when Cade gives up. Returns the root message's ts, if
+// it was posted.
 export async function publishTask(env, { id, channel, task, origin, attempts }) {
   let message;
   try {
@@ -369,4 +371,5 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
       await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.threadTs, ...body });
     }
   }
+  return message.ts;
 }
