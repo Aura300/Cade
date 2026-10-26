@@ -2,7 +2,7 @@ import { findPair, roleOf } from "./channels.js";
 import { deleteCanvas, getCanvas, postedRequirements, putCanvas } from "./db.js";
 import { byUrgency, groupTasks, threadLink } from "./commands/tasks.js";
 import { REQUIREMENT_STATUSES } from "./requirements.js";
-import { formatTime } from "./sheet.js";
+import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
 import { callSlack } from "./slack.js";
 import { PRIORITIES, STATUSES } from "./tasks.js";
 
@@ -69,7 +69,13 @@ export async function summaryMarkdown(env, channel) {
     people(task.people.reviewer),
     people(task.people.tester),
   ];
-  return document(updated, TASK_COLUMNS, sections(tasks, row), "tasks");
+  // The Closed section is cut short, so the group's Google Sheet, which has
+  // every task, is linked when it has one. It's the team's own record, so
+  // the client channel's summary leaves it out.
+  const sheet = sheetEnabled(env, group)
+    ? ` [All tasks in the Google Sheet](https://docs.google.com/spreadsheets/d/${sheetId(group.sheet)}/edit).`
+    : "";
+  return document(`${updated}${sheet}`, TASK_COLUMNS, sections(tasks, row), "tasks");
 }
 
 // The rows of the open entries, most urgent first, and of the last

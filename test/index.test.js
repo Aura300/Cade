@@ -6383,6 +6383,8 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   const markdown = canvasMarkdown(create);
   assert.match(markdown, /^_Updated \d\d\/\d\d\/\d{4} \d\d:\d\d\. Cade keeps this up to date\._\n\n## Open\n\n4 open, most urgent first\.\n\n/);
   assert.match(markdown, /\n\n---\n\n## Closed\n\nThe last 2 done, most recently first\.\n\n/);
+  // Without a Google Sheet, there's nothing to link to.
+  assert.ok(!markdown.includes("Google Sheet"));
   assert.ok(markdown.includes("| Title | Status | Priority | Due date | Dev | Reviewer | Tester |"));
   const thread = (channel, ts) =>
     `(https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
@@ -7447,4 +7449,21 @@ test("npm run group asks for each channel, existing by ID or new by name", async
   } finally {
     console.log = log;
   }
+});
+
+test("the dev channel's summary links the group's Google Sheet, the client channel's doesn't", async (t) => {
+  const calls = mockSlack(t, canvasResponses);
+  await putTask(env, "CDEV", "100.1", historyTask("100.1", { title: "Low task", priority: "Low" }).task);
+  const withSheet = { ...incidentEnv, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: withSheets(incidentEnv.CHANNEL_PAIRS) };
+  await runTasksCommand("summary", "CDEV", withSheet);
+  const dev = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
+  assert.match(
+    dev,
+    new RegExp(`^_Updated [^\\n]*\\. Cade keeps this up to date\\._ \\[All tasks in the Google Sheet\\]\\(https://docs\\.google\\.com/spreadsheets/d/${SHEETS.acme}/edit\\)\\.\\n`),
+  );
+
+  calls.length = 0;
+  await runTasksCommand("summary", "CEXTERNAL", withSheet);
+  const client = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
+  assert.ok(!client.includes("Google Sheet"));
 });
