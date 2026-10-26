@@ -4,6 +4,7 @@ import detach from "./detach.js";
 import { due, priority } from "./details.js";
 import brief from "./brief.js";
 import debrief from "./debrief.js";
+import menu from "./menu.js";
 import move from "./move.js";
 import pr from "./pr.js";
 import release from "./release.js";
@@ -43,14 +44,17 @@ export const commands = Object.fromEntries(
   ),
 );
 
+// The task card's menu only answers clicks, so it isn't a command.
+const interactive = [...handlers, menu];
+
 export const views = Object.assign(
   {},
-  ...handlers.map((handler) => handler.views ?? {}),
+  ...interactive.map((handler) => handler.views ?? {}),
 );
 
 export const intents = handlers.flatMap((handler) => handler.intents ?? []);
 
 export const actions = Object.assign(
   {},
-  ...handlers.map((handler) => handler.actions ?? {}),
+  ...interactive.map((handler) => handler.actions ?? {}),
 );

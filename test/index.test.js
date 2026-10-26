@@ -1779,6 +1779,125 @@ test("picking from the menu or date picker changes what the picker's thread is a
   }
 });
 
+// Choosing `choice` from the ⋯ menu on the card of the task at CDEV/100.1.
+const cardMenuClick = (choice) =>
+  interaction({
+    type: "block_actions",
+    trigger_id: "T1",
+    user: { id: "UACTOR" },
+    channel: { id: "CDEV" },
+    message: { ts: "100.1" },
+    actions: [{ action_id: "task:menu", selected_option: { value: choice } }],
+  });
+
+// Saving the card menu's form `callbackId` for the task at CDEV/100.1.
+const cardFormSubmission = (callbackId, values) =>
+  interaction({
+    type: "view_submission",
+    user: { id: "UACTOR" },
+    view: { callback_id: callbackId, private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1" }), state: { values } },
+  });
+
+const threadPosts = (calls) =>
+  calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").map((call) => call.args.text);
+
+test("a task's card has a menu, leaving out the priority and due date a requirement owns", async (t) => {
+  for (const [record, choices] of [
+    [ownTask(), ["assign", "status", "priority", "due"]],
+    [storedTask(), ["assign", "status"]],
+  ]) {
+    const calls = mockSlack(t, { stored: [record] });
+    await send("/slack/events", threadEvent("<@UBOT> status in progress"));
+    const card = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args;
+    const { accessory } = card.blocks[0];
+    assert.equal(accessory.action_id, "task:menu");
+    assert.deepEqual(accessory.options.map((option) => option.value), choices);
+  }
+});
+
+test("choosing from a task card's menu opens its form, filled in", async (t) => {
+  for (const [choice, callbackId, initial] of [
+    ["status", "status:form", (view) => view.blocks[0].element.initial_option.value],
+    ["priority", "priority:form", (view) => view.blocks[0].element.initial_option.value],
+    ["due", "due:form", (view) => view.blocks[0].element.initial_date],
+    ["assign", "assign:team", (view) => view.blocks[0].element.initial_users],
+  ]) {
+    const calls = mockSlack(t, { stored: [ownTask({ developers: ["UREX"] })] });
+    await send("/slack/interactions", cardMenuClick(choice));
+    assert.deepEqual(calls.map((call) => call.method), ["views.open"], choice);
+    const { view, trigger_id } = calls[0].args;
+    assert.equal(trigger_id, "T1");
+    assert.equal(view.callback_id, callbackId);
+    assert.deepEqual(initial(view), { status: "TODO", priority: "High", due: "2026-10-31", assign: ["UREX"] }[choice]);
+  }
+});
+
+test("a task card's menu on a task that's gone says so privately", async (t) => {
+  const calls = mockSlack(t);
+  await send("/slack/interactions", cardMenuClick("status"));
+  assert.deepEqual(calls.map((call) => [call.method, call.args.user]), [["chat.postEphemeral", "UACTOR"]]);
+});
+
+test("saving the card's status form records who changed it in the thread, and nothing when unchanged", async (t) => {
+  let calls = mockSlack(t, { stored: [ownTask({ testers: ["UTOM"] })] });
+  await send("/slack/interactions", cardFormSubmission("status:form", { status: { value: { selected_option: { value: "IN_TESTING" } } } }));
+  assert.equal((await savedTask()).status, "IN_TESTING");
+  assert.deepEqual(threadPosts(calls), [
+    "<@UACTOR> set the status to :test_tube: In testing.\n<@UTOM> could you give this a test when you get a chance? Thanks!",
+  ]);
+
+  calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/interactions", cardFormSubmission("status:form", { status: { value: { selected_option: { value: "TODO" } } } }));
+  assert.deepEqual(calls, []);
+});
+
+test("saving the card's priority and due date forms records who changed them in the thread", async (t) => {
+  for (const [callbackId, values, field, saved, posted] of [
+    ["priority:form", { priority: { value: { selected_option: { value: "Low" } } } }, "priority", "Low", "<@UACTOR> set the priority to :large_green_circle: Low."],
+    ["due:form", { due_date: { value: { selected_date: "2027-01-15" } } }, "dueDate", "15/01/2027", "<@UACTOR> set the due date to 15/01/2027."],
+    ["due:form", { due_date: { value: { selected_date: null } } }, "dueDate", "", "<@UACTOR> removed the due date."],
+  ]) {
+    const calls = mockSlack(t, { stored: [ownTask()] });
+    await send("/slack/interactions", cardFormSubmission(callbackId, values));
+    assert.equal((await savedTask())[field], saved);
+    assert.deepEqual(threadPosts(calls), [posted]);
+  }
+
+  const calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/interactions", cardFormSubmission("priority:form", { priority: { value: { selected_option: { value: "High" } } } }));
+  assert.deepEqual(calls, []);
+});
+
+test("the card's priority form on a task its requirement owns changes nothing and says why privately", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/interactions", cardFormSubmission("priority:form", { priority: { value: { selected_option: { value: "Low" } } } }));
+  assert.equal((await savedTask()).priority, "High");
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
+  assert.match(calls[0].args.text, /client owns/);
+});
+
+test("saving the card's assign form records who was added and removed in the thread", async (t) => {
+  const people = (developer, reviewer, tester) => ({
+    developer: { value: { selected_users: developer } },
+    reviewer: { value: { selected_users: reviewer } },
+    tester: { value: { selected_users: tester } },
+  });
+  let calls = mockSlack(t, { stored: [ownTask({ testers: ["UTOM"] })] });
+  await send("/slack/interactions", cardFormSubmission("assign:team", people(["UREX"], ["UMIA"], [])));
+  assert.deepEqual((await savedTask()).people, { developer: ["UREX"], reviewer: ["UMIA"], tester: [] });
+  assert.deepEqual(threadPosts(calls), [
+    [
+      "<@UACTOR> assigned <@UREX> as developer: could you pick this up when you get a chance? Thanks!",
+      "<@UACTOR> added a reviewer. I'll ask them to review once a PR is linked.",
+      "<@UACTOR> removed <@UTOM> as tester, so there's no need to test this anymore. Thanks!",
+    ].join("\n"),
+  ]);
+
+  calls = mockSlack(t, { stored: [ownTask({ developers: ["UREX"] })] });
+  await send("/slack/interactions", cardFormSubmission("assign:team", people(["UREX"], [], [])));
+  assert.deepEqual(calls, []);
+});
+
 // A client clicking Approve or Not approve in the requirement thread.
 // Moves the task at `channel`/100.1 to Client review as UACTOR, clicks the
 // private Ask for approval button and chooses `approver` in its form.

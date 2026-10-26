@@ -22,6 +22,7 @@ const APPROVE_ACTION = "status:approve";
 const REJECT_ACTION = "status:reject";
 const ASK_ACTION = "status:ask";
 const REVIEW_VIEW = "status:review";
+const STATUS_VIEW = "status:form";
 const SUGGEST_ACTION = "status:suggest";
 const SUGGEST_SKIP_ACTION = "status:suggest-skip";
 // The external thread only needs to hear when a task reaches one of these.
@@ -138,7 +139,7 @@ export default {
     },
     [ASK_ACTION]: (payload, { env }) => openApproverForm(payload, env),
   },
-  views: { [REVIEW_VIEW]: submitApprover },
+  views: { [REVIEW_VIEW]: submitApprover, [STATUS_VIEW]: submitStatus },
 };
 
 // The statuses a message about how the work is going could move a task in
@@ -204,14 +205,65 @@ async function acceptProgress(payload, env) {
   const { channel, ts, status, from } = JSON.parse(payload.actions[0].value);
   const user = payload.user.id;
   const task = await loadTask(env, channel, ts);
-  if (task?.status === from) {
-    const text = await setStatus(env, channel, ts, status, user);
-    const ask = status === "IN_TESTING" && task.people.tester.length
-      ? `\n${mentions(task.people.tester)} ${REQUESTS.tester}`
-      : "";
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(`${text}${ask}`) });
-  }
+  if (task?.status === from) await moveAndTell(env, channel, ts, task, status, user);
   await respondLater(payload.response_url, { delete_original: true });
+}
+
+// Moves the task for `user` and tells its thread who did, asking testers to
+// test a task moved to In testing.
+async function moveAndTell(env, channel, ts, task, status, user) {
+  const text = await setStatus(env, channel, ts, status, user);
+  const ask = status === "IN_TESTING" && task.people.tester.length
+    ? `\n${mentions(task.people.tester)} ${REQUESTS.tester}`
+    : "";
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(`${text}${ask}`) });
+}
+
+// The task card menu's Change status form (see menu.js).
+export function openStatusForm(env, triggerId, { channel, ts, task }) {
+  return callSlack(env, "views.open", {
+    trigger_id: triggerId,
+    view: {
+      type: "modal",
+      callback_id: STATUS_VIEW,
+      private_metadata: JSON.stringify({ channel, ts }),
+      title: plainText("Change status"),
+      submit: plainText("Save"),
+      close: plainText("Cancel"),
+      blocks: [
+        {
+          type: "input",
+          block_id: "status",
+          label: plainText(`Status of ${task.title}`.slice(0, 2000)),
+          element: {
+            type: "static_select",
+            action_id: "value",
+            options: Object.keys(STATUSES).map(statusOption),
+            initial_option: statusOption(task.status),
+          },
+        },
+      ],
+    },
+  });
+}
+
+// Saving the form moves the task as the status menu would, and tells its
+// thread who did. Saving it unchanged posts nothing.
+function submitStatus(payload, context) {
+  const { channel, ts } = JSON.parse(payload.view.private_metadata);
+  const status = payload.view.state.values.status.value.selected_option.value;
+  const user = payload.user.id;
+  context.waitUntil(
+    (async () => {
+      const { env } = context;
+      const task = await loadTask(env, channel, ts);
+      if (!task) {
+        await callSlack(env, "chat.postEphemeral", { channel, user, text: NOT_A_TASK });
+        return;
+      }
+      if (task.status !== status) await moveAndTell(env, channel, ts, task, status, user);
+    })(),
+  );
 }
 
 // A status menu's option.

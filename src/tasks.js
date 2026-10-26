@@ -126,8 +126,26 @@ export function taskMessage(task) {
   ];
   return {
     text: `${task.priority} task: ${task.title}`,
-    blocks: [{ type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) }],
+    blocks: [{ type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`), accessory: taskMenu(task) }],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
+  };
+}
+
+// The ⋯ menu on a task's card, so people change it without typing a command
+// in its thread (see menu.js). A task tracked from a requirement or incident
+// takes its priority and due date from there, so it offers only the rest.
+export const TASK_MENU_ACTION = "task:menu";
+
+function taskMenu(task) {
+  const choices = [
+    ["assign", "Assign people…"],
+    ["status", "Change status…"],
+    ...(task.source ? [] : [["priority", "Change priority…"], ["due", "Change due date…"]]),
+  ];
+  return {
+    type: "overflow",
+    action_id: TASK_MENU_ACTION,
+    options: choices.map(([value, text]) => ({ text: plainText(text), value })),
   };
 }
 

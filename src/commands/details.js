@@ -5,6 +5,8 @@ import { NOT_A_TASK, PRIORITIES, formatDueDate, pickerDate } from "../tasks.js";
 
 const PRIORITY_ACTION = "priority:select";
 const DUE_ACTION = "due:select";
+const PRIORITY_VIEW = "priority:form";
+const DUE_VIEW = "due:form";
 
 // `@Cade priority` and `@Cade due` change a priority and due date. The client
 // decides these for a requirement, so they are changed in the thread of a
@@ -50,6 +52,10 @@ export const priority = {
       );
     },
   },
+  views: {
+    [PRIORITY_VIEW]: (payload, context) =>
+      submitDetails(payload, context, { priority: payload.view.state.values.priority.value.selected_option.value }),
+  },
 };
 
 // `@Cade due 31/12/2026`, `@Cade due none` to clear it, or `@Cade due` for a
@@ -89,6 +95,12 @@ export const due = {
         }),
       );
     },
+  },
+  views: {
+    [DUE_VIEW]: (payload, context) =>
+      submitDetails(payload, context, {
+        dueDate: formatDueDate(payload.view.state.values.due_date.value.selected_date),
+      }),
   },
 };
 
@@ -182,6 +194,79 @@ function datePicker(prompt, current) {
       },
     ],
   };
+}
+
+// The task card menu's Change priority and Change due date forms (see
+// menu.js), offered only on tasks with no requirement.
+export function openPriorityForm(env, triggerId, { channel, ts, task }) {
+  const option = (name) => ({
+    text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true },
+    value: name,
+  });
+  return openDetailsForm(env, triggerId, PRIORITY_VIEW, "Change priority", { channel, ts }, {
+    type: "input",
+    block_id: "priority",
+    label: plainText(`Priority of ${task.title}`.slice(0, 2000)),
+    element: {
+      type: "static_select",
+      action_id: "value",
+      options: Object.keys(PRIORITIES).map(option),
+      initial_option: PRIORITIES[task.priority] ? option(task.priority) : undefined,
+    },
+  });
+}
+
+export function openDueForm(env, triggerId, { channel, ts, task }) {
+  return openDetailsForm(env, triggerId, DUE_VIEW, "Change due date", { channel, ts }, {
+    type: "input",
+    block_id: "due_date",
+    // Saving with no date removes it.
+    optional: true,
+    label: plainText(`Due date of ${task.title}`.slice(0, 2000)),
+    element: {
+      type: "datepicker",
+      action_id: "value",
+      placeholder: plainText("Select a date"),
+      initial_date: pickerDate(task.dueDate),
+    },
+  });
+}
+
+function openDetailsForm(env, triggerId, callbackId, title, origin, block) {
+  return callSlack(env, "views.open", {
+    trigger_id: triggerId,
+    view: {
+      type: "modal",
+      callback_id: callbackId,
+      private_metadata: JSON.stringify(origin),
+      title: plainText(title),
+      submit: plainText("Save"),
+      close: plainText("Cancel"),
+      blocks: [block],
+    },
+  });
+}
+
+// Saving a form changes the task as `@Cade priority` or `@Cade due` would,
+// and tells its thread who did. Saving it unchanged posts nothing, and
+// anything stopping the change is said only to whoever saved it.
+function submitDetails(payload, context, fields) {
+  const { channel, ts } = JSON.parse(payload.view.private_metadata);
+  const user = payload.user.id;
+  context.waitUntil(
+    (async () => {
+      const { env } = context;
+      const found = await findDetails(env, channel, ts);
+      const problem = cannotChange(env, channel, found);
+      if (problem) {
+        await callSlack(env, "chat.postEphemeral", { channel, user, text: problem });
+        return;
+      }
+      if (Object.entries(fields).every(([name, value]) => (found.item[name] ?? "") === value)) return;
+      const text = await change(env, found, fields, user);
+      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(text) });
+    })(),
+  );
 }
 
 // Reads DD/MM/YYYY (or D/M/YYYY, or YYYY-MM-DD) as DD/MM/YYYY, or "" when it

@@ -20,6 +20,7 @@ const SUGGEST_ASSIGN_ACTION = "assign:suggest";
 // A button per role opens a form to choose that role's people.
 const CHOOSE_ACTIONS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `assign:choose:${role}`]));
 const PEOPLE_VIEW = "assign:people";
+const TEAM_VIEW = "assign:team";
 const SUGGEST_SKIP_ACTION = "assign:suggest-skip";
 // "Choose developers and move to In progress", offered to someone saying the
 // work has started who isn't its developer (see suggestStart).
@@ -159,7 +160,7 @@ export default {
     return `${mentions(command.mentions)} ${REQUESTS[role]}`;
   },
   intents: [...handOffIntents, reportedIntent, startedIntent],
-  views: { [PEOPLE_VIEW]: savePeople },
+  views: { [PEOPLE_VIEW]: savePeople, [TEAM_VIEW]: saveTeam },
   actions: {
     ...Object.fromEntries(
       Object.entries(CHOOSE_ACTIONS).map(([role, actionId]) => [
@@ -284,6 +285,90 @@ function savePeople(payload, context) {
       if (promptTs) await callSlack(env, "chat.delete", { channel, ts: promptTs });
     })(),
   );
+}
+
+// The task card menu's Assign people form (see menu.js): a people picker per
+// role, filled in with who's assigned now, to add or remove people.
+export function openTeamForm(env, triggerId, { channel, ts, task }) {
+  return callSlack(env, "views.open", {
+    trigger_id: triggerId,
+    view: {
+      type: "modal",
+      callback_id: TEAM_VIEW,
+      private_metadata: JSON.stringify({ channel, ts }),
+      title: plainText("Assign people"),
+      submit: plainText("Save"),
+      close: plainText("Cancel"),
+      blocks: Object.entries(ROLES).map(([role, label]) => ({
+        type: "input",
+        block_id: role,
+        // Saving a role with no one clears it.
+        optional: true,
+        label: plainText(`${label}s`),
+        element: {
+          type: "multi_users_select",
+          action_id: "value",
+          placeholder: plainText(`Choose ${label.toLowerCase()}s`),
+          ...(task.people[role].length && { initial_users: task.people[role] }),
+        },
+      })),
+    },
+  });
+}
+
+// Sets each role to the people saved, then tells the thread who changed what
+// (see teamChanges). Saving it unchanged posts nothing.
+function saveTeam(payload, context) {
+  const { channel, ts } = JSON.parse(payload.view.private_metadata);
+  const { values } = payload.view.state;
+  const user = payload.user.id;
+  context.waitUntil(
+    (async () => {
+      const { env } = context;
+      const task = await loadTask(env, channel, ts);
+      if (!task) {
+        await callSlack(env, "chat.postEphemeral", { channel, user, text: NOT_A_TASK });
+        return;
+      }
+      const changes = Object.keys(ROLES).map((role) => {
+        const chosen = values[role]?.value.selected_users ?? [];
+        const change = {
+          role,
+          added: chosen.filter((id) => !task.people[role].includes(id)),
+          removed: task.people[role].filter((id) => !chosen.includes(id)),
+        };
+        task.people[role] = chosen;
+        return change;
+      });
+      const lines = teamChanges(user, task, changes);
+      if (!lines.length) return;
+      await saveTask(env, channel, ts, task);
+      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
+    })(),
+  );
+}
+
+// The thread's record of `user` changing who's on the task: those added are
+// asked what `@Cade assign` asks them, and those removed told they no longer
+// need to do it. Reviewers are only named once there's a PR to review.
+function teamChanges(user, task, changes) {
+  return changes.flatMap(({ role, added, removed }) => {
+    const lines = [];
+    if (added.length && role === "reviewer" && !task.prs.length) {
+      const count = added.length === 1 ? "a reviewer" : `${added.length} reviewers`;
+      lines.push(`<@${user}> added ${count}. I'll ask them to review once a PR is linked.`);
+    } else if (added.length) {
+      const ask =
+        role === "reviewer"
+          ? `could you review ${task.prs.map(prLink).join(", ")} when you get a chance? Thanks!`
+          : REQUESTS[role];
+      lines.push(`<@${user}> assigned ${mentions(added)} as ${role}: ${ask}`);
+    }
+    if (removed.length) {
+      lines.push(`<@${user}> removed ${mentions(removed)} as ${role}, so there's no need to ${ASKED[role]} anymore. Thanks!`);
+    }
+    return lines;
+  });
 }
 
 // Tells people removed from a role, or from every role (`role` null), that
