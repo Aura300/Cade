@@ -1,43 +1,15 @@
-// Keeps each group's executive summaries in a Google Doc for the Cade
-// Worker: a section per summary in the doc's Summary tab, newest first,
-// which the client goes through on calls and adds to, and which Cade reads
-// back after (see src/doc.js). It is a standalone script, in no doc,
-// serving every group's doc, separate from the Google Sheet's; it runs as
-// whoever deployed it, so they must be able to edit each group's doc.
-//
-// Each request is { secret, action, … }. `secret` must match SECRET, defined
-// in Secret.gs next to this file, which `npm run doc:create` makes along with
-// the Worker's DOC_SECRET. The actions:
-//   create  { title }                     → { id }, a new doc, owned by you,
-//                                           for `npm run group`
-//   write   { docId, tab, key, blocks }   → { url }, the section `key`
-//                                           written, in place of the old one
-//                                           or at the top; the tab is made
-//                                           if the doc has none
-//   read    { docId, tab, key }           → { elements }, the section as it
-//                                           now reads, or null if it's gone
-// A section starts with a level 2 heading, found again by a named range
-// around it, and runs to the next heading of level 2 or above.
+// Each group's executive summaries, in its own Google Doc (see Code.gs for
+// how requests arrive): a section per summary in the doc's Summary tab,
+// newest first, which the client goes through on calls and adds to, and
+// which Cade reads back after (see src/doc.js). A section starts with a
+// level 2 heading, found again by a named range around it, and runs to the
+// next heading of level 2 or above.
 
 const PREFIX = "cade:";
 
-function doPost(e) {
-  const body = JSON.parse(e.postData.contents);
-  if (typeof SECRET === "undefined" || !SECRET || body.secret !== SECRET) {
-    return reply({ ok: false, error: "unauthorized" });
-  }
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
-  try {
-    if (body.action === "create") return reply({ ok: true, id: DocumentApp.create(body.title).getId() });
-    if (body.action === "write") return reply({ ok: true, url: write(body.docId, body.tab, body.key, body.blocks) });
-    if (body.action === "read") return reply({ ok: true, elements: read(body.docId, body.tab, body.key) });
-    return reply({ ok: false, error: `unknown action ${body.action}` });
-  } catch (error) {
-    return reply({ ok: false, error: String(error && error.message ? error.message : error) });
-  } finally {
-    lock.releaseLock();
-  }
+// A new doc called `title`, for `npm run group`, and its ID.
+function createDoc(title) {
+  return DocumentApp.create(title).getId();
 }
 
 // Writes the section and returns the tab's address.
@@ -206,14 +178,4 @@ function findTab(doc, title) {
     return null;
   };
   return search(doc.getTabs());
-}
-
-function reply(result) {
-  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
-}
-
-// Run once in the Apps Script editor after creating the script, to approve
-// its access to your docs; the web app can't ask for it itself.
-function authorize() {
-  Logger.log(`Authorized as ${Session.getEffectiveUser().getEmail()}.`);
 }

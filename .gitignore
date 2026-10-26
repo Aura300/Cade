@@ -8,11 +8,8 @@ node_modules/
 .dev.vars
 # Your settings, uploaded with npm run config.
 cade.config.json
-# The Sheet: its secret, made by npm run sheet:create, and clasp's project files.
-google-sheet/Secret.gs
-google-sheet/.clasp.json
-.sheet-app.json
-# The same for the Google Doc web app, made by npm run doc:create.
-google-doc/Secret.gs
-google-doc/.clasp.json
-.doc-app.json
+# The Google web app: its secret, made by npm run google:create, and clasp's
+# project files.
+google/Secret.gs
+google/.clasp.json
+.google-app.json

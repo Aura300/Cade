@@ -1,41 +1,21 @@
+import { callGoogle, googleEnabled } from "./google.js";
 import { callSlack } from "./slack.js";
 
 // Slack's free plan drops old messages, so every task is also recorded in a
 // Google Sheet: each channel pair's own spreadsheet, its `sheet` in
-// CHANNEL_PAIRS. The Apps Script web app (google-sheet/Code.gs), a script of
-// its own that serves every pair, receives one row per change and keeps a
-// tab named after the pair up to date. Syncing is skipped when SHEET_URL is
-// not configured, and for a pair with no `sheet`.
+// CHANNEL_PAIRS, through the Google web app (see google.js), which keeps a
+// tab named after the pair up to date, a row per task. Syncing is skipped
+// when the web app isn't set up, and for a pair with no `sheet`.
 export function sheetEnabled(env, group) {
-  return Boolean(env.SHEET_URL && env.SHEET_SECRET && sheetId(group.sheet));
+  return googleEnabled(env) && Boolean(sheetId(group.sheet));
 }
 
 // `group` is the channel pair: its `sheet` picks the spreadsheet, and its
 // name the tab. `row` is keyed by the sheet's column headers; "Task ID"
-// identifies the row.
+// identifies the row. A row needs no reply, so a missing reply page counts
+// as delivered.
 export async function sendRow(env, group, row) {
-  const response = await fetch(env.SHEET_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret: env.SHEET_SECRET, project: group.name, spreadsheetId: sheetId(group.sheet), row }),
-    redirect: "manual",
-  });
-
-  // Apps Script runs doPost before answering, then redirects to a page that
-  // holds its reply. On some Google accounts that page returns 404 even though
-  // doPost completed, so the redirect itself counts as delivered and the reply
-  // is only checked when it can be read.
-  if (response.status === 302) {
-    const reply = await fetch(response.headers.get("location")).catch(() => null);
-    const isJson = reply?.ok && reply.headers.get("content-type")?.includes("json");
-    const result = isJson ? await reply.json() : null;
-    if (result && !result.ok) throw new Error(`Sheet rejected the row: ${result.error}`);
-    return;
-  }
-
-  if (!response.ok) throw new Error(`Sheet returned HTTP ${response.status}`);
-  const result = await response.json();
-  if (!result.ok) throw new Error(`Sheet rejected the row: ${result.error}`);
+  await callGoogle(env, { action: "sheet.row", spreadsheetId: sheetId(group.sheet), project: group.name, row }, { lenient: true });
 }
 
 // Returns display names for Slack user IDs, joined with commas. Needs the

@@ -18,9 +18,9 @@ import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
 
 const SIGNING_SECRET = "test-signing-secret";
-const SHEET_URL = "https://script.google.com/macros/s/test/exec";
-// The Google Doc web app, the acme group's doc and its Summary tab.
-const DOC_URL = "https://script.google.com/macros/s/doc/exec";
+// The Google web app, for each group's Sheet and Doc; the acme group's doc
+// and its Summary tab.
+const GOOGLE_URL = "https://script.google.com/macros/s/test/exec";
 const DOC_ID = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
 const DOC_TAB = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.0`;
 // Every environment shares this database; it is emptied for each test, and
@@ -120,20 +120,21 @@ const savedRequirement = (channel = "CEXTERNAL", ts = "200.1") => getRequirement
 // `responses.stored` (task and requirement records). `responses` maps a
 // method name to its result; every call is recorded with its decoded arguments. Link preview
 // settings are recorded as `previews` rather than with the arguments. Requests to the
-// Google Sheet are recorded as the "sheet" method with their JSON body, and
-// to the Google Doc web app as "doc", answered by `responses.doc`.
+// Google web app are recorded with their JSON body: a Sheet row as the
+// "sheet" method, answered by `responses.sheet`, and the Doc's as "doc",
+// answered by `responses.doc`.
 function mockSlack(t, { stored = [], ...responses } = {}) {
   DB.reset();
   seeded = Promise.all(stored.map(store));
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
-    if (url === SHEET_URL) {
-      calls.push({ method: "sheet", args: JSON.parse(init.body) });
-      return Response.json(responses.sheet ?? { ok: true });
-    }
-    if (url === DOC_URL) {
+    if (url === GOOGLE_URL) {
       const body = JSON.parse(init.body);
+      if (body.action === "sheet.row") {
+        calls.push({ method: "sheet", args: body });
+        return Response.json(responses.sheet ?? { ok: true });
+      }
       calls.push({ method: "doc", args: body });
       const reply = typeof responses.doc === "function" ? responses.doc(body) : responses.doc;
       return Response.json(reply ?? { ok: true, url: DOC_TAB, elements: [] });
@@ -1064,7 +1065,7 @@ test("parseMessage reads the command name and mentioned people", () => {
 const SHEETS = { acme: "1AcmeSheetAcmeSheetAcmeSheet", test: "1TestSheetTestSheetTestSheet" };
 const withSheets = (pairs) => pairs.map((pair) => ({ ...pair, sheet: `https://docs.google.com/spreadsheets/d/${SHEETS[pair.name]}/edit` }));
 // The sheet's times are in TIMEZONE; these tests expect Sri Lanka time.
-const sheetEnv = { ...env, CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS), SHEET_URL, SHEET_SECRET: "sheet-secret", TIMEZONE: "Asia/Colombo" };
+const sheetEnv = { ...env, CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS), GOOGLE_URL, GOOGLE_SECRET: "google-secret", TIMEZONE: "Asia/Colombo" };
 const sendWithSheet = (path, body) => send(path, body, {}, sheetEnv);
 const slackUsers = {
   "users.info": (args) => ({
@@ -1074,7 +1075,7 @@ const slackUsers = {
 const sheetRow = (calls) => {
   const sheet = calls.filter((call) => call.method === "sheet");
   assert.equal(sheet.length, 1);
-  assert.equal(sheet[0].args.secret, "sheet-secret");
+  assert.equal(sheet[0].args.secret, "google-secret");
   assert.equal(sheet[0].args.project, "acme");
   assert.equal(sheet[0].args.spreadsheetId, SHEETS.acme);
   return sheet[0].args.row;
@@ -1222,7 +1223,7 @@ function mockRedirectingSheet(t, replyPage) {
   const mocked = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url, init) => {
-    if (url === SHEET_URL) {
+    if (url === GOOGLE_URL) {
       requests.push(init);
       return new Response(null, { status: 302, headers: { location: "https://script.googleusercontent.com/echo" } });
     }
@@ -2263,7 +2264,7 @@ test("incident tasks are recorded in the pair's sheet tab", async (t) => {
     "/slack/events",
     threadEvent("<@UBOT> status in progress", { channel: "CINC" }),
     {},
-    { ...incidentEnv, CHANNEL_PAIRS: withSheets(incidentEnv.CHANNEL_PAIRS), SHEET_URL, SHEET_SECRET: "secret" },
+    { ...incidentEnv, CHANNEL_PAIRS: withSheets(incidentEnv.CHANNEL_PAIRS), GOOGLE_URL, GOOGLE_SECRET: "secret" },
   );
   const row = calls.find((call) => call.method === "sheet").args;
   assert.equal(row.project, "acme");
@@ -4179,48 +4180,36 @@ test("npm run dev passes its settings to Wrangler as a quoted .env file", async 
   const { envFile } = await import("../scripts/dev.mjs");
   const pairs = JSON.stringify([{ name: "acme", external: "C0000000001", tasks: "C0000000002" }]);
   assert.equal(
-    envFile({ CHANNEL_PAIRS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", SHEET_URL: undefined }),
+    envFile({ CHANNEL_PAIRS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", GOOGLE_URL: undefined }),
     `CHANNEL_PAIRS='${pairs}'\nTIMEZONE='UTC'\nSLACK_BOT_TOKEN='xoxb-1'`,
   );
   assert.throws(() => envFile({ SLACK_SIGNING_SECRET: "it's" }), /can't contain a quote/);
 });
 
-test("npm run dev asks for the Sheet's secret only with its URL", async () => {
+test("npm run dev asks for the Google web app's secret only with its URL", async () => {
   const { SECRETS } = await import("../scripts/dev.mjs");
-  const sheetSecret = SECRETS.find(({ name }) => name === "SHEET_SECRET");
-  assert.equal(sheetSecret.when({}), false);
-  assert.equal(sheetSecret.when({ SHEET_URL: "https://script.google.com/x" }), true);
+  const googleSecret = SECRETS.find(({ name }) => name === "GOOGLE_SECRET");
+  assert.equal(googleSecret.when({}), false);
+  assert.equal(googleSecret.when({ GOOGLE_URL: "https://script.google.com/x" }), true);
   assert.deepEqual(SECRETS.filter((secret) => !secret.optional && !secret.when).map(({ name }) => name), [
     "SLACK_BOT_TOKEN",
     "SLACK_SIGNING_SECRET",
   ]);
 });
 
-test("cade.config.json can hold the Google Doc web app's address and each group's doc", async () => {
+test("cade.config.json can hold the Google web app's address and each group's doc", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const doc = "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit";
   const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002", doc }];
-  const docUrl = "https://script.google.com/macros/s/AKfy-doc/exec";
-  const secrets = readConfig(JSON.stringify({ channels, docUrl }));
-  assert.equal(secrets.DOC_URL, docUrl);
+  const googleUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
+  const secrets = readConfig(JSON.stringify({ channels, googleUrl }));
+  assert.equal(secrets.GOOGLE_URL, googleUrl);
   assert.equal(JSON.parse(secrets.CHANNEL_PAIRS)[0].doc, doc);
   assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[0], doc: "acme doc" }] })), /acme's doc should be a Google Doc's address/);
-  assert.throws(() => readConfig(JSON.stringify({ channels, docUrl: doc })), /docUrl should be the web app URL/);
-  const { SECRETS } = await import("../scripts/dev.mjs");
-  assert.equal(SECRETS.find(({ name }) => name === "DOC_SECRET").when({ DOC_URL: docUrl }), true);
-});
-
-test("cade.config.json can hold the Google Sheet's address", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
-  const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
-  const sheetUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
-  assert.equal(readConfig(JSON.stringify({ channels, sheetUrl })).SHEET_URL, sheetUrl);
-  assert.throws(
-    () => readConfig(JSON.stringify({ channels, sheetUrl: "https://docs.google.com/spreadsheets/d/1/edit" })),
-    /web app URL from Apps Script/,
-  );
-  // The Sheet's secret stays out of the file.
-  assert.throws(() => readConfig(JSON.stringify({ channels, sheetSecret: "s" })), /has "sheetSecret"/);
+  assert.throws(() => readConfig(JSON.stringify({ channels, googleUrl: doc })), /googleUrl should be the web app URL/);
+  // The old settings, and the secret, stay out of the file.
+  assert.throws(() => readConfig(JSON.stringify({ channels, sheetUrl: googleUrl })), /has "sheetUrl"/);
+  assert.throws(() => readConfig(JSON.stringify({ channels, googleSecret: "s" })), /has "googleSecret"/);
 });
 
 test("intent phrases match whole words, or word starts with *", async () => {
@@ -4261,10 +4250,10 @@ test("handlers' intents are registered in order: PR links, hand-offs, started, p
   );
 });
 
-test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetUrl", async () => {
-  const { APPS, deploymentIdIn, secretFile, webAppUrl, withSheetUrl } = await import("../scripts/sheet-app.mjs");
+test("npm run google:create makes Secret.gs, finds the deployment and sets googleUrl", async () => {
+  const { deploymentIdIn, secretFile, webAppUrl, withGoogleUrl } = await import("../scripts/google-app.mjs");
   const secret = "a".repeat(64);
-  assert.match(secretFile(secret), new RegExp(`^// .*\\nconst SECRET = "${secret}";\\n$`));
+  assert.match(secretFile(secret), new RegExp(`^// .*GOOGLE_SECRET.*\\nconst SECRET = "${secret}";\\n$`));
   assert.throws(() => secretFile("short"), /long and hex/);
 
   // clasp prints the HEAD deployment too; the new one is wanted.
@@ -4274,45 +4263,34 @@ test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetU
   assert.equal(webAppUrl("AKfycbNEW1"), "https://script.google.com/macros/s/AKfycbNEW1/exec");
 
   // Other settings in cade.config.json are kept.
-  const config = JSON.parse(withSheetUrl('{"timezone":"UTC","channels":[]}', "https://script.google.com/macros/s/X/exec"));
-  assert.deepEqual(config, { timezone: "UTC", channels: [], sheetUrl: "https://script.google.com/macros/s/X/exec" });
+  const config = JSON.parse(withGoogleUrl('{"timezone":"UTC","channels":[]}', "https://script.google.com/macros/s/X/exec"));
+  assert.deepEqual(config, { timezone: "UTC", channels: [], googleUrl: "https://script.google.com/macros/s/X/exec" });
 
-  // The Google Doc web app is made the same way, with its own secret and setting.
-  assert.match(secretFile(secret, APPS.doc), /npm run doc:create.*DOC_SECRET/);
-  const { groupFor, parentIdIn, withLink } = await import("../scripts/sheet-app.mjs");
-  // An existing doc or spreadsheet is taken by its address or ID.
+  // npm run group takes a doc or spreadsheet you have by its address or ID.
+  const { fileIdIn } = await import("../scripts/group.mjs");
   const id = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
-  assert.equal(parentIdIn(`https://docs.google.com/document/d/${id}/edit?tab=t.0`, APPS.doc), id);
-  assert.equal(parentIdIn(id, APPS.doc), id);
-  assert.equal(parentIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`, APPS.sheet), id);
-  assert.throws(() => parentIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit`, APPS.doc), /--doc should be the Google Doc's address/);
-  const two = JSON.stringify({ channels: [{ name: "acme", tasks: "C1" }, { name: "beta", tasks: "C2" }] });
-  assert.equal(groupFor(two, "beta"), "beta");
-  assert.throws(() => groupFor(two), /Which group is the doc for\?/);
-  assert.throws(() => groupFor(two, undefined, APPS.sheet), /Which group is the sheet for\? .*npm run sheet:create -- --group/);
-  assert.throws(() => groupFor(two, "nope"), /no group called "nope"/);
-  assert.equal(groupFor('{"channels":[{"name":"acme","tasks":"C1"}]}'), "acme");
-  assert.deepEqual(JSON.parse(withLink(two, APPS.doc, "https://script.google.com/macros/s/D/exec", "beta", "https://docs.google.com/document/d/X/edit")), {
-    channels: [{ name: "acme", tasks: "C1" }, { name: "beta", tasks: "C2", doc: "https://docs.google.com/document/d/X/edit" }],
-    docUrl: "https://script.google.com/macros/s/D/exec",
-  });
-  assert.deepEqual(JSON.parse(withLink(two, APPS.sheet, "https://script.google.com/macros/s/S/exec", "acme", "https://docs.google.com/spreadsheets/d/Y/edit")), {
-    channels: [{ name: "acme", tasks: "C1", sheet: "https://docs.google.com/spreadsheets/d/Y/edit" }, { name: "beta", tasks: "C2" }],
-    sheetUrl: "https://script.google.com/macros/s/S/exec",
-  });
-  assert.deepEqual(JSON.parse(withSheetUrl("{}", "https://script.google.com/macros/s/D/exec", APPS.doc.configKey)), {
-    docUrl: "https://script.google.com/macros/s/D/exec",
-  });
+  assert.equal(fileIdIn(`https://docs.google.com/document/d/${id}/edit?tab=t.0`, "doc"), id);
+  assert.equal(fileIdIn(id, "doc"), id);
+  assert.equal(fileIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`, "sheet"), id);
+  assert.throws(() => fileIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit`, "doc"), /--doc should be new, none, or the Google Doc's address/);
 });
 
-test("Code.gs checks requests against SECRET from Secret.gs, not a script property", async () => {
+test("the Google web app checks SECRET from Secret.gs, and each action has its function", async () => {
   const { readFile } = await import("node:fs/promises");
-  const code = await readFile(new URL("../google-sheet/Code.gs", import.meta.url), "utf8");
+  const read = (file) => readFile(new URL(`../google/${file}`, import.meta.url), "utf8");
+  const code = await read("Code.gs");
   assert.match(code, /body\.secret !== SECRET/);
-  assert.ok(!code.includes("getScriptProperties"), "no script properties left to set by hand");
   assert.match(code, /function authorize\(\)/);
-  const ignore = await readFile(new URL("../google-sheet/.claspignore", import.meta.url), "utf8");
-  assert.deepEqual(ignore.split("\n").filter((line) => line.startsWith("!")), ["!Code.gs", "!Secret.gs", "!appsscript.json"]);
+  const all = [code, await read("Sheet.gs"), await read("Doc.gs")].join("\n");
+  assert.ok(!all.includes("getScriptProperties"), "no script properties left to set by hand");
+  // Each action calls a function one of the files defines.
+  const actions = /const ACTIONS = \{([\s\S]*?)\n\};/.exec(code)[1];
+  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["sheet.row", "sheet.create", "doc.write", "doc.read", "doc.create"]);
+  for (const [, name] of actions.matchAll(/(?:\(|: )([a-zA-Z]+)\(body/g)) {
+    assert.match(all, new RegExp(`function ${name}\\(`), name);
+  }
+  const ignore = await read(".claspignore");
+  assert.deepEqual(ignore.split("\n").filter((line) => line.startsWith("!")), ["!Code.gs", "!Sheet.gs", "!Doc.gs", "!Secret.gs", "!appsscript.json"]);
 });
 
 test("the Slack app's description fits Slack's 140 characters", async () => {
@@ -6552,8 +6530,8 @@ test("a summary's Closed section keeps the last 50 done", async (t) => {
 const execEnv = {
   ...env,
   TIMEZONE: "UTC",
-  DOC_URL,
-  DOC_SECRET: "doc-secret",
+  GOOGLE_URL,
+  GOOGLE_SECRET: "google-secret",
   CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC", doc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
 };
 
@@ -6715,7 +6693,7 @@ test("/cade export goes through requirements, then the team's own tasks, and add
   const writes = calls.filter((call) => call.method === "doc");
   assert.equal(writes.length, 1);
   const { secret, action, docId, tab, key, blocks } = writes[0].args;
-  assert.deepEqual({ secret, action, docId, tab }, { secret: "doc-secret", action: "write", docId: DOC_ID, tab: "Summary" });
+  assert.deepEqual({ secret, action, docId, tab }, { secret: "google-secret", action: "doc.write", docId: DOC_ID, tab: "Summary" });
   assert.match(key, /^export:\d+$/);
   assert.deepEqual(blocks, [
     { type: "heading", level: 2, text: `${show(today)} · acme executive summary` },
@@ -6832,7 +6810,7 @@ test("/cade export says so when the Google Doc can't be written, and can try aga
 test("/cade export needs the group to have a Google Doc", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   const { now: noApp } = await runTasksCommand("export", "CDEV");
-  assert.match(JSON.parse(noApp).text, /web app isn't set up yet: run `npm run doc:create`/);
+  assert.match(JSON.parse(noApp).text, /Google web app isn't set up yet: run `npm run google:create`/);
   const noDoc = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV" }] };
   const { now, later } = await runTasksCommand("export", "CDEV", noDoc);
   assert.equal(JSON.parse(now).text, "acme has no Google Doc linked. Add the doc's address as `\"doc\"` to its group in cade.config.json, then run `npm run config`.");
@@ -6841,7 +6819,7 @@ test("/cade export needs the group to have a Google Doc", async (t) => {
 
 test("/cade export outside a group asks which, when there are several", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
-  const docs = { ...env, DOC_URL, DOC_SECRET: "doc-secret", CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((pair) => ({ ...pair, doc: DOC_ID })) };
+  const docs = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((pair) => ({ ...pair, doc: DOC_ID })) };
   const { now } = await runTasksCommand("export", "CLEADS", docs);
   assert.equal(JSON.parse(now).text, "Which group? Try `/cade export acme` or `/cade export test`.");
   const { now: unknown } = await runTasksCommand("export nope", "CLEADS", docs);
@@ -7282,7 +7260,7 @@ test("/cade import goes through what the call added, posting points in their thr
   const calls = mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
     "chat.postMessage": { ts: "900.1" },
-    doc: (body) => (body.action === "read" ? { ok: true, elements: additions } : { ok: true, url: DOC_TAB }),
+    doc: (body) => (body.action === "doc.read" ? { ok: true, elements: additions } : { ok: true, url: DOC_TAB }),
   });
   await storeExecWork();
   const sent = await writeExecSummary(t);
@@ -7291,7 +7269,7 @@ test("/cade import goes through what the call added, posting points in their thr
   calls.length = 0;
   const { now, later } = await runTasksCommand("import", "CDEV", execEnv);
   assert.equal(now, "");
-  assert.deepEqual(calls.find((call) => call.method === "doc").args, { secret: "doc-secret", action: "read", docId: DOC_ID, tab: "Summary", key });
+  assert.deepEqual(calls.find((call) => call.method === "doc").args, { secret: "google-secret", action: "doc.read", docId: DOC_ID, tab: "Summary", key });
   assert.match(messageText(later), /2 to go/);
   assert.ok(messageText(later).includes(`*Added under* <${execLink("CEXTERNAL", "200.4")}|Checkout is down>\n> Provider says fixed by Friday\n> Client will retest`));
 
@@ -7347,7 +7325,7 @@ test("/cade import can discard a suggestion, and needs a summary in the doc", as
   mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
     doc: (body) =>
-      body.action === "read"
+      body.action === "doc.read"
         ? { ok: true, elements: [{ type: "item", level: 0, text: "SSO", links: [] }] }
         : { ok: true, url: DOC_TAB },
   });

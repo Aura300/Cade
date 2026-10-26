@@ -38,13 +38,12 @@ Other scripts:
 | --- | --- |
 | `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
 | `npm run group -- --name acme --tasks C… [--external C…] [--incidents C…] [--doc new\|<address>] [--sheet new\|<address>]` | Adds or changes a group in `cade.config.json` and uploads it; `new` makes the group's doc or spreadsheet through its web app |
-| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
+| `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
-| `npm run sheet:create` | Creates the Google Sheet and its web app with clasp, and gives the Worker its address and secret |
-| `npm run doc:create` | Creates the Google Doc web app for executive summaries the same way; `npm run doc:update` pushes `google-doc/Code.gs` |
-| `npm run sheet:update` | Pushes `google-sheet/Code.gs` and redeploys it to the same address |
+| `npm run google:create` | Creates the Google web app (each group's Sheet and Doc) with clasp, and gives the Worker its address and secret |
+| `npm run google:update` | Pushes `google/` and redeploys it to the same address |
 
 ## How it works
 
@@ -146,11 +145,11 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/channels.js` | `CHANNEL_PAIRS`: which channel plays which role |
 | `src/intents.js` | Recognising intents in plain messages |
 | `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
-| `src/sheet.js` | Writing rows to the Google Sheet |
+| `src/google.js` | Calling the Google web app |
+| `src/sheet.js` | Writing rows to each group's Google Sheet |
 | `src/doc.js` | Writing executive summaries to each group's Google Doc, and reading them back |
-| `google-sheet/` | The Sheet's Apps Script (`Code.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
-| `google-doc/` | The Google Doc web app's Apps Script, the same way |
-| `scripts/` | `config`, `dev`, `slack-app`, `sheet-app` and `doc-app`, behind the npm scripts above |
+| `google/` | The Google web app's Apps Script (`Code.gs`, `Sheet.gs`, `Doc.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
+| `scripts/` | `config`, `dev`, `group`, `slack-app` and `google-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
 | `test/index.test.js` | The tests, with `test/d1.js`, a stand-in database on Node's SQLite |

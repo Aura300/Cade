@@ -7,16 +7,22 @@
 //
 // --doc and --sheet link the group's Google Doc (for executive summaries)
 // and Google Sheet (for its tasks): one you have, by its address, or `new`
-// for one made by the web app (npm run doc:create, sheet:create), owned by
-// you, named "<name> executive summaries" and "<name> tasks". For a group
-// already there, only what's given changes; `none` removes a setting.
+// for one made by the Google web app (npm run google:create), owned by you,
+// named "<name> executive summaries" and "<name> tasks". For a group already
+// there, only what's given changes; `none` removes a setting.
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { readConfig, uploadConfig } from "./config.mjs";
-import { APPS, parentIdIn } from "./sheet-app.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CONFIG_FILE = `${ROOT}cade.config.json`;
+const SECRET_FILE = `${ROOT}google/Secret.gs`;
+
+// Each kind of file: where its address names its ID, and what it's called.
+const KINDS = {
+  doc: { path: "document", noun: "Google Doc" },
+  sheet: { path: "spreadsheets", noun: "Google Sheet" },
+};
 
 const FIELDS = ["tasks", "external", "incidents", "doc", "sheet"];
 
@@ -58,36 +64,43 @@ export function withGroup(configJson, name, fields) {
   return `${JSON.stringify({ ...config, channels: next }, null, 2)}\n`;
 }
 
-// A file's address, from `value`: `new` makes one through the app's web app.
-async function fileAddress(field, value, name, config) {
-  const app = APPS[field];
-  if (value === "none") return value;
-  const id = value === "new" ? await createFile(app, config[app.configKey], NEW_TITLES[field](name)) : parentIdIn(value, app);
-  return `https://docs.google.com/${app.path}/d/${id}/edit`;
+// The ID of a doc or spreadsheet (`kind`) in its address, or `value` itself
+// if it is an ID already. Throws if it is neither.
+export function fileIdIn(value, kind) {
+  const { path, noun } = KINDS[kind];
+  const match = new RegExp(`/${path}/d/([\\w-]{20,})`).exec(value) ?? /^([\w-]{20,})$/.exec(value);
+  if (!match) throw new Error(`--${kind} should be new, none, or the ${noun}'s address: https://docs.google.com/${path}/d/…/edit.`);
+  return match[1];
 }
 
-// Asks the web app at `url` for a new file called `title`, and returns its
-// ID. It answers as the Worker reads it: through the page it redirects to.
-async function createFile(app, url, title) {
-  if (!url) throw new Error(`The ${app.noun} web app isn't set up yet: run npm run ${app.command}:create first.`);
+// A file's address, from `value`: `new` makes one through the web app.
+async function fileAddress(kind, value, name, config) {
+  if (value === "none") return value;
+  const id = value === "new" ? await createFile(kind, config.googleUrl, NEW_TITLES[kind](name)) : fileIdIn(value, kind);
+  return `https://docs.google.com/${KINDS[kind].path}/d/${id}/edit`;
+}
+
+// Asks the Google web app at `url` for a new doc or spreadsheet called
+// `title`, and returns its ID. It answers as the Worker reads it: through
+// the page it redirects to.
+async function createFile(kind, url, title) {
+  if (!url) throw new Error("The Google web app isn't set up yet: run npm run google:create first.");
   let secret;
   try {
-    [, secret] = /const SECRET = "([0-9a-f]+)"/.exec(await readFile(`${app.dir}/Secret.gs`, "utf8"));
+    [, secret] = /const SECRET = "([0-9a-f]+)"/.exec(await readFile(SECRET_FILE, "utf8"));
   } catch {
-    throw new Error(`${app.dir.slice(ROOT.length)}/Secret.gs is missing, so I can't call the ${app.noun} web app.`);
+    throw new Error("google/Secret.gs is missing, so I can't call the Google web app.");
   }
-  console.log(`Making the ${app.noun} "${title}"…`);
+  console.log(`Making the ${KINDS[kind].noun} "${title}"…`);
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret, action: "create", title }),
+    body: JSON.stringify({ secret, action: `${kind}.create`, title }),
     redirect: "manual",
   });
   const reply = response.status === 302 ? await fetch(response.headers.get("location")) : response;
   const result = await reply.json().catch(() => ({ ok: false, error: `HTTP ${reply.status}` }));
-  if (!result.ok) {
-    throw new Error(`The ${app.noun} web app couldn't make it: ${result.error}. Has its script been updated (npm run ${app.command}:update) and approved?`);
-  }
+  if (!result.ok) throw new Error(`The Google web app couldn't make it: ${result.error}. Has its script been approved (authorize)?`);
   return result.id;
 }
 

@@ -48,16 +48,15 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name (its tab in the Sheet); `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet). `sheetUrl` and `docUrl` stay at the top: one script each serves every group's file. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name (its tab in the Sheet); `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet). `npm run group` sets them for you (step 8). | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `sheetUrl` | Optional | The Google Sheet's web app URL (`https://script.google.com/…/exec`). Without it, nothing is written to a Sheet. | Set for you by `npm run sheet:create` (step 8). |
-| `docUrl` | Optional | The Google Doc web app's URL (`https://script.google.com/…/exec`). Without it, `/cade export` and `/cade import` don't work. | Set for you by `npm run doc:create` (step 8b). |
+| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade export` and `/cade import` don't work. | Set for you by `npm run google:create` (step 8). |
 
 Start from `cade.config.example.json`. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
 
 To add or change a group without editing the file, once the web apps are
-set up (steps 8 and 8b):
+set up (step 8):
 
 ```sh
 npm run group -- --name acme --tasks C… --external C… --incidents C… --doc new --sheet new
@@ -75,15 +74,14 @@ does.
 | --- | --- | --- | --- |
 | `SLACK_SIGNING_SECRET` | **Required** | Lets Cade check that requests really come from Slack. | Set for you by `npm run slack:create` (step 5). Otherwise: the app's page at <https://api.slack.com/apps> → **Basic Information** → **App Credentials** → **Signing Secret**. |
 | `SLACK_BOT_TOKEN` | **Required** | Lets Cade read and post as the app (`xoxb-…`). | After installing the app (step 6): its page → **OAuth & Permissions** → **Bot User OAuth Token**. `npm run slack:create` asks for it and stores it. |
-| `SHEET_SECRET` | Only with `sheetUrl` | Stops anyone else writing to your Sheet. | Generated and set for you by `npm run sheet:create` (step 8), which also puts it in `google-sheet/Secret.gs` for the script. |
-| `DOC_SECRET` | Only with `docUrl` | Stops anyone else using the Google Doc web app. | Generated and set for you by `npm run doc:create` (step 8b), which also puts it in `google-doc/Secret.gs`. |
+| `GOOGLE_SECRET` | Only with `googleUrl` | Stops anyone else using your Google web app. | Generated and set for you by `npm run google:create` (step 8), which also puts it in `google/Secret.gs` for the script. |
 
 ### Used once during setup, never stored
 
 | Credential | What it's for | How to get it |
 | --- | --- | --- |
 | Cloudflare login | Deploying, setting secrets and creating the database with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** and **D1 → Edit** in `CLOUDFLARE_API_TOKEN`. |
-| Google login | Creating or updating the Sheet's or the Doc's script (`npm run sheet:create`, `doc:create` and their `:update`s). | `npx clasp login` (step 8). |
+| Google login | Creating or updating the Google web app (`npm run google:create`, `google:update`). | `npx clasp login` (step 8). |
 | App configuration token | Creating or updating the Slack app (`npm run slack:create`, `slack:update`), which ask for it, hidden. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
 
 `npm run dev` (see [README.md](README.md)) uses the same config file and asks for the
@@ -216,7 +214,7 @@ cp cade.config.example.json cade.config.json
 
 Add one line to `channels` per group: `acme` is team only, `globex` has a
 client. Each key is described under
-[Settings](#settings); `timezone` and `sheetUrl` are optional.
+[Settings](#settings); `timezone` and `googleUrl` are optional.
 
 `cade.config.json` stays on your machine (git ignores it). Upload it:
 
@@ -243,65 +241,40 @@ Then invite the app to every channel:
 stops**, it says what's wrong in `cade.config.json`; nothing is uploaded
 until the file is right.
 
-## 8. Optional: the Google Sheet
+## 8. Optional: Google Sheets and Docs
 
-Slack's free plan keeps 90 days of history; the Sheet keeps a record of every
-task. It needs a Google account.
+Each group can have its own Google Sheet, a record of every task (Slack's
+free plan keeps 90 days of history), and its own Google Doc, where `/cade
+export` writes executive summaries to go through with the client and
+`/cade import` reads back what was added. One web app serves them all. It
+needs a Google account.
 
 1. **(person)** `npx clasp login`, and turn on the Apps Script API at
    <https://script.google.com/home/usersettings> (once per account).
-2. **(person)** In Google Sheets, make a spreadsheet for the group (blank is
-   fine), and copy its address.
-3. Create the web app and link the spreadsheet (with several groups, add
-   `--group <name>`):
+2. Create the web app:
 
    ```sh
-   npm run sheet:create -- --sheet "<the spreadsheet's address>"
+   npm run google:create
    ```
 
-   **Expect:** a standalone script, "Cade Sheet", deployed as a web app; the
-   Worker gets its address (`sheetUrl`) and its secret (`SHEET_SECRET`),
-   and the group its `sheet`, in `cade.config.json` and uploaded.
-4. **(person)** Open the script link it prints, choose `authorize`, click
+   **Expect:** a standalone script, "Cade", deployed as a web app; the
+   Worker gets its address (`googleUrl`, in `cade.config.json` and
+   uploaded) and its secret (`GOOGLE_SECRET`).
+3. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
+4. Link each group's files, new (`new`) or yours (their addresses):
 
-Other groups use the same web app: add each one's spreadsheet to its group
-as `"sheet"`, then `npm run config`.
+   ```sh
+   npm run group -- --name acme --sheet new --doc new
+   ```
+
+   **Expect:** "acme tasks" and "acme executive summaries" in your Google
+   Drive, linked to the group in `cade.config.json` and uploaded.
+5. **(person)** Share the doc with the client as **Editor**.
 
 **If it fails** with the Apps Script API: turn it on (step 1) and run it
 again. Details, doing it by hand, and troubleshooting are in
-[google-sheet/README.md](google-sheet/README.md).
-
-## 8b. Optional: the Google Doc, for executive summaries
-
-`/cade export` writes each group's executive summary into the group's Google
-Doc, to go through on calls with the client; `/cade import` reads back what
-was added during the call. It's separate from the Sheet and works without
-it.
-
-1. **(person)** `npx clasp login` and the Apps Script API, as in step 8.
-2. **(person)** Make the group's Google Doc (or use one you have), share it
-   with the client as **Editor**, and copy its address. Cade writes in its
-   **Summary** tab, and adds the tab if it has none.
-3. Create the web app and link the doc (with several groups, add `--group
-   <name>`):
-
-   ```sh
-   npm run doc:create -- --doc "<the doc's address>"
-   ```
-
-   **Expect:** a standalone script, "Cade Doc", deployed as a web app; the
-   Worker gets its address (`docUrl`) and its secret (`DOC_SECRET`), and the
-   group its `doc`, in `cade.config.json` and uploaded.
-4. **(person)** Open the script link it prints, choose `authorize`, click
-   **Run** and allow it.
-
-Other groups use the same web app with docs of their own: add each one's
-address to its group in `cade.config.json` as `"doc"`, then `npm run
-config`. The web app runs as you, so you must be able to edit them.
-
-Details and troubleshooting are in
-[google-doc/README.md](google-doc/README.md).
+[google/README.md](google/README.md).
 
 ## 9. Check it works
 
@@ -329,7 +302,7 @@ npm install
 npm test
 npm run deploy                              # also applies new files in migrations/
 npm run slack:update                        # only if slack/manifest.json changed
-npm run sheet:update                        # only if google-sheet/Code.gs changed
+npm run google:update                       # only if google/ changed
 ```
 
 If Slack says the app needs reinstalling after an update, reinstall it from
@@ -361,10 +334,10 @@ Until then, everyone in the requirement thread gets them, as before.
   [Settings](#settings)), so a pair of test channels can sit alongside the
   real ones: work tracked from the test external channel goes to the test
   dev channel.
-- **The Google Sheet** has one tab per channel group. Filter its Status
-  column to see completed tasks. See
-  [google-sheet/README.md](google-sheet/README.md); without `sheetUrl`,
-  nothing is written to a Sheet.
+- **Google Sheets and Docs**: each group's own spreadsheet records its
+  tasks (filter its Status column to see completed ones), and its own doc
+  holds its executive summaries. See [google/README.md](google/README.md);
+  a group without `sheet` isn't recorded in a Sheet.
 
 ## Using Cade
 

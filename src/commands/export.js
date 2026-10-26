@@ -145,7 +145,7 @@ export default {
 // can't: the doc's web app isn't set up, or the group has no doc.
 export function docProblem(env, group) {
   if (!docsEnabled(env)) {
-    return "Executive summaries are kept in a Google Doc, and its web app isn't set up yet: run `npm run doc:create` (see GETTING_STARTED.md).";
+    return "Executive summaries are kept in a Google Doc, and the Google web app isn't set up yet: run `npm run google:create` (see GETTING_STARTED.md).";
   }
   if (!docId(group.doc)) {
     return `${group.name} has no Google Doc linked. Add the doc's address as \`"doc"\` to its group in cade.config.json, then run \`npm run config\`.`;
