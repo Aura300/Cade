@@ -6783,8 +6783,23 @@ test("the next /cade export starts from the last one, with its health and progre
   assert.match(messageText(next), /Step 2 of 4[\s\S]*Checkout is down/);
   assert.equal(execField(next, "health").element.initial_option.value, "DELAYED");
   assert.equal(execField(next, "progress").element.initial_value, "1/2");
-  // Notes are for one summary only.
-  assert.equal(execField(next, "notes").element.initial_value, undefined);
+  // Notes carry over too, to add to or change, and what the last summary
+  // said is shown to compare with.
+  assert.equal(execField(next, "notes").element.initial_value, "Once only");
+  const day = todayIn(execEnv).split("-").reverse().join("/");
+  assert.ok(messageText(next).includes(`*In the last summary* (${day}): Delayed  ·  1/2\n_Once only_`));
+});
+
+test("/cade export shows nothing from a last summary that didn't have the item", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+  await storeExecWork();
+  const { later: period } = await runTasksCommand("export", "CDEV", execEnv);
+  const sent = recordResponses(t);
+  await send("/slack/interactions", execClick(period, "export:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, execEnv);
+  const incident = sent.at(-1);
+  assert.ok(!messageText(incident).includes("In the last summary"));
+  assert.equal(execField(incident, "notes").element.initial_value, undefined);
 });
 
 test("/cade export says so when the Google Doc can't be written, and can try again", async (t) => {

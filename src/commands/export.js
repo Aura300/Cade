@@ -326,16 +326,31 @@ async function walk(env, summary, url) {
 
 // What has been chosen for each entry: chosen(entry) gives { included,
 // health, progress, notes }. Entries not visited yet are included, with the
-// health and progress the last posted summary gave them.
+// health, progress and notes the last summary gave them, to change.
+// chosen.before(entry) is what the last summary had, if it had the entry,
+// with `day`, when it was written.
 async function choices(env, summary) {
   const items = await exportItems(env, summary.id);
   const last = await lastExport(env, summary.group);
   const previous = last && last.id !== summary.id ? await exportItems(env, last.id) : {};
-  return (entry) => {
-    const key = `${entry.channel}:${entry.ts}`;
-    const before = previous[key];
-    return items[key] ?? { included: true, health: before?.health ?? "ON_TRACK", progress: before?.progress ?? "", notes: "" };
+  const day = last && showDay(todayIn(env, new Date(last.exportedAt)));
+  const before = (entry) => {
+    const item = previous[`${entry.channel}:${entry.ts}`];
+    return item && { ...item, day };
   };
+  const chosen = (entry) => {
+    const was = before(entry);
+    return (
+      items[`${entry.channel}:${entry.ts}`] ?? {
+        included: true,
+        health: was?.health ?? "ON_TRACK",
+        progress: was?.progress ?? "",
+        notes: was?.notes ?? "",
+      }
+    );
+  };
+  chosen.before = before;
+  return chosen;
 }
 
 // Saves what the step's checkboxes and fields hold, read from the message's
@@ -477,6 +492,7 @@ async function render(env, at, notice) {
           value: JSON.stringify(entry.threads),
         },
       },
+      ...lastSaid(chosen.before(entry)),
       {
         type: "input",
         block_id: fieldId(entry, "health", summary),
@@ -551,6 +567,16 @@ async function render(env, at, notice) {
   buttons.push({ type: "button", action_id: CANCEL_ACTION, text: plainText("Cancel"), value: "cancel" });
   blocks.push({ type: "actions", elements: buttons });
   return { text: `Executive summary: step ${i + 1} of ${steps.length}`, blocks };
+}
+
+// What the last summary said of an entry, if it had it, to compare with:
+// its fields start as it left them.
+function lastSaid(before) {
+  if (!before) return [];
+  const said = [label(HEALTH[before.health] ?? HEALTH.ON_TRACK), before.progress && escapeSlack(before.progress)].filter(Boolean).join("  ·  ");
+  const left = before.included ? "" : "  ·  _left out_";
+  const notes = (before.notes ?? "").trim() ? `\n_${escapeSlack(before.notes.trim()).replace(/\n+/g, " / ")}_` : "";
+  return [{ type: "context", elements: [mrkdwn(`*In the last summary* (${before.day}): ${said}${left}${notes}`.slice(0, 3000))] }];
 }
 
 function stepName(step) {
