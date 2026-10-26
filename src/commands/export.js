@@ -639,7 +639,8 @@ async function fillPeek(env, viewId, threads) {
 }
 
 // Adds the summary to the group's Google Doc, once, then replaces the walk
-// with a note that it was. The section is keyed by the summary, so trying
+// with the summary as added, and a link to it in the doc, shown only to
+// whoever wrote it. The section is keyed by the summary, so trying
 // again replaces it rather than adding another.
 async function post(payload, env, at) {
   await saveStep(env, at.s, payload.state?.values);
@@ -675,9 +676,19 @@ async function post(payload, env, at) {
   }
   await recordExportDoc(env, summary.id, doc, address, blocks.map(docBlockText));
   console.log("Executive summary added to the doc", { id: summary.id, group: summary.group, user: payload.user.id });
+  const added = `Added the executive summary for ${periodLabel(env, summary)} to ${summary.group}'s Google Doc: <${address}|open it there>.`;
+  const next = "After going through it with the client, send `/cade import` for what was added to it.";
   await respondLater(payload.response_url, {
     replace_original: true,
-    text: `Added the executive summary for ${periodLabel(env, summary)} to ${summary.group}'s Google Doc: <${address}|open it there>. After going through it with the client, send \`/cade import\` for what was added to it.`,
+    text: `${added} ${next}`,
+    blocks: [
+      { type: "section", text: mrkdwn(`:white_check_mark: ${added}`) },
+      { type: "divider" },
+      ...chunks(summaryText(env, summary, done, active, chosen), 3000)
+        .slice(0, 45)
+        .map((chunk) => ({ type: "section", text: mrkdwn(chunk) })),
+      { type: "context", elements: [mrkdwn(next)] },
+    ],
   });
 }
 

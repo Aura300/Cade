@@ -6718,6 +6718,11 @@ test("/cade export goes through requirements, then the team's own tasks, and add
     sent.at(-1).text,
     `Added the executive summary for ${show(weekAgo)} – ${show(today)} to acme's Google Doc: <${DOC_TAB}|open it there>. After going through it with the client, send \`/cade import\` for what was added to it.`,
   );
+  // Shown only to whoever wrote it: the link, then the summary as added.
+  const confirmation = sent.at(-1);
+  assert.equal(confirmation.response_type, "ephemeral");
+  assert.match(blockText(confirmation.blocks[0]), new RegExp(`^:white_check_mark: Added the executive summary .*<${DOC_TAB.replace(/[.?]/g, "\\$&")}\\|open it there>`));
+  assert.ok(messageText(confirmation).includes(expected));
 
   // Adding it again does nothing.
   await send("/slack/interactions", execClick(review, "export:post"), {}, execEnv);
