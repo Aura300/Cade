@@ -34,6 +34,7 @@ From the project directory:
    ```sh
    npm run sheet:create                        # titled "Cade tasks"
    npm run sheet:create -- --title "Acme tasks"
+   npm run sheet:create -- --sheet https://docs.google.com/spreadsheets/d/…/edit   # one you have
    ```
 
    It creates a spreadsheet with `Code.gs` attached, generates a random

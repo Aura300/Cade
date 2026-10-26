@@ -38,16 +38,22 @@ is.
 
 1. `npx clasp login`, and turn on the Apps Script API at
    <https://script.google.com/home/usersettings>, as for the Sheet.
-2. `npm run doc:create`. It creates a standalone script with `Code.gs`,
-   generates `Secret.gs` (not committed), deploys it as a web app (running
-   as you, reachable by anyone: the secret is what protects it), and gives
-   the Worker its address (`docUrl` in `cade.config.json`, uploaded with
-   `npm run config`) and the secret (`DOC_SECRET`). Its IDs are saved to
-   `.doc-app.json` in the project root.
+2. `npm run doc:create` (with several groups, `npm run doc:create -- --group
+   acme`; to use a doc you have, add `--doc <its address>`). It creates a
+   Google Doc, "acme executive summaries" (or uses yours), with
+   `Code.gs` attached, as the Sheet has its script; generates `Secret.gs`
+   (not committed); deploys it as a web app (running as you, reachable by
+   anyone: the secret is what protects it); links the doc to the group as
+   its `doc`, and gives the Worker the web app's address (`docUrl`), both in
+   `cade.config.json` and uploaded, and the secret (`DOC_SECRET`). Its IDs
+   are saved to `.doc-app.json` in the project root.
 3. Open the script link it prints, choose `authorize`, click **Run**, and
-   allow access to your Google Docs.
-4. Add each group's `doc` to `cade.config.json`, then `npm run config`. You
-   need to be able to edit each doc, since the script runs as you.
+   allow access.
+4. Share the doc with the client, as **Editor**.
+
+Other groups share the web app: give each a doc of its own, add its address
+to the group in `cade.config.json` as `doc`, then `npm run config`. You need
+to be able to edit each doc, since the script runs as you.
 
 If `Code.gs` changes, `npm run doc:update` pushes it and redeploys the same
 address.

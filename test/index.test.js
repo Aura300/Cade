@@ -4256,6 +4256,22 @@ test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetU
 
   // The Google Doc web app is made the same way, with its own secret and setting.
   assert.match(secretFile(secret, APPS.doc), /npm run doc:create.*DOC_SECRET/);
+  const { docGroup, parentIdIn, withDocLink } = await import("../scripts/sheet-app.mjs");
+  // An existing doc or spreadsheet is taken by its address or ID.
+  const id = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
+  assert.equal(parentIdIn(`https://docs.google.com/document/d/${id}/edit?tab=t.0`, APPS.doc), id);
+  assert.equal(parentIdIn(id, APPS.doc), id);
+  assert.equal(parentIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`, APPS.sheet), id);
+  assert.throws(() => parentIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit`, APPS.doc), /--doc should be the Google Doc's address/);
+  const two = JSON.stringify({ channels: [{ name: "acme", tasks: "C1" }, { name: "beta", tasks: "C2" }] });
+  assert.equal(docGroup(two, "beta"), "beta");
+  assert.throws(() => docGroup(two), /Which group is the doc for\?/);
+  assert.throws(() => docGroup(two, "nope"), /no group called "nope"/);
+  assert.equal(docGroup('{"channels":[{"name":"acme","tasks":"C1"}]}'), "acme");
+  assert.deepEqual(JSON.parse(withDocLink(two, "https://script.google.com/macros/s/D/exec", "beta", "https://docs.google.com/document/d/X/edit")), {
+    channels: [{ name: "acme", tasks: "C1" }, { name: "beta", tasks: "C2", doc: "https://docs.google.com/document/d/X/edit" }],
+    docUrl: "https://script.google.com/macros/s/D/exec",
+  });
   assert.deepEqual(JSON.parse(withSheetUrl("{}", "https://script.google.com/macros/s/D/exec", APPS.doc.configKey)), {
     docUrl: "https://script.google.com/macros/s/D/exec",
   });

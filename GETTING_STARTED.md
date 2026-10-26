@@ -237,7 +237,8 @@ task. It needs a Google account.
 
 1. **(person)** `npx clasp login`, and turn on the Apps Script API at
    <https://script.google.com/home/usersettings> (once per account).
-2. Create it:
+2. Create it (to use a spreadsheet you already have, add
+   `-- --sheet <its address>`):
 
    ```sh
    npm run sheet:create
@@ -261,21 +262,26 @@ was added during the call. It's separate from the Sheet and works without
 it.
 
 1. **(person)** `npx clasp login` and the Apps Script API, as in step 8.
-2. Create the web app:
+2. Create the doc, for your group (or, with several, add `-- --group <name>`;
+   to use a doc you already have, add `-- --doc <its address>`):
 
    ```sh
    npm run doc:create
    ```
 
-   **Expect:** a standalone script deployed as a web app; the Worker gets
-   its address (`docUrl`) and its secret (`DOC_SECRET`).
+   **Expect:** a new Google Doc, "<group> executive summaries", with its
+   script attached (**Extensions → Apps Script**) and deployed as a web app;
+   the doc is linked to the group (`doc` in `cade.config.json`), and the
+   Worker gets the web app's address (`docUrl`) and its secret
+   (`DOC_SECRET`), all uploaded.
 3. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
-4. **(person)** For each group, make a Google Doc (or use the one you
-   already share with the client), and add its address to the group in
-   `cade.config.json` as `"doc"`. Then `npm run config`. The web app runs as
-   you, so you must be able to edit the doc. Cade writes in its **Summary**
-   tab, and adds the tab if it has none.
+4. **(person)** Share the doc it prints with the client, as **Editor**.
+   Cade writes in its **Summary** tab, and adds the tab if it has none.
+
+Other groups use the same web app with docs of their own: add each one's
+address to its group in `cade.config.json` as `"doc"`, then `npm run
+config`. The web app runs as you, so you must be able to edit them.
 
 Details and troubleshooting are in
 [google-doc/README.md](google-doc/README.md).

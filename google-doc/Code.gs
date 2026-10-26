@@ -1,9 +1,10 @@
 // Keeps each group's executive summaries in a Google Doc for the Cade
 // Worker: a section per summary in the doc's Summary tab, newest first,
 // which the client goes through on calls and adds to, and which Cade reads
-// back after (see src/doc.js). It is a standalone script, separate from the
-// Google Sheet's, and runs as whoever deployed it, so it can edit the docs
-// they can.
+// back after (see src/doc.js). It is attached to the first group's doc, as
+// `npm run doc:create` makes it, separate from the Google Sheet's, and runs
+// as whoever deployed it, so it can edit the other groups' docs too, if they
+// can.
 //
 // Each request is { secret, action, … }. `secret` must match SECRET, defined
 // in Secret.gs next to this file, which `npm run doc:create` makes along with
