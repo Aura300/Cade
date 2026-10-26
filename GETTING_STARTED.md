@@ -55,8 +55,17 @@ values).
 Start from `cade.config.example.json`. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
 
-To add or change a group without editing the file, once the web apps are
-set up (step 8):
+To add or change a group without editing the file, `npm run group` takes
+you through it: the group's name, then each channel (a new one, which Cade
+makes and is then in, or one that exists: a public one Cade joins itself, a
+private one once you send `/invite @Cade` in it), people to add to them by
+email or member ID, and, once the Google web app is set up (step 8), the
+group's Doc and Sheet. It says what it will do before doing it, then saves
+and uploads the file. It asks for Cade's bot token (or takes
+`SLACK_BOT_TOKEN`), and needs the app's channel permissions (`npm run
+slack:update`, then reinstall the app, if it was made before them).
+
+Or give the settings at once:
 
 ```sh
 npm run group -- --name acme --tasks C… --external C… --incidents C… --doc new --sheet new

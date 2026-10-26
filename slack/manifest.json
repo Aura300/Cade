@@ -15,7 +15,7 @@
         "command": "{{COMMAND}}",
         "url": "{{WORKER_URL}}/slack/commands",
         "description": "Start a requirement, report an incident, track a task, list your tasks or summarise them",
-        "usage_hint": "requirement | incident | track | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | summary | exec",
+        "usage_hint": "requirement | incident | track | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | summary | export | import",
         "should_escape": true
       }
     ]
@@ -25,14 +25,18 @@
       "bot": [
         "canvases:write",
         "channels:history",
+        "channels:join",
+        "channels:manage",
         "channels:read",
         "chat:write",
         "commands",
         "groups:history",
         "groups:read",
+        "groups:write",
         "pins:write",
         "reactions:write",
-        "users:read"
+        "users:read",
+        "users:read.email"
       ]
     }
   },

@@ -4117,14 +4117,19 @@ test("the manifest asks for the scopes Cade uses", async () => {
   assert.deepEqual(template.oauth_config.scopes.bot, [
     "canvases:write",
     "channels:history",
+    // npm run group creates and joins channels, and adds people by email.
+    "channels:join",
+    "channels:manage",
     "channels:read",
     "chat:write",
     "commands",
     "groups:history",
     "groups:read",
+    "groups:write",
     "pins:write",
     "reactions:write",
     "users:read",
+    "users:read.email",
   ]);
   assert.deepEqual(template.settings.event_subscriptions.bot_events, ["message.channels", "message.groups"]);
 });
@@ -7356,4 +7361,38 @@ test("npm run group adds or changes a group in cade.config.json", async () => {
   const changed = JSON.parse(withGroup(start, "acme", { incidents: "C0000000004", doc: "none" }));
   assert.deepEqual(changed.channels, [{ name: "acme", external: "C0000000001", tasks: "C0000000002", incidents: "C0000000004" }]);
   assert.throws(() => withGroup(start, "gamma", { external: "C0000000005" }), /gamma needs a --tasks channel/);
+});
+
+test("npm run group's guided setup finds channels and people", async () => {
+  const { channelName, findChannel, memberIds, validChannelName } = await import("../scripts/group.mjs");
+  assert.equal(channelName(" #Acme-Dev "), "acme-dev");
+  assert.ok(validChannelName("acme-dev"));
+  assert.ok(!validChannelName("acme dev"));
+  assert.ok(!validChannelName("-acme"));
+
+  // A fake Slack: two pages of channels, one lookup by ID, one email.
+  const pages = [
+    { channels: [{ id: "C0000000001", name: "general", is_member: true }], response_metadata: { next_cursor: "next" } },
+    { channels: [{ id: "C0000000002", name: "acme-dev", is_member: false }] },
+  ];
+  const slack = async (method, args) => {
+    if (method === "conversations.list") return pages[args.cursor ? 1 : 0];
+    if (method === "conversations.info") {
+      if (args.channel === "G0000000003") return { channel: { id: "G0000000003", name: "acme-client", is_private: true, is_member: true } };
+      throw new Error("Slack conversations.info failed: channel_not_found");
+    }
+    if (method === "users.lookupByEmail") {
+      if (args.email === "ann@acme.test") return { user: { id: "U0000000001" } };
+      throw new Error("Slack users.lookupByEmail failed: users_not_found");
+    }
+    throw new Error(`unexpected ${method}`);
+  };
+  assert.deepEqual(await findChannel(slack, "#acme-dev"), { id: "C0000000002", name: "acme-dev", isPrivate: false, isMember: false });
+  assert.deepEqual(await findChannel(slack, "G0000000003"), { id: "G0000000003", name: "acme-client", isPrivate: true, isMember: true });
+  assert.equal(await findChannel(slack, "acme-incidents"), null);
+  assert.equal(await findChannel(slack, "C0000000009"), null);
+
+  assert.deepEqual(await memberIds(slack, "ann@acme.test, U0000000002"), ["U0000000001", "U0000000002"]);
+  await assert.rejects(memberIds(slack, "bob@acme.test"), /No one in this Slack workspace has the email bob@acme.test/);
+  await assert.rejects(memberIds(slack, "bob"), /isn't an email or a Slack member ID/);
 });
