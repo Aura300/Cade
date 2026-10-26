@@ -140,6 +140,7 @@ function taskMenu(task) {
   const choices = [
     ["assign", "Assign people…"],
     ["status", "Change status…"],
+    ["prs", "Link PRs…"],
     ...(task.source ? [] : [["priority", "Change priority…"], ["due", "Change due date…"]]),
   ];
   return {

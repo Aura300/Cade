@@ -351,7 +351,8 @@ function saveTeam(payload, context) {
 // The thread's record of `user` changing who's on the task: those added are
 // asked what `@Cade assign` asks them, and those removed told they no longer
 // need to do it. Reviewers are only named once there's a PR to review.
-function teamChanges(user, task, changes) {
+// Shared with the Link PRs form, which sets reviewers too.
+export function teamChanges(user, task, changes) {
   return changes.flatMap(({ role, added, removed }) => {
     const lines = [];
     if (added.length && role === "reviewer" && !task.prs.length) {

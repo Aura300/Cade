@@ -110,7 +110,7 @@
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
     <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel or the incidents channel. The ⋯ menu on a task's card does the same for people, status, priority and due date without a command in the thread: pick one, save the form, and Cade notes who changed what in the thread.</p>
+    <p class="lede">These work in a task's thread in the dev channel or the incidents channel. The ⋯ menu on a task's card does the same for people, status, PRs, priority and due date without a command in the thread: pick one, save the form, and Cade notes who changed what in the thread.</p>
     <div class="entries">
 
       <article class="entry">
@@ -201,6 +201,13 @@
           <li>Only the message is copied, not its replies or attachments, and a message is never moved twice.</li>
           <li>If the original was pinned, it's unpinned: its new thread is where it's followed now.</li>
         </ul>
+      </article>
+
+      <article class="entry">
+        <h3><code>/cade resync &lt;link&gt;</code></h3>
+        <div class="tags"><span class="where">Anywhere, with a link</span></div>
+        <p>Redraws a task's card from what Cade has stored, and sends it to the Sheet and summary again: for a card that's out of date, such as one posted before the ⋯ menu was added. Use Copy link on the task's message or any reply in its thread; several links at once work too. A requirement's or incident's link redraws its message. Nothing is posted, so no one is notified, and only you see the reply.</p>
+        <div class="example"><b>Example:</b> <code>/cade resync https://acme.slack.com/archives/C0DEV/p1700000000000100</code></div>
       </article>
 
       <article class="entry">

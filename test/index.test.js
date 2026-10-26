@@ -1803,8 +1803,8 @@ const threadPosts = (calls) =>
 
 test("a task's card has a menu, leaving out the priority and due date a requirement owns", async (t) => {
   for (const [record, choices] of [
-    [ownTask(), ["assign", "status", "priority", "due"]],
-    [storedTask(), ["assign", "status"]],
+    [ownTask(), ["assign", "status", "prs", "priority", "due"]],
+    [storedTask(), ["assign", "status", "prs"]],
   ]) {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent("<@UBOT> status in progress"));
@@ -1821,6 +1821,7 @@ test("choosing from a task card's menu opens its form, filled in", async (t) => 
     ["priority", "priority:form", (view) => view.blocks[0].element.initial_option.value],
     ["due", "due:form", (view) => view.blocks[0].element.initial_date],
     ["assign", "assign:team", (view) => view.blocks[0].element.initial_users],
+    ["prs", "pr:form", (view) => view.blocks[0].element.initial_value],
   ]) {
     const calls = mockSlack(t, { stored: [ownTask({ developers: ["UREX"] })] });
     await send("/slack/interactions", cardMenuClick(choice));
@@ -1828,7 +1829,7 @@ test("choosing from a task card's menu opens its form, filled in", async (t) => 
     const { view, trigger_id } = calls[0].args;
     assert.equal(trigger_id, "T1");
     assert.equal(view.callback_id, callbackId);
-    assert.deepEqual(initial(view), { status: "TODO", priority: "High", due: "2026-10-31", assign: ["UREX"] }[choice]);
+    assert.deepEqual(initial(view), { status: "TODO", priority: "High", due: "2026-10-31", assign: ["UREX"], prs: undefined }[choice]);
   }
 });
 
@@ -1895,6 +1896,66 @@ test("saving the card's assign form records who was added and removed in the thr
 
   calls = mockSlack(t, { stored: [ownTask({ developers: ["UREX"] })] });
   await send("/slack/interactions", cardFormSubmission("assign:team", people(["UREX"], [], [])));
+  assert.deepEqual(calls, []);
+});
+
+test("saving the card's Link PRs form links and unlinks them, and asks the reviewers", async (t) => {
+  const form = (prs, reviewers) => ({
+    prs: { value: { value: prs } },
+    reviewer: { value: { selected_users: reviewers } },
+  });
+  const record = ownTask({ reviewers: ["UMIA"] });
+  record.task.prs = ["https://github.com/acme/web/pull/9"];
+  let calls = mockSlack(t, { stored: [record] });
+  await send(
+    "/slack/interactions",
+    cardFormSubmission("pr:form", form("https://github.com/acme/web/pull/12\n<https://github.com/acme/api/pull/3|api#3>", ["UMIA"])),
+  );
+  const saved = await savedTask();
+  assert.deepEqual(saved.prs, ["https://github.com/acme/web/pull/12", "https://github.com/acme/api/pull/3"]);
+  assert.equal(saved.status, "IN_REVIEW");
+  assert.deepEqual(threadPosts(calls), [
+    [
+      "<@UACTOR> linked <https://github.com/acme/web/pull/12|web/12>, <https://github.com/acme/api/pull/3|api/3> and moved the task to :eyes: In review.",
+      "<@UACTOR> unlinked <https://github.com/acme/web/pull/9|web/9>.",
+      "<@UMIA>, could you review <https://github.com/acme/web/pull/12|web/12>, <https://github.com/acme/api/pull/3|api/3> when you get a chance? Thanks!",
+    ].join("\n"),
+  ]);
+
+  // A reviewer chosen with the first PR is asked in the same message.
+  calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/interactions", cardFormSubmission("pr:form", form("https://github.com/acme/web/pull/12", ["UREX"])));
+  assert.deepEqual(threadPosts(calls), [
+    [
+      "<@UACTOR> linked <https://github.com/acme/web/pull/12|web/12> and moved the task to :eyes: In review.",
+      "<@UACTOR> assigned <@UREX> as reviewer: could you review <https://github.com/acme/web/pull/12|web/12> when you get a chance? Thanks!",
+    ].join("\n"),
+  ]);
+
+  // No reviewer at all: the thread asks who should review.
+  calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/interactions", cardFormSubmission("pr:form", form("https://github.com/acme/web/pull/12", [])));
+  const post = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(post.blocks[0].accessory.action_id, "pr:reviewers");
+
+  // Unchanged: nothing.
+  calls = mockSlack(t, { stored: [record] });
+  await send("/slack/interactions", cardFormSubmission("pr:form", form("https://github.com/acme/web/pull/9", ["UMIA"])));
+  assert.deepEqual(calls, []);
+});
+
+test("the card's Link PRs form refuses a line that isn't a pull request", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask()] });
+  const response = await send(
+    "/slack/interactions",
+    cardFormSubmission("pr:form", {
+      prs: { value: { value: "https://github.com/acme/web/pull/12\nhttps://example.com/nope" } },
+      reviewer: { value: { selected_users: [] } },
+    }),
+  );
+  const body = await response.json();
+  assert.equal(body.response_action, "errors");
+  assert.match(body.errors.prs, /example\.com\/nope/);
   assert.deepEqual(calls, []);
 });
 
@@ -7281,6 +7342,35 @@ test("/cade detach needs a link to a linked task's thread", async (t) => {
     ["detach <https://acme.slack.com/archives/CEXTERNAL/p1700000000000100>", /^Paste the link to the task's thread/],
     ["detach <https://acme.slack.com/archives/CDEV/p1700000000000200>", /^That link isn't to a task's thread/],
     ["detach <https://acme.slack.com/archives/CDEV/p1700000000000100>", /^This task isn't linked/],
+  ]) {
+    const { now, later } = await runTasksCommand(text, "CDEV");
+    assert.match(now ? JSON.parse(now).text : later.text, reply, text);
+  }
+});
+
+test("/cade resync <link> redraws a task's card, with its menu, and tells only whoever sent it", async (t) => {
+  // A task at a timestamp a Slack link can name.
+  const ts = "1700000000.000100";
+  const task = { ...ownTask(), ts };
+  task.task.link = "https://slack.example/p100";
+  const calls = mockSlack(t, { stored: [task] });
+  // A link to a reply in the task's thread stands for the task.
+  const link = "https://acme.slack.com/archives/CDEV/p1700000000000500?thread_ts=1700000000.000100&amp;cid=CDEV";
+  const { now, later } = await runTasksCommand(`resync <${link}>`, "COTHER");
+  assert.equal(now, "");
+  assert.equal(later.text, "Resynced the task <https://slack.example/p100|Fix login>.");
+  const card = calls.find((call) => call.method === "chat.update" && call.args.ts === ts).args;
+  assert.equal(card.blocks[0].accessory.action_id, "task:menu");
+  assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral"].includes(call.method)));
+});
+
+test("/cade resync redraws a requirement too, and needs a link to something Cade tracks", async (t) => {
+  const ts = "1700000000.000200";
+  mockSlack(t, { stored: [{ ...requirementRoot(), ts }] });
+  for (const [text, reply] of [
+    ["resync", /^Paste the link to the task/],
+    ["resync <https://acme.slack.com/archives/CEXTERNAL/p1700000000000200>", /^Resynced the requirement \*/],
+    ["resync <https://acme.slack.com/archives/CDEV/p1700000000000900>", /^That link isn't to a task I'm tracking/],
   ]) {
     const { now, later } = await runTasksCommand(text, "CDEV");
     assert.match(now ? JSON.parse(now).text : later.text, reply, text);

@@ -2,16 +2,18 @@ import { callSlack } from "../slack.js";
 import { NOT_A_TASK, TASK_MENU_ACTION, loadTask } from "../tasks.js";
 import { openTeamForm } from "./assign.js";
 import { openDueForm, openPriorityForm } from "./details.js";
+import { openPullRequestForm } from "./pr.js";
 import { openStatusForm } from "./status.js";
 
 // The ⋯ menu on a task's card (see taskMenu in tasks.js) does what `@Cade
-// assign`, `status`, `priority` and `due` do, without a command message in
+// assign`, `status`, `pr`, `priority` and `due` do, without a command message in
 // the task's thread. Each choice opens a form; saving it posts who changed
 // what in the thread, as the record, and the card updates. Anything Cade
 // can't do is said only to whoever chose it.
 const FORMS = {
   assign: openTeamForm,
   status: openStatusForm,
+  prs: openPullRequestForm,
   priority: openPriorityForm,
   due: openDueForm,
 };
