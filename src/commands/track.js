@@ -2,6 +2,7 @@ import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, hasUnpostedTask, insertTask, markTaskPosted } from "../db.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { fromTheCall, syncApplied } from "./import.js";
 import { moveMessage, offerStart } from "./move.js";
 import {
   PRIORITIES,
@@ -140,7 +141,10 @@ async function openModal(env, triggerId, origin) {
   });
 }
 
-export function trackView(origin) {
+// From `/cade import` for a group with no client channel, `origin` has
+// `sync`, the suggestion it applies (see import.js), and the form has an
+// Initial message, starting as `initial`, posted in the task's thread.
+export function trackView(origin, { initial } = {}) {
   return {
     type: "modal",
     callback_id: TRACK_VIEW,
@@ -148,7 +152,31 @@ export function trackView(origin) {
     title: plainText("Track task"),
     submit: plainText("Create"),
     close: plainText("Cancel"),
-    blocks: origin.requirement
+    blocks: [...trackBlocks(origin), ...(origin.sync ? [initialMessageBlock(initial, "task")] : [])],
+  };
+}
+
+// The Initial message of a form opened from `/cade import`, posted in the
+// thread of what it makes: a task or a requirement.
+export function initialMessageBlock(initial, noun) {
+  return {
+    type: "input",
+    block_id: "initial_message",
+    optional: true,
+    label: plainText("Initial message"),
+    hint: plainText(`Posted in the ${noun}'s thread once it's made.`),
+    element: {
+      type: "plain_text_input",
+      action_id: "value",
+      multiline: true,
+      max_length: 3000,
+      initial_value: initial?.slice(0, 3000) || undefined,
+    },
+  };
+}
+
+function trackBlocks(origin) {
+  return origin.requirement
       ? [
           ...taskFormBlocks("Task title", origin, { details: false }),
           ...(origin.chooseDevelopers ? [developersBlock(origin.developers)] : []),
@@ -165,8 +193,7 @@ export function trackView(origin) {
             ],
           },
         ]
-      : taskFormBlocks("Task title", origin),
-  };
+      : taskFormBlocks("Task title", origin);
 }
 
 // Who's developing the task, for a task tracked from someone saying the work
@@ -200,13 +227,24 @@ async function submit(payload, context) {
     people: noPeople(),
     createdBy: payload.user.id,
   };
-  context.waitUntil(createTask(context.env, task, origin));
+  const initial = values.initial_message?.value?.value?.trim();
+  context.waitUntil(
+    (async () => {
+      const ts = await createTask(context.env, task, origin);
+      if (!origin.sync) return;
+      if (ts && initial) {
+        await callSlack(context.env, "chat.postMessage", { channel: origin.channel, thread_ts: ts, ...fromTheCall(initial, payload.user.id) });
+      }
+      await syncApplied(context.env, origin.sync, payload.user.id);
+    })(),
+  );
   return { response_action: "clear" };
 }
 
-// Stores the task, then posts it and announces it. `origin` is where it was
-// tracked from, as for the form; `/cade incident` uses this too, with
-// `incident: true`, so the task goes to the pair's incidents channel.
+// Stores the task, then posts it and announces it, and returns its root
+// message's ts, if it was posted. `origin` is where it was tracked from, as
+// for the form; `/cade incident` uses this too, with `incident: true`, so
+// the task goes to the pair's incidents channel.
 export async function createTask(env, task, origin) {
   if (origin.requirement) {
     // The requirement's current state, in case the client changed its
@@ -271,11 +309,11 @@ export async function createTask(env, task, origin) {
     moveTs: origin.moveTs,
   };
   const id = await insertTask(env, tasksChannel, task, after);
-  await publishTask(env, { id, channel: tasksChannel, task, origin: after, attempts: 0 });
+  return publishTask(env, { id, channel: tasksChannel, task, origin: after, attempts: 0 });
 }
 
 // Posts a stored task that has no root message yet, then pins it, tells the
-// requirement thread and records it in the Sheet. If Slack refuses the post,
+// requirement thread and records it in the Sheet, and returns its ts. If Slack refuses the post,
 // the task waits for the next retry, and the person who tracked it is told,
 // the first time and when Cade gives up.
 export async function publishTask(env, { id, channel, task, origin, attempts }) {
@@ -371,4 +409,5 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
       await callSlack(env, "chat.postMessage", { channel: origin.channel, thread_ts: origin.threadTs, ...body });
     }
   }
+  return message.ts;
 }

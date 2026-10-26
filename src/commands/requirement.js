@@ -5,7 +5,7 @@ import { callSlack, escapeSlack, plainText } from "../slack.js";
 import { noPeople, readTaskForm, refreshSummary, setPinned, taskFormBlocks } from "../tasks.js";
 import { moveMessage, offerStart } from "./move.js";
 import { fromTheCall, syncApplied } from "./import.js";
-import { createTask } from "./track.js";
+import { createTask, initialMessageBlock } from "./track.js";
 
 const REQUIREMENT_VIEW = "requirement";
 const INCIDENT_VIEW = "incident";
@@ -51,22 +51,7 @@ export default {
 // `initial`, posted in the new thread from the client call.
 export function requirementView(origin, { initial } = {}) {
   const blocks = taskFormBlocks("Requirement name", { title: origin.title });
-  if (origin.sync) {
-    blocks.push({
-      type: "input",
-      block_id: "initial_message",
-      optional: true,
-      label: plainText("Initial message"),
-      hint: plainText("Posted in the requirement's thread once it's started."),
-      element: {
-        type: "plain_text_input",
-        action_id: "value",
-        multiline: true,
-        max_length: 3000,
-        initial_value: initial?.slice(0, 3000) || undefined,
-      },
-    });
-  }
+  if (origin.sync) blocks.push(initialMessageBlock(initial, "requirement"));
   return {
     type: "modal",
     callback_id: REQUIREMENT_VIEW,

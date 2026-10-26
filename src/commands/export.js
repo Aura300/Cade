@@ -51,18 +51,17 @@ export const HEALTH = {
 const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 
 // `/cade export` writes an executive summary of a group with whoever runs it,
-// one step at a time, shown only to them, and posts it in the channel it was
-// run in. The group is the channel's own, the only one, or the one named:
-// `/cade export acme`. It goes through the group's work as the client sees
-// it, its requirements and incidents, then the team's own tasks, those with
-// no requirement:
+// one step at a time, shown only to them. The group is the channel's own,
+// the only one, or the one named: `/cade export acme`. It goes through the
+// group's work as the client sees it: with a client channel, its
+// requirements and incidents; without one, the team's tasks:
 //   0. the period it covers, from one day to another, counted in TIMEZONE:
 //      from the day after the last summary's period (the past week, for
 //      the first) to today, unless changed;
 //   1. what was completed in the period, from the start of its first day
 //      to the end of its last, each ticked to be mentioned as done;
-//   2. each requirement or incident not done, most urgent first, then each
-//      such task, to say how it's going (on track, at risk, delayed or
+//   2. each requirement or incident (or task) not done, most urgent first,
+//      to say how it's going (on track, at risk, delayed or
 //      blocked), its progress, such as 3/5, and any notes; health and
 //      progress start as the last summary had them. Peek at threads shows
 //      the latest messages of its requirement thread and its task thread;
@@ -184,14 +183,16 @@ async function move(payload, env, at) {
   await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at)) });
 }
 
-// The group's requirements and incidents, then its tasks with no
-// requirement, as entries for the walk: { kind, channel, ts, title,
+// The group's work as entries for the walk: with a client channel, its
+// requirements and incidents, as `requirements`; without one, its tasks, as
+// `own`. Each is { kind, channel, ts, title,
 // incident, link, done, completedAt, status, priority, dueDate, people,
 // threads }. A requirement's people and status are its tracked task's, and
 // it is completed when that task is. `threads` are the threads to peek at,
 // as { c, t, n } (channel, ts, name). `task` holds the priority and due date
 // byUrgency sorts by.
 async function entries(env, group, url) {
+  if (!group.external) return { requirements: [], own: await ownEntries(env, group, url) };
   const requirements = await Promise.all(
     (group.external ? await postedRequirements(env, group.external) : []).map(async ({ ts, requirement, updatedAt }) => {
       const tracked = requirement.task;
@@ -215,11 +216,12 @@ async function entries(env, group, url) {
       };
     }),
   );
-  // A task whose requirement is gone counts as the team's own.
-  const known = new Set(requirements.map((entry) => `${entry.channel}:${entry.ts}`));
-  const own = (await groupTasks(env, group, Object.keys(STATUSES), url))
-    .filter(({ task }) => !task.source || !known.has(`${task.source.channel}:${task.source.threadTs}`))
-    .map(({ channel, ts, task, link, incident }) => ({
+  return { requirements, own: [] };
+}
+
+// The group's tasks as entries for the walk.
+async function ownEntries(env, group, url) {
+  return (await groupTasks(env, group, Object.keys(STATUSES), url)).map(({ channel, ts, task, link, incident }) => ({
       kind: "task",
       channel,
       ts,
@@ -233,7 +235,6 @@ async function entries(env, group, url) {
       people: task.people,
       threads: [{ c: channel, t: ts, n: incident ? "Incidents channel thread" : "Dev thread" }],
     }));
-  return { requirements, own };
 }
 
 // SQLite's CURRENT_TIMESTAMP (UTC, "YYYY-MM-DD HH:MM:SS") as an ISO

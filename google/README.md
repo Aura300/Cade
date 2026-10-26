@@ -50,7 +50,8 @@ another spreadsheet, copy them into the tab under its header row.
 ## The Doc
 
 Cade writes in the doc's **Summary** tab, and adds the tab if the doc has
-none. Each summary is a section of its own, newest at the top: a heading
+none. A group with a client channel's summaries cover its requirements and
+incidents; one without, its tasks. Each summary is a section of its own, newest at the top: a heading
 with the day it was written and the group, the period, then **Completed**,
 **Incidents** and each health (**Blocked**, **Delayed**, **At risk**, **On
 track**). Every line is a bullet whose title links to its Slack thread, with
@@ -58,8 +59,9 @@ its notes as bullets under it.
 
 During the call, add to the section:
 
-- **A bullet of its own, with no link**: a new requirement. Bullets under
-  it are its details, which become its thread's first message.
+- **A bullet of its own, with no link**: a new requirement, started in the
+  client channel, or, for a group without one, a task in the dev channel.
+  Bullets under it are its details, which become its thread's first message.
 - **Bullets (or lines) under a linked one**: points for that requirement's
   or task's thread.
 

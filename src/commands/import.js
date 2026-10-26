@@ -4,6 +4,7 @@ import { readSection } from "../doc.js";
 import { callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.js";
 import { docProblem, pickGroup, showDay } from "./export.js";
 import { requirementView } from "./requirement.js";
+import { trackView } from "./track.js";
 import { threadLink, todayIn } from "./tasks.js";
 
 const APPLY_ACTION = "import:apply";
@@ -25,7 +26,9 @@ const POINT_VIEW = "import:point";
 //     the thread its line links to;
 //   - Apply on a new requirement opens the requirement form, named from it,
 //     with an Initial message, its details, posted in the new requirement's
-//     thread once it's started. It's tracked from there as any requirement.
+//     thread in the client channel once it's started; it's tracked from
+//     there as any requirement. A group with no client channel gets the task
+//     form instead, the same way, for a task in its dev channel.
 // Each is found once: sending `/cade import` again goes on with those not
 // decided yet, and adds any added to the doc since.
 export default {
@@ -61,10 +64,15 @@ export default {
         return;
       }
       const sync = { id: suggestion.id, r: payload.response_url };
-      const view =
-        suggestion.kind === "REQUIREMENT"
-          ? requirementView({ channel: group.external, title: suggestion.text, sync }, { initial: suggestion.details || suggestion.text })
-          : pointView(suggestion, sync);
+      const initial = { initial: suggestion.details || suggestion.text };
+      // A new requirement starts in the client channel, or, for a group with
+      // none, is tracked as a task in the dev channel.
+      let view = pointView(suggestion, sync);
+      if (suggestion.kind === "REQUIREMENT") {
+        view = group.external
+          ? requirementView({ channel: group.external, title: suggestion.text, sync }, initial)
+          : trackView({ channel: group.tasks, title: suggestion.text, sync }, initial);
+      }
       await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view });
     },
     [DISCARD_ACTION]: async (payload, context) => {
@@ -186,7 +194,13 @@ async function render(env, summary) {
       { type: "section", text: mrkdwn(`*New requirement:* ${escapeSlack(suggestion.text)}${details}`.slice(0, 3000)) },
       {
         type: "context",
-        elements: [mrkdwn(`Apply opens the requirement form, with ${details ? "the lines under it" : "it"} as the initial message, to start its thread in <#${group?.external}>.`)],
+        elements: [
+          mrkdwn(
+            group?.external
+              ? `Apply opens the requirement form, with ${details ? "the lines under it" : "it"} as the initial message, to start its thread in <#${group.external}>.`
+              : `Apply opens the task form, with ${details ? "the lines under it" : "it"} as the initial message, to track it in <#${group?.tasks}>.`,
+          ),
+        ],
       },
     );
   }

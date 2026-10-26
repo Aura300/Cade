@@ -6612,7 +6612,7 @@ const messageText = (message) => message.blocks.map(blockText).filter(Boolean).j
 
 const execLink = (channel, ts) => `https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
 
-test("/cade export goes through requirements, then the team's own tasks, and adds the summary to the group's Google Doc", async (t) => {
+test("/cade export goes through a client group's requirements and incidents, and adds the summary to its Google Doc", async (t) => {
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
   await storeExecWork();
   // Run in a channel outside the group, which has the only group.
@@ -6620,7 +6620,7 @@ test("/cade export goes through requirements, then the team's own tasks, and add
   assert.equal(now, "");
 
   // Step 1: the period, the past week to today the first time.
-  assert.match(blockText(period.blocks[0]), /^\*Executive summary: acme\*  ·  Step 1 of 6$/);
+  assert.match(blockText(period.blocks[0]), /^\*Executive summary: acme\*  ·  Step 1 of 5$/);
   const today = todayIn(execEnv);
   const weekAgo = new Date(Date.parse(`${today}T00:00:00Z`) - 7 * 86400000).toISOString().slice(0, 10);
   assert.equal(execField(period, "from").element.initial_date, weekAgo);
@@ -6632,7 +6632,7 @@ test("/cade export goes through requirements, then the team's own tasks, and add
 
   // Step 2: the requirement completed in the period, ticked to mention.
   // Its task, tracked from it, isn't listed again; old work is left out.
-  assert.match(blockText(first.blocks[0]), /Step 2 of 6$/);
+  assert.match(blockText(first.blocks[0]), /Step 2 of 5$/);
   const done = first.blocks.filter((block) => block.accessory?.type === "checkboxes");
   assert.deepEqual(done.map((block) => block.text.text.match(/\|([^>]+)>/)[1]), ["Export reports"]);
   assert.match(done[0].text.text, /^• <https:\/\/acme\.slack\.com\/archives\/CEXTERNAL\/p2001\?thread_ts=200\.1&cid=CEXTERNAL\|Export reports>  ·  Done/);
@@ -6650,30 +6650,22 @@ test("/cade export goes through requirements, then the team's own tasks, and add
   ]);
   await send("/slack/interactions", execClick(incident, "export:next", execFields(incident, { health: "BLOCKED", progress: "", notes: "Waiting on the payment provider\nETA Monday" })), {}, execEnv);
 
-  // Step 4: the requirement in discussion, not tracked yet.
+  // Step 4: the requirement in discussion, not tracked yet. The team's own
+  // tasks aren't part of a client group's summary.
   const dark = sent.at(-1);
   assert.match(messageText(dark), /Requirements and incidents\*  ·  2 of 2[\s\S]*Dark mode>  ·  In discussion  ·  :large_green_circle: Low  ·  Due _none_  ·  _Not tracked yet_/);
-  await send("/slack/interactions", execClick(dark, "export:next", execFields(dark, { health: "ON_TRACK", progress: "", notes: "", included: false })), {}, execEnv);
-
-  // Step 5: the team's own task, with its dev thread to peek at.
-  const own = sent.at(-1);
-  assert.match(messageText(own), /The team's own tasks\*  ·  1 of 1[\s\S]*Upgrade Node>  ·  In review/);
-  assert.deepEqual(JSON.parse(own.blocks.find((block) => block.accessory?.action_id === "export:peek").accessory.value), [
-    { c: "CDEV", t: "100.3", n: "Dev thread" },
-  ]);
-  await send("/slack/interactions", execClick(own, "export:next", execFields(own, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
+  await send("/slack/interactions", execClick(dark, "export:next", execFields(dark, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
 
   // Back keeps what was chosen.
   await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, execEnv);
-  const ownAgain = sent.at(-1);
-  assert.equal(execField(ownAgain, "progress").element.initial_value, "3/5");
-  assert.equal(execField(ownAgain, "health").element.initial_option.value, "AT_RISK");
-  await send("/slack/interactions", execClick(ownAgain, "export:next", execFields(ownAgain, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
+  const darkAgain = sent.at(-1);
+  assert.equal(execField(darkAgain, "progress").element.initial_value, "3/5");
+  assert.equal(execField(darkAgain, "health").element.initial_option.value, "AT_RISK");
+  await send("/slack/interactions", execClick(darkAgain, "export:next", execFields(darkAgain, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
 
-  // Step 6: the summary as it will read, worst first, without what was left
-  // out.
+  // Step 5: the summary as it will read, worst first.
   const review = sent.at(-1);
-  assert.match(messageText(review), new RegExp(`Step 6 of 6[\\s\\S]*This is what I'll add to the top of <https://docs.google.com/document/d/${DOC_ID}/edit\\|acme's Google Doc>'s Summary tab`));
+  assert.match(messageText(review), new RegExp(`Step 5 of 5[\\s\\S]*This is what I'll add to the top of <https://docs.google.com/document/d/${DOC_ID}/edit\\|acme's Google Doc>'s Summary tab`));
   const show = (day) => day.split("-").reverse().join("/");
   assert.ok(messageText(review).includes(`_Period: ${show(weekAgo)} – ${show(today)}_`));
   const expected = [
@@ -6686,7 +6678,7 @@ test("/cade export goes through requirements, then the team's own tasks, and add
     "      _ETA Monday_",
     "",
     "*At risk (1)*",
-    `• <${execLink("CDEV", "100.3")}|Upgrade Node>  ·  In review  ·  3/5`,
+    `• <${execLink("CEXTERNAL", "200.2")}|Dark mode>  ·  In discussion  ·  3/5`,
   ].join("\n");
   // Sections with nothing in them are left out, and headings have no emoji.
   assert.ok(!/Blocked \(|On track \(|Delayed \(|:no_entry:|:warning:/.test(messageText(review)));
@@ -6712,7 +6704,7 @@ test("/cade export goes through requirements, then the team's own tasks, and add
     { type: "item", level: 1, parts: [{ text: "Waiting on the payment provider" }] },
     { type: "item", level: 1, parts: [{ text: "ETA Monday" }] },
     { type: "heading", level: 3, text: "At risk (1)" },
-    { type: "item", level: 0, parts: [{ text: "Upgrade Node", link: execLink("CDEV", "100.3") }, { text: "  ·  In review  ·  3/5" }] },
+    { type: "item", level: 0, parts: [{ text: "Dark mode", link: execLink("CEXTERNAL", "200.2") }, { text: "  ·  In discussion  ·  3/5" }] },
   ]);
   assert.equal(
     sent.at(-1).text,
@@ -6779,7 +6771,7 @@ test("the next /cade export starts from the last one, with its health and progre
   for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
   const incident = sent.at(-1);
   await send("/slack/interactions", execClick(incident, "export:next", execFields(incident, { health: "DELAYED", progress: "1/2", notes: "Once only" })), {}, execEnv);
-  for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, execEnv);
   await send("/slack/interactions", execClick(sent.at(-1), "export:post"), {}, execEnv);
 
   // The last period ended today, so the next starts today too; nothing was
@@ -6788,7 +6780,7 @@ test("the next /cade export starts from the last one, with its health and progre
   assert.equal(execField(period, "from").element.initial_date, todayIn(execEnv));
   await send("/slack/interactions", execClick(period, "export:next"), {}, execEnv);
   const next = sent.at(-1);
-  assert.match(messageText(next), /Step 2 of 5[\s\S]*Checkout is down/);
+  assert.match(messageText(next), /Step 2 of 4[\s\S]*Checkout is down/);
   assert.equal(execField(next, "health").element.initial_option.value, "DELAYED");
   assert.equal(execField(next, "progress").element.initial_value, "1/2");
   // Notes are for one summary only.
@@ -6804,7 +6796,7 @@ test("/cade export says so when the Google Doc can't be written, and can try aga
   await storeExecWork();
   const { later: first } = await runTasksCommand("export", "CLEADS", execEnv);
   const sent = recordResponses(t);
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 4; i++) {
     await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
   }
   await send("/slack/interactions", execClick(sent.at(-1), "export:post"), {}, execEnv);
@@ -6836,10 +6828,37 @@ test("/cade export outside a group asks which, when there are several", async (t
   assert.match(blockText(later.blocks[0]), /Executive summary: test/);
 });
 
+// acme without its client channel: its summaries are of the dev and
+// incidents channels' tasks.
+const teamEnv = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV", incidents: "CINC", doc: execEnv.CHANNEL_PAIRS[0].doc }] };
+
+test("/cade export goes through a team group's tasks", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+  await storeExecWork();
+  const { later: period } = await runTasksCommand("export", "CDEV", teamEnv);
+  const sent = recordResponses(t);
+  // Step 1 is the period, step 2 the task done in it, then the open tasks,
+  // the incident first, with their dev or incidents thread to peek at.
+  assert.match(blockText(period.blocks[0]), /Step 1 of 5$/);
+  await send("/slack/interactions", execClick(period, "export:next"), {}, teamEnv);
+  assert.match(messageText(sent.at(-1)), /Completed[\s\S]*Export reports>  ·  Done/);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, teamEnv);
+  const incident = sent.at(-1);
+  assert.match(messageText(incident), /The team's own tasks\*  ·  1 of 2[\s\S]*\*Incident:\* <[^|]+\|Checkout is down>/);
+  await send("/slack/interactions", execClick(incident, "export:next"), {}, teamEnv);
+  const own = sent.at(-1);
+  assert.match(messageText(own), /The team's own tasks\*  ·  2 of 2[\s\S]*Upgrade Node>  ·  In review/);
+  assert.deepEqual(JSON.parse(own.blocks.find((block) => block.accessory?.action_id === "export:peek").accessory.value), [
+    { c: "CDEV", t: "100.3", n: "Dev thread" },
+  ]);
+  // No requirement is part of it.
+  assert.ok(!sent.some((message) => messageText(message).includes("Dark mode")));
+});
+
 test("/cade export offers what was completed in the period picked, from the start of From to the end of To", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   await storeExecWork();
-  const { later: period } = await runTasksCommand("export", "CDEV", execEnv);
+  const { later: period } = await runTasksCommand("export", "CDEV", teamEnv);
   const sent = recordResponses(t);
   const pick = (from, to) => ({
     [execField(period, "from").block_id]: { value: { type: "datepicker", selected_date: from } },
@@ -6849,22 +6868,22 @@ test("/cade export offers what was completed in the period picked, from the star
 
   // A period that ended before "Export reports" was done offers only the
   // older work.
-  await send("/slack/interactions", execClick(period, "export:next", pick(day(40), day(3))), {}, execEnv);
+  await send("/slack/interactions", execClick(period, "export:next", pick(day(40), day(3))), {}, teamEnv);
   let text = messageText(sent.at(-1));
   assert.match(text, /Completed .* \(1–1 of 1\)[\s\S]*Old work/);
   assert.ok(!text.includes("Export reports>  ·  Done"));
 
   // To is counted to the end of its day: "Export reports" is in.
-  await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, teamEnv);
   const again = sent.at(-1);
   assert.equal(execField(again, "from").element.initial_date, day(40));
-  await send("/slack/interactions", execClick(again, "export:next", pick(day(2), day(2))), {}, execEnv);
+  await send("/slack/interactions", execClick(again, "export:next", pick(day(2), day(2))), {}, teamEnv);
   text = messageText(sent.at(-1));
   assert.match(text, /Completed .* \(1–1 of 1\)[\s\S]*Export reports/);
 
   // From after To goes no further.
-  await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, execEnv);
-  await send("/slack/interactions", execClick(sent.at(-1), "export:next", pick(day(1), day(5))), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, teamEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:next", pick(day(1), day(5))), {}, teamEnv);
   assert.match(messageText(sent.at(-1)), /From\* must be on or before \*To\*[\s\S]*Step 1 of/);
 });
 
@@ -7215,11 +7234,16 @@ const syncClick = (message, actionId) => {
 
 // Writes acme's executive summary into its doc, going through the walk as
 // it stands, and returns the responses sent since.
-async function writeExecSummary(t) {
-  const { later: first } = await runTasksCommand("export", "CDEV", execEnv);
+async function writeExecSummary(t, environment = execEnv) {
+  const { later: first } = await runTasksCommand("export", "CDEV", environment);
   const sent = recordResponses(t);
-  for (let i = 0; i < 5; i++) await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
-  await send("/slack/interactions", execClick(sent.at(-1), "export:post"), {}, execEnv);
+  // Through every step to the review, which has no Next.
+  let at = first;
+  while (at.blocks.at(-1).elements.some((element) => element.action_id === "export:next")) {
+    await send("/slack/interactions", execClick(at, "export:next"), {}, environment);
+    at = sent.at(-1);
+  }
+  await send("/slack/interactions", execClick(at, "export:post"), {}, environment);
   assert.match(sent.at(-1).text, /^Added the executive summary/);
   return sent;
 }
@@ -7466,4 +7490,44 @@ test("the dev channel's summary links the group's Google Sheet, the client chann
   await runTasksCommand("summary", "CEXTERNAL", withSheet);
   const client = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   assert.ok(!client.includes("Google Sheet"));
+});
+
+test("/cade import tracks a new item as a dev task for a group with no client channel", async (t) => {
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    "chat.postMessage": (args) => (args.channel === "CDEV" && !args.thread_ts ? { channel: "CDEV", ts: "100.9" } : { ts: "300.1" }),
+    "chat.getPermalink": { permalink: "https://slack.example/p109" },
+    doc: (body) =>
+      body.action === "doc.read"
+        ? { ok: true, elements: [{ type: "item", level: 0, text: "Bulk export to CSV", links: [] }, { type: "item", level: 1, text: "For finance", links: [] }] }
+        : { ok: true, url: DOC_TAB },
+  });
+  await storeExecWork();
+  const sent = await writeExecSummary(t, teamEnv);
+  const { later } = await runTasksCommand("import", "CDEV", teamEnv);
+  assert.match(messageText(later), /\*New requirement:\* Bulk export to CSV[\s\S]*Apply opens the task form, with the lines under it as the initial message, to track it in <#CDEV>/);
+
+  calls.length = 0;
+  await send("/slack/interactions", syncClick(later, "import:apply"), {}, teamEnv);
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  assert.equal(form.callback_id, "track");
+  assert.equal(form.blocks.find((block) => block.block_id === "title").element.initial_value, "Bulk export to CSV");
+  assert.equal(form.blocks.find((block) => block.block_id === "initial_message").element.initial_value, "For finance");
+
+  calls.length = 0;
+  const { values } = submission({ title: "Bulk export to CSV", priority: "Medium" }).view.state;
+  values.initial_message = { value: { value: "Finance needs it by month end." } };
+  await send("/slack/interactions", interaction({
+    type: "view_submission",
+    user: { id: "UACTOR" },
+    view: { callback_id: "track", private_metadata: form.private_metadata, state: { values } },
+  }), {}, teamEnv);
+  const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args);
+  // The task in the dev channel, then the message in its thread; nothing in
+  // any client channel.
+  assert.equal(posts[0].channel, "CDEV");
+  assert.equal(posts[0].thread_ts, undefined);
+  assert.deepEqual([posts[1].channel, posts[1].thread_ts, posts[1].text], ["CDEV", "100.9", "Finance needs it by month end."]);
+  assert.ok(!posts.some((post) => post.channel === "CEXTERNAL"));
+  assert.match(sent.at(-1).text, /^Nothing more to go through/);
 });
