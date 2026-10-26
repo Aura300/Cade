@@ -12,7 +12,8 @@ function createDoc(title) {
   return DocumentApp.create(title).getId();
 }
 
-// Writes the section and returns the tab's address.
+// Writes the section and returns its address: the tab's, opened at the
+// section's heading.
 function write(docId, title, key, blocks) {
   const { doc, tab } = tabFor(docId, title);
   const documentTab = tab.asDocumentTab();
@@ -26,6 +27,7 @@ function write(docId, title, key, blocks) {
     for (let i = end - 1; i >= at; i--) removeChild(body, i);
   }
   let list = null;
+  let heading = null;
   for (const block of blocks) {
     const element = insert(body, at++, block);
     // Bullets in a row are one list, so they nest.
@@ -37,10 +39,48 @@ function write(docId, title, key, blocks) {
     }
     if (block.type === "heading" && block.level === 2) {
       documentTab.addNamedRange(PREFIX + key, documentTab.newRange().addElement(element).build());
+      heading = element;
     }
   }
+  // Which of the headings with this text it is, as the doc may have several
+  // (two summaries written the same day).
+  const text = heading && heading.getText();
+  let nth = 0;
+  for (let i = 0; heading && i <= body.getChildIndex(heading); i++) {
+    const child = body.getChild(i);
+    if (child.getType() === DocumentApp.ElementType.PARAGRAPH && headingLevel(child.asParagraph()) && child.asParagraph().getText() === text) nth++;
+  }
   doc.saveAndClose();
-  return `https://docs.google.com/document/d/${docId}/edit?tab=${tab.getId()}`;
+  const address = `https://docs.google.com/document/d/${docId}/edit?tab=${tab.getId()}`;
+  const id = heading ? headingId(docId, tab.getId(), text, nth) : null;
+  return id ? `${address}#heading=${id}` : address;
+}
+
+// The ID Docs gives the `nth` heading reading `text` in the tab, which a
+// link opens the doc at, or null. Only the Docs API has it.
+function headingId(docId, tabId, text, nth) {
+  try {
+    const found = Docs.Documents.get(docId, { includeTabsContent: true });
+    const search = (tabs) => {
+      for (const tab of tabs || []) {
+        if (tab.tabProperties.tabId === tabId) return tab;
+        const child = search(tab.childTabs);
+        if (child) return child;
+      }
+      return null;
+    };
+    const tab = search(found.tabs);
+    let seen = 0;
+    for (const element of tab.documentTab.body.content) {
+      const paragraph = element.paragraph;
+      if (!paragraph || !paragraph.paragraphStyle || !paragraph.paragraphStyle.headingId) continue;
+      const words = paragraph.elements.map((part) => (part.textRun ? part.textRun.content : "")).join("").replace(/\n$/, "");
+      if (words === text && ++seen === nth) return paragraph.paragraphStyle.headingId;
+    }
+  } catch (error) {
+    // The tab's address will do.
+  }
+  return null;
 }
 
 function insert(body, at, block) {

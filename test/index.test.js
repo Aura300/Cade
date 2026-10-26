@@ -6716,7 +6716,7 @@ test("/cade export goes through requirements, then the team's own tasks, and add
   ]);
   assert.equal(
     sent.at(-1).text,
-    `Added the executive summary for ${show(weekAgo)} – ${show(today)} to <${DOC_TAB}|acme's Google Doc>. After going through it with the client, send \`/cade import\` for what was added to it.`,
+    `Added the executive summary for ${show(weekAgo)} – ${show(today)} to acme's Google Doc: <${DOC_TAB}|open it there>. After going through it with the client, send \`/cade import\` for what was added to it.`,
   );
 
   // Adding it again does nothing.

@@ -677,7 +677,7 @@ async function post(payload, env, at) {
   console.log("Executive summary added to the doc", { id: summary.id, group: summary.group, user: payload.user.id });
   await respondLater(payload.response_url, {
     replace_original: true,
-    text: `Added the executive summary for ${periodLabel(env, summary)} to <${address}|${summary.group}'s Google Doc>. After going through it with the client, send \`/cade import\` for what was added to it.`,
+    text: `Added the executive summary for ${periodLabel(env, summary)} to ${summary.group}'s Google Doc: <${address}|open it there>. After going through it with the client, send \`/cade import\` for what was added to it.`,
   });
 }
 
