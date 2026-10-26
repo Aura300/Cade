@@ -188,7 +188,8 @@ export async function refreshSummary(env, channel) {
 // Records the task's current state in the Google Sheet. The sheet is a
 // record, so failures are logged rather than failing the command.
 export async function syncTask(env, channel, ts, task, { deleted = false } = {}) {
-  if (!sheetEnabled(env)) return;
+  const group = pairFor(env, channel);
+  if (!sheetEnabled(env, group)) return;
   try {
     // Tasks keep their link from when they were created; this is in case
     // looking it up failed then.
@@ -200,7 +201,7 @@ export async function syncTask(env, channel, ts, task, { deleted = false } = {})
       await putTask(env, channel, ts, task);
     }
     const names = (ids) => (ids.length ? userNames(env, ids) : "Unassigned");
-    await sendRow(env, pairFor(env, channel).name, {
+    await sendRow(env, group, {
       "Task ID": `${channel}:${ts}`,
       Title: task.title,
       Status: deleted ? "Deleted" : statusName(task.status),

@@ -37,6 +37,7 @@ Other scripts:
 | Script | Does |
 | --- | --- |
 | `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
+| `npm run group -- --name acme --tasks C… [--external C…] [--incidents C…] [--doc new\|<address>] [--sheet new\|<address>]` | Adds or changes a group in `cade.config.json` and uploads it; `new` makes the group's doc or spreadsheet through its web app |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `SHEET_URL`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |

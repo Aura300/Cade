@@ -1060,8 +1060,11 @@ test("parseMessage reads the command name and mentioned people", () => {
   assert.equal(parseMessage({ text: "<@UOTHER> track" }, "UBOT"), null);
 });
 
+// Each group's own spreadsheet.
+const SHEETS = { acme: "1AcmeSheetAcmeSheetAcmeSheet", test: "1TestSheetTestSheetTestSheet" };
+const withSheets = (pairs) => pairs.map((pair) => ({ ...pair, sheet: `https://docs.google.com/spreadsheets/d/${SHEETS[pair.name]}/edit` }));
 // The sheet's times are in TIMEZONE; these tests expect Sri Lanka time.
-const sheetEnv = { ...env, SHEET_URL, SHEET_SECRET: "sheet-secret", TIMEZONE: "Asia/Colombo" };
+const sheetEnv = { ...env, CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS), SHEET_URL, SHEET_SECRET: "sheet-secret", TIMEZONE: "Asia/Colombo" };
 const sendWithSheet = (path, body) => send(path, body, {}, sheetEnv);
 const slackUsers = {
   "users.info": (args) => ({
@@ -1073,6 +1076,7 @@ const sheetRow = (calls) => {
   assert.equal(sheet.length, 1);
   assert.equal(sheet[0].args.secret, "sheet-secret");
   assert.equal(sheet[0].args.project, "acme");
+  assert.equal(sheet[0].args.spreadsheetId, SHEETS.acme);
   return sheet[0].args.row;
 };
 
@@ -1111,7 +1115,26 @@ test("tasks in the test channels go to the test tabs", async (t) => {
   );
   const sheet = calls.find((call) => call.method === "sheet").args;
   assert.equal(sheet.project, "test");
+  assert.equal(sheet.spreadsheetId, SHEETS.test);
   assert.equal(sheet.row["Task ID"], "CTESTDEV:100.1");
+});
+
+test("a group without its own spreadsheet isn't recorded in a Sheet", async (t) => {
+  const calls = mockSlack(t, { ...slackUsers, stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"), {}, { ...sheetEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
+  assert.equal(calls.filter((call) => call.method === "sheet").length, 0);
+  assert.ok(calls.some((call) => call.method === "chat.update"), "the task itself still changes");
+});
+
+test("cade.config.json can link a group's own spreadsheet", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const sheet = "https://docs.google.com/spreadsheets/d/1AcmeSheetAcmeSheetAcmeSheet/edit";
+  const channels = [{ name: "acme", tasks: "C0000000002", sheet }];
+  assert.equal(JSON.parse(readConfig(JSON.stringify({ channels })).CHANNEL_PAIRS)[0].sheet, sheet);
+  assert.throws(
+    () => readConfig(JSON.stringify({ channels: [{ ...channels[0], sheet: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }] })),
+    /acme's sheet should be a Google Sheet's address/,
+  );
 });
 
 test("a channel pair without a name is reported", async (t) => {
@@ -2240,7 +2263,7 @@ test("incident tasks are recorded in the pair's sheet tab", async (t) => {
     "/slack/events",
     threadEvent("<@UBOT> status in progress", { channel: "CINC" }),
     {},
-    { ...incidentEnv, SHEET_URL, SHEET_SECRET: "secret" },
+    { ...incidentEnv, CHANNEL_PAIRS: withSheets(incidentEnv.CHANNEL_PAIRS), SHEET_URL, SHEET_SECRET: "secret" },
   );
   const row = calls.find((call) => call.method === "sheet").args;
   assert.equal(row.project, "acme");
@@ -4256,7 +4279,7 @@ test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetU
 
   // The Google Doc web app is made the same way, with its own secret and setting.
   assert.match(secretFile(secret, APPS.doc), /npm run doc:create.*DOC_SECRET/);
-  const { docGroup, parentIdIn, withDocLink } = await import("../scripts/sheet-app.mjs");
+  const { groupFor, parentIdIn, withLink } = await import("../scripts/sheet-app.mjs");
   // An existing doc or spreadsheet is taken by its address or ID.
   const id = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
   assert.equal(parentIdIn(`https://docs.google.com/document/d/${id}/edit?tab=t.0`, APPS.doc), id);
@@ -4264,13 +4287,18 @@ test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetU
   assert.equal(parentIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`, APPS.sheet), id);
   assert.throws(() => parentIdIn(`https://docs.google.com/spreadsheets/d/${id}/edit`, APPS.doc), /--doc should be the Google Doc's address/);
   const two = JSON.stringify({ channels: [{ name: "acme", tasks: "C1" }, { name: "beta", tasks: "C2" }] });
-  assert.equal(docGroup(two, "beta"), "beta");
-  assert.throws(() => docGroup(two), /Which group is the doc for\?/);
-  assert.throws(() => docGroup(two, "nope"), /no group called "nope"/);
-  assert.equal(docGroup('{"channels":[{"name":"acme","tasks":"C1"}]}'), "acme");
-  assert.deepEqual(JSON.parse(withDocLink(two, "https://script.google.com/macros/s/D/exec", "beta", "https://docs.google.com/document/d/X/edit")), {
+  assert.equal(groupFor(two, "beta"), "beta");
+  assert.throws(() => groupFor(two), /Which group is the doc for\?/);
+  assert.throws(() => groupFor(two, undefined, APPS.sheet), /Which group is the sheet for\? .*npm run sheet:create -- --group/);
+  assert.throws(() => groupFor(two, "nope"), /no group called "nope"/);
+  assert.equal(groupFor('{"channels":[{"name":"acme","tasks":"C1"}]}'), "acme");
+  assert.deepEqual(JSON.parse(withLink(two, APPS.doc, "https://script.google.com/macros/s/D/exec", "beta", "https://docs.google.com/document/d/X/edit")), {
     channels: [{ name: "acme", tasks: "C1" }, { name: "beta", tasks: "C2", doc: "https://docs.google.com/document/d/X/edit" }],
     docUrl: "https://script.google.com/macros/s/D/exec",
+  });
+  assert.deepEqual(JSON.parse(withLink(two, APPS.sheet, "https://script.google.com/macros/s/S/exec", "acme", "https://docs.google.com/spreadsheets/d/Y/edit")), {
+    channels: [{ name: "acme", tasks: "C1", sheet: "https://docs.google.com/spreadsheets/d/Y/edit" }, { name: "beta", tasks: "C2" }],
+    sheetUrl: "https://script.google.com/macros/s/S/exec",
   });
   assert.deepEqual(JSON.parse(withSheetUrl("{}", "https://script.google.com/macros/s/D/exec", APPS.doc.configKey)), {
     docUrl: "https://script.google.com/macros/s/D/exec",
@@ -7332,4 +7360,22 @@ test("/cade import can discard a suggestion, and needs a summary in the doc", as
   assert.match(messageText(later), /\*New requirement:\* SSO/);
   await send("/slack/interactions", syncClick(later, "import:discard"), {}, execEnv);
   assert.match(sent.at(-1).text, /^Nothing more to go through/);
+});
+
+test("npm run group adds or changes a group in cade.config.json", async () => {
+  const { readArgs, withGroup } = await import("../scripts/group.mjs");
+  assert.deepEqual(readArgs(["--name", "acme", "--tasks", "C0000000002", "--doc", "new"]), { name: "acme", tasks: "C0000000002", doc: "new" });
+  assert.throws(() => readArgs(["--tasks", "C1"]), /Give the group a --name/);
+  assert.throws(() => readArgs(["--name", "acme", "--colour", "red"]), /I don't know "--colour"/);
+  assert.throws(() => readArgs(["--name", "acme", "--tasks"]), /--tasks needs a value/);
+
+  const start = JSON.stringify({ timezone: "UTC", channels: [{ name: "acme", external: "C0000000001", tasks: "C0000000002", doc: "https://docs.google.com/document/d/D/edit" }] });
+  // A new group goes at the end, its settings in order.
+  const added = JSON.parse(withGroup(start, "beta", { sheet: "https://docs.google.com/spreadsheets/d/S/edit", tasks: "C0000000003" }));
+  assert.equal(added.timezone, "UTC");
+  assert.deepEqual(added.channels[1], { name: "beta", tasks: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit" });
+  // A group there already keeps what isn't given; `none` removes a setting.
+  const changed = JSON.parse(withGroup(start, "acme", { incidents: "C0000000004", doc: "none" }));
+  assert.deepEqual(changed.channels, [{ name: "acme", external: "C0000000001", tasks: "C0000000002", incidents: "C0000000004" }]);
+  assert.throws(() => withGroup(start, "gamma", { external: "C0000000005" }), /gamma needs a --tasks channel/);
 });

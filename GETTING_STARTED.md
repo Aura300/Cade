@@ -48,13 +48,26 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name (its tab in the Sheet); `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name (its tab in the Sheet); `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet). `sheetUrl` and `docUrl` stay at the top: one script each serves every group's file. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `sheetUrl` | Optional | The Google Sheet's web app URL (`https://script.google.com/…/exec`). Without it, nothing is written to a Sheet. | Set for you by `npm run sheet:create` (step 8). |
 | `docUrl` | Optional | The Google Doc web app's URL (`https://script.google.com/…/exec`). Without it, `/cade export` and `/cade import` don't work. | Set for you by `npm run doc:create` (step 8b). |
 
 Start from `cade.config.example.json`. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
+
+To add or change a group without editing the file, once the web apps are
+set up (steps 8 and 8b):
+
+```sh
+npm run group -- --name acme --tasks C… --external C… --incidents C… --doc new --sheet new
+```
+
+`--external` and `--incidents` can be left out. `--doc` and `--sheet` take
+`new` (made for you, named "acme executive summaries" and "acme tasks"),
+the address of one you have, or `none` to unlink; leave them out to keep
+what the group has. It checks and uploads the file, as `npm run config`
+does.
 
 ### Secrets: in Cloudflare only
 
@@ -237,18 +250,23 @@ task. It needs a Google account.
 
 1. **(person)** `npx clasp login`, and turn on the Apps Script API at
    <https://script.google.com/home/usersettings> (once per account).
-2. Create it (to use a spreadsheet you already have, add
-   `-- --sheet <its address>`):
+2. **(person)** In Google Sheets, make a spreadsheet for the group (blank is
+   fine), and copy its address.
+3. Create the web app and link the spreadsheet (with several groups, add
+   `--group <name>`):
 
    ```sh
-   npm run sheet:create
+   npm run sheet:create -- --sheet "<the spreadsheet's address>"
    ```
 
-   **Expect:** a new spreadsheet with its script, deployed as a web app; the
-   Worker gets its address (`sheetUrl`, added to `cade.config.json` and
-   uploaded) and its secret (`SHEET_SECRET`).
-3. **(person)** Open the script link it prints, choose `authorize`, click
+   **Expect:** a standalone script, "Cade Sheet", deployed as a web app; the
+   Worker gets its address (`sheetUrl`) and its secret (`SHEET_SECRET`),
+   and the group its `sheet`, in `cade.config.json` and uploaded.
+4. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
+
+Other groups use the same web app: add each one's spreadsheet to its group
+as `"sheet"`, then `npm run config`.
 
 **If it fails** with the Apps Script API: turn it on (step 1) and run it
 again. Details, doing it by hand, and troubleshooting are in
@@ -262,22 +280,21 @@ was added during the call. It's separate from the Sheet and works without
 it.
 
 1. **(person)** `npx clasp login` and the Apps Script API, as in step 8.
-2. Create the doc, for your group (or, with several, add `-- --group <name>`;
-   to use a doc you already have, add `-- --doc <its address>`):
+2. **(person)** Make the group's Google Doc (or use one you have), share it
+   with the client as **Editor**, and copy its address. Cade writes in its
+   **Summary** tab, and adds the tab if it has none.
+3. Create the web app and link the doc (with several groups, add `--group
+   <name>`):
 
    ```sh
-   npm run doc:create
+   npm run doc:create -- --doc "<the doc's address>"
    ```
 
-   **Expect:** a new Google Doc, "<group> executive summaries", with its
-   script attached (**Extensions → Apps Script**) and deployed as a web app;
-   the doc is linked to the group (`doc` in `cade.config.json`), and the
-   Worker gets the web app's address (`docUrl`) and its secret
-   (`DOC_SECRET`), all uploaded.
-3. **(person)** Open the script link it prints, choose `authorize`, click
+   **Expect:** a standalone script, "Cade Doc", deployed as a web app; the
+   Worker gets its address (`docUrl`) and its secret (`DOC_SECRET`), and the
+   group its `doc`, in `cade.config.json` and uploaded.
+4. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
-4. **(person)** Share the doc it prints with the client, as **Editor**.
-   Cade writes in its **Summary** tab, and adds the tab if it has none.
 
 Other groups use the same web app with docs of their own: add each one's
 address to its group in `cade.config.json` as `"doc"`, then `npm run

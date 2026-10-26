@@ -1,22 +1,23 @@
 #!/usr/bin/env node
 // Creates the Google Sheet Cade records tasks in, with its Apps Script web
 // app, or updates the script, using clasp (Google's Apps Script command line).
-// The Google Doc executive summaries are kept in is made the same way, by
-// doc-app.mjs: a doc for a group, with the script attached, linked to the
-// group as its `doc`. See GETTING_STARTED.md.
+// The Google Doc web app executive summaries are kept with is made the same
+// way, by doc-app.mjs. Each is a standalone script, in no spreadsheet or doc,
+// serving every group: each group links its own spreadsheet and doc, as
+// `sheet` and `doc` in cade.config.json. See GETTING_STARTED.md.
 //
-//   npm run sheet:create [-- --title "Cade tasks"] [--sheet <address>]
+//   npm run sheet:create [-- --group acme --sheet <address>] [--title "Cade Sheet"]
 //   npm run sheet:update
-//   npm run doc:create [-- --group acme] [--title "acme executive summaries"] [--doc <address>]
+//   npm run doc:create [-- --group acme --doc <address>] [--title "Cade Doc"]
 //   npm run doc:update
 //
-// With --sheet or --doc, the script is attached to that spreadsheet or doc,
-// one you have already, rather than a new one.
+// With --group and --sheet (or --doc), that spreadsheet (or doc) is linked
+// to the group too. --group can be left out when there is only one.
 //
 // Both need `npx clasp login`, and the Apps Script API turned on for your
 // Google account (https://script.google.com/home/usersettings).
 //
-// Creating makes a new spreadsheet with google-sheet/Code.gs attached,
+// Creating makes a standalone script of google-sheet/Code.gs,
 // generates the shared secret into google-sheet/Secret.gs (not committed),
 // deploys the web app, then gives the Worker its address (sheetUrl in
 // cade.config.json, uploaded with npm run config) and the secret
@@ -41,9 +42,9 @@ export const APPS = {
     configKey: "sheetUrl",
     type: "sheets",
     path: "spreadsheets",
-    title: "Cade tasks",
+    title: "Cade Sheet",
     command: "sheet",
-    noun: "Sheet",
+    noun: "Google Sheet",
   },
   doc: {
     dir: `${ROOT}google-doc`,
@@ -52,7 +53,7 @@ export const APPS = {
     configKey: "docUrl",
     type: "docs",
     path: "document",
-    title: "executive summaries",
+    title: "Cade Doc",
     command: "doc",
     noun: "Google Doc",
   },
@@ -84,15 +85,16 @@ export function withSheetUrl(configJson, url, key = "sheetUrl") {
   return `${JSON.stringify({ ...config, [key]: url }, null, 2)}\n`;
 }
 
-// cade.config.json with the Doc's web app address set, and `docAddress`
-// linked to the group `name` as its doc, keeping everything else in it.
-export function withDocLink(configJson, url, name, docAddress) {
-  const config = JSON.parse(withSheetUrl(configJson, url, "docUrl"));
-  config.channels = config.channels.map((group) => (group.name === name ? { ...group, doc: docAddress } : group));
+// cade.config.json with the app's web app address set, and `address`, the
+// spreadsheet or doc, linked to the group `name` as its `sheet` or `doc`,
+// keeping everything else in it.
+export function withLink(configJson, app, url, name, address) {
+  const config = JSON.parse(withSheetUrl(configJson, url, app.configKey));
+  config.channels = config.channels.map((group) => (group.name === name ? { ...group, [app.command]: address } : group));
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
-// The ID of an existing spreadsheet or doc (by `app.path`) in its address,
+// The ID of a spreadsheet or doc (by `app.path`) in its address,
 // or `value` itself if it is an ID already. Throws if it is neither.
 export function parentIdIn(value, app) {
   const match = new RegExp(`/${app.path}/d/([\\w-]{20,})`).exec(value) ?? /^([\w-]{20,})$/.exec(value);
@@ -100,9 +102,9 @@ export function parentIdIn(value, app) {
   return match[1];
 }
 
-// The group a doc is made for: the one named with --group, or the only one
-// in cade.config.json.
-export function docGroup(configJson, named) {
+// The group a spreadsheet or doc is linked to: the one named with --group,
+// or the only one in cade.config.json.
+export function groupFor(configJson, named, app = APPS.doc) {
   const groups = JSON.parse(configJson).channels ?? [];
   const names = groups.map((group) => group.name).join(", ");
   if (named) {
@@ -110,7 +112,7 @@ export function docGroup(configJson, named) {
     return named;
   }
   if (groups.length === 1) return groups[0].name;
-  throw new Error(`Which group is the doc for? Add --group with one of ${names}: npm run doc:create -- --group <name>.`);
+  throw new Error(`Which group is the ${app.command} for? Add --group with one of ${names}: npm run ${app.command}:create -- --group <name>.`);
 }
 
 // Runs a command in `cwd`, showing its output, and returns that output.
@@ -162,28 +164,25 @@ function option(args, name) {
 export async function create(args, app = APPS.sheet) {
   const appFile = app.appFile.slice(ROOT.length);
   if (await exists(app.appFile)) {
-    throw new Error(`A ${app.noun} is already set up (${appFile}). Use npm run ${app.command}:update to change its script.`);
+    throw new Error(`The ${app.noun} web app is already set up (${appFile}). Use npm run ${app.command}:update to change its script.`);
   }
-  // A doc is for a group, so cade.config.json must be there first.
+  // With --group and --sheet (or --doc), that file is linked to the group,
+  // so cade.config.json must be there first.
+  const given = option(args, app.command);
   let group;
-  if (app.type === "docs") {
+  let address;
+  if (option(args, "group") || given) {
     if (!(await exists(CONFIG_FILE))) throw new Error("No cade.config.json: set up your channels first (npm run config).");
-    group = docGroup(await readFile(CONFIG_FILE, "utf8"), option(args, "group"));
+    group = groupFor(await readFile(CONFIG_FILE, "utf8"), option(args, "group"), app);
+    if (!given) throw new Error(`Give the ${app.noun} to link to ${group}: --${app.command} <its address>.`);
+    address = `https://docs.google.com/${app.path}/d/${parentIdIn(given, app)}/edit`;
   }
-  const title = option(args, "title") ?? (group ? `${group} ${app.title}` : app.title);
-  const existing = option(args, app.command) && parentIdIn(option(args, app.command), app);
+  const title = option(args, "title") ?? app.title;
   const manifest = await readFile(`${app.dir}/appsscript.json`, "utf8");
 
-  const kind = app.type === "sheets" ? "spreadsheet" : "doc";
-  if (existing) {
-    console.log(`Attaching the script "${title}" to your ${kind}…`);
-    await clasp(app, "create-script", "--parentId", existing, "--title", title, "--rootDir", ".");
-  } else {
-    console.log(`Creating the ${kind} "${title}" with its script…`);
-    await clasp(app, "create-script", "--type", app.type, "--title", title, "--rootDir", ".");
-  }
+  console.log(`Creating the script "${title}"…`);
+  await clasp(app, "create-script", "--type", "standalone", "--title", title, "--rootDir", ".");
   const project = JSON.parse(await readFile(`${app.dir}/.clasp.json`, "utf8"));
-  project.parentId ??= existing;
 
   const secret = randomBytes(32).toString("hex");
   await writeFile(`${app.dir}/Secret.gs`, secretFile(secret, app));
@@ -194,16 +193,13 @@ export async function create(args, app = APPS.sheet) {
   const deploymentId = deploymentIdIn(deployment);
   if (!deploymentId) throw new Error("Couldn't find the deployment ID in clasp's output; see npx clasp list-deployments.");
   const url = webAppUrl(deploymentId);
-  const parent = app.type === "sheets" ? { spreadsheetId: project.parentId ?? "" } : { documentId: project.parentId ?? "", group };
-  const saved = { scriptId: project.scriptId, ...parent, deploymentId, url };
+  const saved = { scriptId: project.scriptId, deploymentId, url };
   await writeFile(app.appFile, `${JSON.stringify(saved, null, 2)}\n`);
 
   console.log("Giving the Worker the secret and the address…");
   await run("npx", ["wrangler", "secret", "put", app.secretName], { input: secret });
-  const doc = saved.documentId ? `https://docs.google.com/document/d/${saved.documentId}/edit` : "";
   if (group) {
-    if (!doc) throw new Error("clasp didn't say which doc it made; see npx clasp open-container, and add it to the group in cade.config.json as \"doc\".");
-    await writeFile(CONFIG_FILE, withDocLink(await readFile(CONFIG_FILE, "utf8"), url, group, doc));
+    await writeFile(CONFIG_FILE, withLink(await readFile(CONFIG_FILE, "utf8"), app, url, group, address));
     await run("node", ["scripts/config.mjs"]);
   } else if (await exists(CONFIG_FILE)) {
     await writeFile(CONFIG_FILE, withSheetUrl(await readFile(CONFIG_FILE, "utf8"), url, app.configKey));
@@ -214,14 +210,18 @@ export async function create(args, app = APPS.sheet) {
     console.log(`Made cade.config.json with ${app.configKey}; fill in your channels, then run npm run config.`);
   }
 
-  const sheet = saved.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${saved.spreadsheetId}` : "";
-  const what = app.type === "sheets" ? "to the spreadsheet" : "to the doc";
+  const kind = app.type === "sheets" ? "spreadsheet" : "doc";
+  const linked = group
+    ? `${group} is linked to ${address}.`
+    : `Then link each group's ${kind}: add "${app.command}": "<its address>" to the group in cade.config.json, and run npm run config.`;
   console.log(`
 Done. One step is left, which only you can do: approve the script's access
-${what}. Open the script, choose the "authorize" function, click Run, and
-allow it:
+to your ${kind}s. Open the script, choose the "authorize" function, click
+Run, and allow it:
   https://script.google.com/d/${saved.scriptId}/edit
-${sheet ? `\nThe spreadsheet: ${sheet}\n` : ""}${doc ? `\nThe doc, linked to ${group}; share it with the client: ${doc}\n` : ""}`);
+
+${linked} The script runs as you, so you must be able to edit each ${kind}.
+`);
 }
 
 export async function update(args, app = APPS.sheet) {

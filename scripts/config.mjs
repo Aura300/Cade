@@ -9,7 +9,9 @@
 //   docUrl    the Google Doc web app's address (optional)     → DOC_URL
 //
 // Each group in `channels` can link its Google Doc, for executive summaries,
-// with `doc`: the doc's address.
+// with `doc`, and its own Google Sheet, for its tasks, with `sheet`: their
+// addresses. A group without `sheet` isn't recorded in a Sheet. `npm run
+// group` adds or changes a group here (see group.mjs).
 //
 // The real secrets (the bot token, the signing secret, and SHEET_SECRET and
 // DOC_SECRET, which the web apps' addresses are useless without) are set once
@@ -21,6 +23,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { channelPairs } from "../src/channels.js";
 import { docId } from "../src/doc.js";
+import { sheetId } from "../src/sheet.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FILE = `${ROOT}cade.config.json`;
@@ -45,6 +48,8 @@ export function readConfig(json) {
   if (reused) throw new Error(`${reused} is used twice; each channel belongs to one group, in one role.`);
   const badDoc = pairs.find((pair) => pair.doc !== undefined && !docId(pair.doc));
   if (badDoc) throw new Error(`${badDoc.name}'s doc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
+  const badSheet = pairs.find((pair) => pair.sheet !== undefined && !sheetId(pair.sheet));
+  if (badSheet) throw new Error(`${badSheet.name}'s sheet should be a Google Sheet's address: https://docs.google.com/spreadsheets/d/…/edit.`);
 
   const secrets = { CHANNEL_PAIRS: JSON.stringify(pairs) };
   if (config.timezone !== undefined) secrets.TIMEZONE = checkZone(config.timezone);
@@ -87,7 +92,8 @@ export async function uploadConfig() {
     const incidents = pair.incidents ? `, incidents ${pair.incidents}` : "";
     const external = pair.external ? `external ${pair.external} → ` : "";
     const doc = pair.doc ? `, doc ${pair.doc}` : "";
-    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}${doc}`);
+    const sheet = pair.sheet ? `, sheet ${pair.sheet}` : "";
+    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}${doc}${sheet}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.SHEET_URL) console.log(`sheetUrl: ${secrets.SHEET_URL}`);

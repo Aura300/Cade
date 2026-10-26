@@ -12,6 +12,7 @@
     "slack:create": "node scripts/slack-app.mjs create",
     "slack:update": "node scripts/slack-app.mjs update",
     "config": "node scripts/config.mjs",
+    "group": "node scripts/group.mjs",
     "sheet:create": "node scripts/sheet-app.mjs create",
     "sheet:update": "node scripts/sheet-app.mjs update",
     "doc:create": "node scripts/doc-app.mjs create",

@@ -1,12 +1,10 @@
 #!/usr/bin/env node
-// Creates the Google Doc a group's executive summaries are kept in, with
-// its Apps Script web app (google-doc/Code.gs) attached, as sheet-app.mjs
-// does for the Sheet, and links it to the group as its `doc` in
-// cade.config.json; or updates the script. The web app can edit any doc you
-// can, so other groups link docs of their own with `doc`. See
-// GETTING_STARTED.md.
+// Creates the Google Doc web app executive summaries are kept with
+// (google-doc/Code.gs), a standalone script serving every group's doc, or
+// updates it, as sheet-app.mjs does for the Sheet. Each group links its doc
+// as `doc` in cade.config.json. See GETTING_STARTED.md.
 //
-//   npm run doc:create [-- --group acme] [--title "acme executive summaries"]
+//   npm run doc:create [-- --group acme --doc <address>] [--title "Cade Doc"]
 //   npm run doc:update
 import { fileURLToPath } from "node:url";
 import { APPS, main } from "./sheet-app.mjs";

@@ -1,20 +1,23 @@
 import { callSlack } from "./slack.js";
 
 // Slack's free plan drops old messages, so every task is also recorded in a
-// Google Sheet. The sheet's Apps Script web app (google-sheet/Code.gs) receives
-// one row per change and keeps a tab per channel pair, named after the pair,
-// up to date. Syncing is skipped when SHEET_URL is not configured.
-export function sheetEnabled(env) {
-  return Boolean(env.SHEET_URL && env.SHEET_SECRET);
+// Google Sheet: each channel pair's own spreadsheet, its `sheet` in
+// CHANNEL_PAIRS. The Apps Script web app (google-sheet/Code.gs), a script of
+// its own that serves every pair, receives one row per change and keeps a
+// tab named after the pair up to date. Syncing is skipped when SHEET_URL is
+// not configured, and for a pair with no `sheet`.
+export function sheetEnabled(env, group) {
+  return Boolean(env.SHEET_URL && env.SHEET_SECRET && sheetId(group.sheet));
 }
 
-// `project` is the channel pair's name, which picks the tab. `row` is keyed
-// by the sheet's column headers; "Task ID" identifies the row.
-export async function sendRow(env, project, row) {
+// `group` is the channel pair: its `sheet` picks the spreadsheet, and its
+// name the tab. `row` is keyed by the sheet's column headers; "Task ID"
+// identifies the row.
+export async function sendRow(env, group, row) {
   const response = await fetch(env.SHEET_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret: env.SHEET_SECRET, project, row }),
+    body: JSON.stringify({ secret: env.SHEET_SECRET, project: group.name, spreadsheetId: sheetId(group.sheet), row }),
     redirect: "manual",
   });
 
@@ -68,4 +71,11 @@ export function formatTime(env, date) {
       .map(({ type, value }) => [type, value]),
   );
   return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
+}
+
+// The spreadsheet's ID in its address (…/spreadsheets/d/<id>/…), or `value`
+// itself if it is an ID already, or "" if it is neither.
+export function sheetId(value) {
+  const match = /\/spreadsheets\/d\/([\w-]{20,})/.exec(value ?? "") ?? /^([\w-]{20,})$/.exec(value ?? "");
+  return match ? match[1] : "";
 }
