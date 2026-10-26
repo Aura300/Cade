@@ -35,6 +35,8 @@ import unassign from "./unassign.js";
 //     actions?: { [actionId]: handler(payload, context) } for its buttons,
 //     shortcuts?: { [callbackId]: handler(payload, context) } for its items
 //               in a message's ⋯ → More actions (see slack/manifest.json),
+//     reactions?: handler(event, context) for each emoji added to a message
+//               in a channel Cade is in; it decides which ones it acts on,
 //     intents?: plain messages it acts on, made with intent() (see intents.js),
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
@@ -61,6 +63,8 @@ export const shortcuts = Object.assign(
   {},
   ...interactive.map((handler) => handler.shortcuts ?? {}),
 );
+
+export const reactions = interactive.flatMap((handler) => (handler.reactions ? [handler.reactions] : []));
 
 export const actions = Object.assign(
   {},

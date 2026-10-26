@@ -1,6 +1,6 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
-import { actions, intents, shortcuts, views } from "./commands/registry.js";
+import { actions, intents, reactions, shortcuts, views } from "./commands/registry.js";
 import { findIntent, plainMessage } from "./intents.js";
 import { retryUnposted } from "./retry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
@@ -58,11 +58,20 @@ async function handleEvent(body, request, context) {
   // Events are acknowledged before they are processed, so a retry means the
   // first delivery is already being handled.
   if (request.headers.has("x-slack-retry-num")) return respond();
-  if (envelope.type !== "event_callback" || envelope.event.type !== "message") {
+  if (envelope.type !== "event_callback") return respond();
+  const botUserId = envelope.authorizations?.[0]?.user_id;
+
+  // An emoji added to a message can ask Cade to do something with it (see
+  // the handlers' `reactions`). Cade's own reactions never do.
+  if (envelope.event.type === "reaction_added") {
+    const { event } = envelope;
+    if (event.item?.type === "message" && event.user !== botUserId) {
+      for (const handle of reactions) context.waitUntil(handle(event, context));
+    }
     return respond();
   }
+  if (envelope.event.type !== "message") return respond();
 
-  const botUserId = envelope.authorizations?.[0]?.user_id;
   const command = parseMessage(envelope.event, botUserId);
   if (command) {
     context.waitUntil(

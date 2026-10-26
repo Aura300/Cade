@@ -16,6 +16,10 @@ const INCIDENT_ACTION = "move:report-incident";
 const TRACK_ACTION = "move:track-task";
 const EXISTING_ACTION = "move:existing";
 const DISMISS_ACTION = "move:dismiss";
+// The emoji that ask Cade to convert or move a message, when someone adds
+// them to it; `reactions` in cade.config.json changes them (REACTIONS).
+const DEFAULT_REACTIONS = { convert: "ticket", move: "twisted_rightwards_arrows" };
+
 // The message shortcuts, ⋯ → More actions → Move to task and Convert to
 // task, by the callback_ids the manifest gives them, and Move's form.
 const MOVE_SHORTCUT = "move";
@@ -79,7 +83,9 @@ const targetsIn = (env, channel) => (roleOf(env, channel) === "external" ? REQUI
 //
 // ⋯ → More actions → Move to task, Cade's message shortcut, does the same
 // from the message itself, with a form (see openMoveForm); Convert to task
-// starts a task or requirement from it (see openConvertForm).
+// starts a task or requirement from it (see openConvertForm). Adding 🎫 or
+// 🔀 to a message (see DEFAULT_REACTIONS) does the same in one click from
+// Slack's hover bar, with a private reply instead of a form (see reacted).
 //
 // A message posted on its own in the external channel, not in a thread, gets
 // a private question for whoever posted it: start a requirement or report
@@ -109,6 +115,7 @@ export default {
     await privately(env, command, picker(command.channel, command.threadTs, open, targets));
   },
   shortcuts: { [MOVE_SHORTCUT]: openMoveForm, [CONVERT_SHORTCUT]: openConvertForm },
+  reactions: (event, { env }) => reacted(env, event),
   views: { [MOVE_VIEW]: submitMoveForm },
   intents: [
     intent({
@@ -236,6 +243,63 @@ async function openConvertForm(payload, { env }) {
   await callSlack(env, "views.open", {
     trigger_id: payload.trigger_id,
     view: view({ channel, moveTs: ts, title: firstLine(text) }),
+  });
+}
+
+// The emoji that convert and move messages, as { convert, move }.
+export function triggerReactions(env) {
+  try {
+    return { ...DEFAULT_REACTIONS, ...JSON.parse(env.REACTIONS || "{}") };
+  } catch {
+    return DEFAULT_REACTIONS;
+  }
+}
+
+// Someone added an emoji to a message. The convert emoji asks them,
+// privately, whether to track it as a task (in the dev channel) or start a
+// requirement from it (in the client channel), with a button that opens the
+// form, since a reaction carries no trigger_id to open one; the move emoji
+// shows them the picker `@Cade move` shows. Other emoji are left alone. Only
+// messages posted in the channel itself count, and anything stopping it is
+// said only to them.
+async function reacted(env, event) {
+  const emoji = event.reaction.split("::")[0];
+  const { convert, move } = triggerReactions(env);
+  const action = { [convert]: "convert", [move]: "move" }[emoji];
+  if (!action) return;
+  const { channel, ts } = event.item;
+  const role = roleOf(env, channel);
+  const places = action === "convert" ? ["external", "tasks"] : ["external", "tasks", "incidents"];
+  if (!places.includes(role)) return;
+  const user = event.user;
+  const tell = (body) => callSlack(env, "chat.postEphemeral", { channel, user, ...body });
+
+  const targets = targetsIn(env, channel);
+  if (await targets.load(env, channel, ts)) return tell({ text: targets.alreadyThere });
+  const thread = await readThread(env, channel, ts);
+  if (!thread) return tell({ text: "I can only do that with messages posted in the channel itself, not replies in a thread." });
+  if (thread.root.bot_id) return tell({ text: "I can only move people's messages." });
+  if (thread.movedTo) return tell({ text: `This message was already moved: <${thread.movedTo}|see it there>.` });
+
+  if (action === "move") {
+    const open = await targets.list(env, channel);
+    if (!open.length) return tell({ text: `${targets.none} ${targets.start}` });
+    return tell(picker(channel, ts, open, targets));
+  }
+  const { question, button, action: actionId } = STARTS[role === "external" ? "requirement" : "task"];
+  const value = JSON.stringify({ channel, ts, title: firstLine(thread.root.text ?? "") });
+  await tell({
+    text: question,
+    blocks: [
+      { type: "section", text: mrkdwn(question) },
+      {
+        type: "actions",
+        elements: [
+          { type: "button", action_id: actionId, text: plainText(button), style: "primary", value },
+          { type: "button", action_id: DISMISS_ACTION, text: plainText("Not now"), value },
+        ],
+      },
+    ],
   });
 }
 

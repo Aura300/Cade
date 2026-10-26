@@ -48,6 +48,7 @@
         "groups:read",
         "groups:write",
         "pins:write",
+        "reactions:read",
         "reactions:write",
         "users:read",
         "users:read.email"
@@ -57,7 +58,7 @@
   "settings": {
     "event_subscriptions": {
       "request_url": "{{WORKER_URL}}/slack/events",
-      "bot_events": ["message.channels", "message.groups"]
+      "bot_events": ["message.channels", "message.groups", "reaction_added"]
     },
     "interactivity": {
       "is_enabled": true,

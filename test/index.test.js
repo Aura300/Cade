@@ -4419,11 +4419,13 @@ test("the manifest asks for the scopes Cade uses", async () => {
     "groups:read",
     "groups:write",
     "pins:write",
+    // 🎫 and 🔀 on a message convert or move it.
+    "reactions:read",
     "reactions:write",
     "users:read",
     "users:read.email",
   ]);
-  assert.deepEqual(template.settings.event_subscriptions.bot_events, ["message.channels", "message.groups"]);
+  assert.deepEqual(template.settings.event_subscriptions.bot_events, ["message.channels", "message.groups", "reaction_added"]);
 });
 
 test("slack:create checks its settings before calling Slack", async () => {
@@ -4432,6 +4434,21 @@ test("slack:create checks its settings before calling Slack", async () => {
   assert.equal(checkSettings({ workerUrl: "http://cade", name: "Cade", command: "/cade" }).length, 1);
   assert.equal(checkSettings({ workerUrl: "https://cade.dev", name: "x".repeat(36), command: "/cade" }).length, 1);
   assert.equal(checkSettings({ workerUrl: "https://cade.dev", name: "Cade", command: "cade" }).length, 1);
+});
+
+test("npm run config checks the emoji triggers", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
+  const reactions = { convert: "heavy_plus_sign", move: "arrow_right_hook" };
+  assert.equal(readConfig(JSON.stringify({ channels, reactions })).REACTIONS, JSON.stringify(reactions));
+  for (const [bad, message] of [
+    [{ convert: ":ticket:" }, /without colons/],
+    [{ convert: "outbox_tray" }, /Cade adds itself/],
+    [{ convert: "ticket", move: "ticket" }, /different emoji/],
+    [{ archive: "ticket" }, /takes "convert" and "move"/],
+  ]) {
+    assert.throws(() => readConfig(JSON.stringify({ channels, reactions: bad })), message);
+  }
 });
 
 test("npm run config turns cade.config.json into the Worker's secrets", async () => {
@@ -5664,6 +5681,70 @@ test("Convert to task opens the task form in the dev channel and the requirement
     assert.equal(view.blocks[0].element.initial_value, title);
     assert.deepEqual(JSON.parse(view.private_metadata), { channel, moveTs: message.ts, title });
   }
+});
+
+// Someone adding `reaction` to the message at `ts` in `channel`.
+const reactionEvent = (reaction, ts = "400.1", channel = "CEXTERNAL", user = "UCLIENT") =>
+  JSON.stringify({
+    type: "event_callback",
+    authorizations: [{ user_id: "UBOT" }],
+    event: { type: "reaction_added", user, reaction, item: { type: "message", channel, ts } },
+  });
+
+test("🔀 on a message privately shows whoever added it the move picker", async (t) => {
+  const calls = mockSlack(t, { ...moveSlack(), stored: [requirementRoot()] });
+  await send("/slack/events", reactionEvent("twisted_rightwards_arrows"));
+  const picker = calls.find((call) => call.method === "chat.postEphemeral").args;
+  assert.equal(picker.user, "UCLIENT");
+  assert.equal(picker.text, "Where should I move this message?");
+  assert.deepEqual(JSON.parse(picker.blocks[2].elements[0].value), { channel: "CEXTERNAL", ts: "400.1" });
+  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+});
+
+test("🎫 on a message offers privately to track it as a task, or start a requirement in the client channel", async (t) => {
+  for (const [channel, message, button, action] of [
+    ["CDEV", devStray, "Track task", "move:track-task"],
+    ["CEXTERNAL", strayMessage, "Start requirement", "move:start-requirement"],
+  ]) {
+    const calls = mockSlack(t, moveSlack(message));
+    await send("/slack/events", reactionEvent("ticket", message.ts, channel));
+    const question = calls.find((call) => call.method === "chat.postEphemeral").args;
+    const [start] = question.blocks[1].elements;
+    assert.deepEqual([start.text.text, start.action_id], [button, action], channel);
+    assert.deepEqual(JSON.parse(start.value), { channel, ts: message.ts, title: message.text.split("\n")[0] });
+  }
+});
+
+test("emoji triggers leave other emoji, Cade's own reactions and other channels alone", async (t) => {
+  for (const event of [
+    reactionEvent("thumbsup"),
+    reactionEvent("ticket", "400.1", "CEXTERNAL", "UBOT"),
+    reactionEvent("ticket", "400.1", "COTHER"),
+  ]) {
+    const calls = mockSlack(t, { ...moveSlack(), stored: [requirementRoot()] });
+    await send("/slack/events", event);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("emoji triggers say privately why they can't, and follow the configured emoji", async (t) => {
+  // On a reply: conversations.replies gives the thread's root, not it.
+  let calls = mockSlack(t, { ...moveSlack({ ts: "300.1", user: "UCLIENT", text: "Root" }), stored: [requirementRoot()] });
+  await send("/slack/events", reactionEvent("twisted_rightwards_arrows"));
+  assert.match(calls.at(-1).args.text, /not replies in a thread/);
+
+  // On a requirement's own message.
+  calls = mockSlack(t, { ...moveSlack(), stored: [requirementRoot()] });
+  await send("/slack/events", reactionEvent("ticket", "200.1"));
+  assert.equal(calls.at(-1).args.text, "This is already a requirement thread.");
+
+  // Configured emoji replace the defaults.
+  const configured = { ...env, REACTIONS: JSON.stringify({ convert: "heavy_plus_sign" }) };
+  calls = mockSlack(t, moveSlack(devStray));
+  await send("/slack/events", reactionEvent("ticket", devStray.ts, "CDEV"), {}, configured);
+  assert.deepEqual(calls, []);
+  await send("/slack/events", reactionEvent("heavy_plus_sign::skin-tone-2", devStray.ts, "CDEV"), {}, configured);
+  assert.equal(calls.at(-1).args.text, "Shall I track this message as a task?");
 });
 
 // Cade's note under a message it moved already.

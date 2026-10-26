@@ -7,6 +7,9 @@
 //   timezone  for times in the Google Sheet (optional)        → TIMEZONE
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
 //             each group's Sheet and Doc
+//   reactions the emoji that convert or move a message when    → REACTIONS
+//             added to it (optional): { "convert": "ticket",
+//             "move": "twisted_rightwards_arrows" }, by Slack name
 //
 // Each group in `channels` can link its Google Doc, for executive summaries,
 // with `doc`, and its own Google Sheet, for its tasks, with `sheet`: their
@@ -36,7 +39,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["channels", "timezone", "googleUrl"];
+  const known = ["channels", "timezone", "googleUrl", "reactions"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
@@ -59,7 +62,24 @@ export function readConfig(json) {
     }
     secrets.GOOGLE_URL = config.googleUrl;
   }
+  if (config.reactions !== undefined) secrets.REACTIONS = JSON.stringify(checkReactions(config.reactions));
   return secrets;
+}
+
+// Returns `reactions` if it names emoji for convert and move only, as Slack
+// names them (without colons), and two different ones; else throws. Cade's
+// own reactions, ✅ and 📤, would set Cade off itself, so they're refused.
+export function checkReactions(reactions) {
+  const keys = Object.keys(reactions ?? {});
+  const unknown = keys.find((key) => !["convert", "move"].includes(key));
+  if (unknown || typeof reactions !== "object") throw new Error(`reactions takes "convert" and "move", each an emoji's Slack name.`);
+  const names = Object.values(reactions);
+  const bad = names.find((name) => typeof name !== "string" || !/^[a-z0-9_+'-]+$/.test(name));
+  if (bad !== undefined) throw new Error(`"${bad}" isn't an emoji's Slack name: write it without colons, as in "ticket".`);
+  const taken = names.find((name) => ["white_check_mark", "outbox_tray"].includes(name));
+  if (taken) throw new Error(`"${taken}" is one Cade adds itself, so it can't be a trigger.`);
+  if (names.length === 2 && names[0] === names[1]) throw new Error("reactions needs a different emoji for convert and move.");
+  return reactions;
 }
 
 // Returns `zone` if it's a time zone Intl knows (an IANA name), else throws.
@@ -91,6 +111,7 @@ export async function uploadConfig() {
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
+  if (secrets.REACTIONS) console.log(`reactions: ${secrets.REACTIONS}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.
   const dir = await mkdtemp(join(tmpdir(), "cade-config-"));
