@@ -13,7 +13,9 @@
     "slack:update": "node scripts/slack-app.mjs update",
     "config": "node scripts/config.mjs",
     "sheet:create": "node scripts/sheet-app.mjs create",
-    "sheet:update": "node scripts/sheet-app.mjs update"
+    "sheet:update": "node scripts/sheet-app.mjs update",
+    "doc:create": "node scripts/doc-app.mjs create",
+    "doc:update": "node scripts/doc-app.mjs update"
   },
   "devDependencies": {
     "@google/clasp": "^3.4.1",

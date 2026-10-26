@@ -42,6 +42,7 @@ Other scripts:
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
 | `npm run slack:update` | Applies `slack/manifest.json` to the app created above |
 | `npm run sheet:create` | Creates the Google Sheet and its web app with clasp, and gives the Worker its address and secret |
+| `npm run doc:create` | Creates the Google Doc web app for executive summaries the same way; `npm run doc:update` pushes `google-doc/Code.gs` |
 | `npm run sheet:update` | Pushes `google-sheet/Code.gs` and redeploys it to the same address |
 
 ## How it works
@@ -136,7 +137,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `detach`, `tasks`, `standup`, `delete` |
+| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `detach`, `tasks`, `standup`, `delete`, `summary`, `export`, `import` |
 | `src/db.js` | Reading and writing tasks and requirements in D1 |
 | `src/retry.js` | The cron's job: posting tasks and requirements Slack refused |
 | `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |
@@ -145,8 +146,10 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/intents.js` | Recognising intents in plain messages |
 | `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/sheet.js` | Writing rows to the Google Sheet |
+| `src/doc.js` | Writing executive summaries to each group's Google Doc, and reading them back |
 | `google-sheet/` | The Sheet's Apps Script (`Code.gs`, `appsscript.json`), and its uncommitted `Secret.gs` |
-| `scripts/` | `config`, `dev`, `slack-app` and `sheet-app`, behind the npm scripts above |
+| `google-doc/` | The Google Doc web app's Apps Script, the same way |
+| `scripts/` | `config`, `dev`, `slack-app`, `sheet-app` and `doc-app`, behind the npm scripts above |
 | `migrations/` | The D1 tables, applied in order by `wrangler d1 migrations apply` |
 | `slack/manifest.json` | The Slack app: scopes, events, URLs, the slash command |
 | `test/index.test.js` | The tests, with `test/d1.js`, a stand-in database on Node's SQLite |

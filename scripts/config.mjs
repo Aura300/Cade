@@ -6,16 +6,21 @@
 //   channels  each group's Slack channels                    → CHANNEL_PAIRS
 //   timezone  for times in the Google Sheet (optional)        → TIMEZONE
 //   sheetUrl  the Google Sheet's web app address (optional)   → SHEET_URL
+//   docUrl    the Google Doc web app's address (optional)     → DOC_URL
 //
-// The real secrets (the bot token, the signing secret and SHEET_SECRET, which
-// the Sheet's address is useless without) are set once with `wrangler secret
-// put` and kept out of files.
+// Each group in `channels` can link its Google Doc, for executive summaries,
+// with `doc`: the doc's address.
+//
+// The real secrets (the bot token, the signing secret, and SHEET_SECRET and
+// DOC_SECRET, which the web apps' addresses are useless without) are set once
+// with `wrangler secret put` and kept out of files.
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { channelPairs } from "../src/channels.js";
+import { docId } from "../src/doc.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FILE = `${ROOT}cade.config.json`;
@@ -28,7 +33,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["channels", "timezone", "sheetUrl"];
+  const known = ["channels", "timezone", "sheetUrl", "docUrl"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
@@ -38,6 +43,8 @@ export function readConfig(json) {
   if (notId) throw new Error(`"${notId}" doesn't look like a Slack channel ID (C… from the channel's About tab).`);
   const reused = ids.find((id, i) => ids.indexOf(id) !== i);
   if (reused) throw new Error(`${reused} is used twice; each channel belongs to one group, in one role.`);
+  const badDoc = pairs.find((pair) => pair.doc !== undefined && !docId(pair.doc));
+  if (badDoc) throw new Error(`${badDoc.name}'s doc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
 
   const secrets = { CHANNEL_PAIRS: JSON.stringify(pairs) };
   if (config.timezone !== undefined) secrets.TIMEZONE = checkZone(config.timezone);
@@ -46,6 +53,12 @@ export function readConfig(json) {
       throw new Error("sheetUrl should be the web app URL from Apps Script: https://script.google.com/…/exec.");
     }
     secrets.SHEET_URL = config.sheetUrl;
+  }
+  if (config.docUrl !== undefined) {
+    if (!/^https:\/\/script\.google\.com\/\S+\/exec$/.test(config.docUrl)) {
+      throw new Error("docUrl should be the web app URL from Apps Script: https://script.google.com/…/exec.");
+    }
+    secrets.DOC_URL = config.docUrl;
   }
   return secrets;
 }
@@ -73,10 +86,12 @@ export async function uploadConfig() {
   for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
     const incidents = pair.incidents ? `, incidents ${pair.incidents}` : "";
     const external = pair.external ? `external ${pair.external} → ` : "";
-    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}`);
+    const doc = pair.doc ? `, doc ${pair.doc}` : "";
+    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}${doc}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.SHEET_URL) console.log(`sheetUrl: ${secrets.SHEET_URL}`);
+  if (secrets.DOC_URL) console.log(`docUrl: ${secrets.DOC_URL}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.
   const dir = await mkdtemp(join(tmpdir(), "cade-config-"));

@@ -19,6 +19,10 @@ import { fakeD1 } from "./d1.js";
 
 const SIGNING_SECRET = "test-signing-secret";
 const SHEET_URL = "https://script.google.com/macros/s/test/exec";
+// The Google Doc web app, the acme group's doc and its Summary tab.
+const DOC_URL = "https://script.google.com/macros/s/doc/exec";
+const DOC_ID = "1AcmeDocAcmeDocAcmeDocAcmeDoc";
+const DOC_TAB = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.0`;
 // Every environment shares this database; it is emptied for each test, and
 // again by mockSlack.
 const DB = fakeD1();
@@ -116,7 +120,8 @@ const savedRequirement = (channel = "CEXTERNAL", ts = "200.1") => getRequirement
 // `responses.stored` (task and requirement records). `responses` maps a
 // method name to its result; every call is recorded with its decoded arguments. Link preview
 // settings are recorded as `previews` rather than with the arguments. Requests to the
-// Google Sheet are recorded as the "sheet" method with their JSON body.
+// Google Sheet are recorded as the "sheet" method with their JSON body, and
+// to the Google Doc web app as "doc", answered by `responses.doc`.
 function mockSlack(t, { stored = [], ...responses } = {}) {
   DB.reset();
   seeded = Promise.all(stored.map(store));
@@ -126,6 +131,12 @@ function mockSlack(t, { stored = [], ...responses } = {}) {
     if (url === SHEET_URL) {
       calls.push({ method: "sheet", args: JSON.parse(init.body) });
       return Response.json(responses.sheet ?? { ok: true });
+    }
+    if (url === DOC_URL) {
+      const body = JSON.parse(init.body);
+      calls.push({ method: "doc", args: body });
+      const reply = typeof responses.doc === "function" ? responses.doc(body) : responses.doc;
+      return Response.json(reply ?? { ok: true, url: DOC_TAB, elements: [] });
     }
     const method = new URL(url).pathname.replace("/api/", "");
     const args = Object.fromEntries(init.body);
@@ -1003,7 +1014,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
       assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary` · `/cade exec`");
+    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary` · `/cade export` · `/cade import`");
   }
 });
 
@@ -4162,6 +4173,20 @@ test("npm run dev asks for the Sheet's secret only with its URL", async () => {
   ]);
 });
 
+test("cade.config.json can hold the Google Doc web app's address and each group's doc", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const doc = "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit";
+  const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002", doc }];
+  const docUrl = "https://script.google.com/macros/s/AKfy-doc/exec";
+  const secrets = readConfig(JSON.stringify({ channels, docUrl }));
+  assert.equal(secrets.DOC_URL, docUrl);
+  assert.equal(JSON.parse(secrets.CHANNEL_PAIRS)[0].doc, doc);
+  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[0], doc: "acme doc" }] })), /acme's doc should be a Google Doc's address/);
+  assert.throws(() => readConfig(JSON.stringify({ channels, docUrl: doc })), /docUrl should be the web app URL/);
+  const { SECRETS } = await import("../scripts/dev.mjs");
+  assert.equal(SECRETS.find(({ name }) => name === "DOC_SECRET").when({ DOC_URL: docUrl }), true);
+});
+
 test("cade.config.json can hold the Google Sheet's address", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
@@ -4214,7 +4239,7 @@ test("handlers' intents are registered in order: PR links, hand-offs, started, p
 });
 
 test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetUrl", async () => {
-  const { deploymentIdIn, secretFile, webAppUrl, withSheetUrl } = await import("../scripts/sheet-app.mjs");
+  const { APPS, deploymentIdIn, secretFile, webAppUrl, withSheetUrl } = await import("../scripts/sheet-app.mjs");
   const secret = "a".repeat(64);
   assert.match(secretFile(secret), new RegExp(`^// .*\\nconst SECRET = "${secret}";\\n$`));
   assert.throws(() => secretFile("short"), /long and hex/);
@@ -4228,6 +4253,12 @@ test("npm run sheet:create makes Secret.gs, finds the deployment and sets sheetU
   // Other settings in cade.config.json are kept.
   const config = JSON.parse(withSheetUrl('{"timezone":"UTC","channels":[]}', "https://script.google.com/macros/s/X/exec"));
   assert.deepEqual(config, { timezone: "UTC", channels: [], sheetUrl: "https://script.google.com/macros/s/X/exec" });
+
+  // The Google Doc web app is made the same way, with its own secret and setting.
+  assert.match(secretFile(secret, APPS.doc), /npm run doc:create.*DOC_SECRET/);
+  assert.deepEqual(JSON.parse(withSheetUrl("{}", "https://script.google.com/macros/s/D/exec", APPS.doc.configKey)), {
+    docUrl: "https://script.google.com/macros/s/D/exec",
+  });
 });
 
 test("Code.gs checks requests against SECRET from Secret.gs, not a script property", async () => {
@@ -6473,11 +6504,13 @@ test("a summary's Closed section keeps the last 50 done", async (t) => {
   assert.match(markdown, /The last 50 done, most recently first\./);
 });
 
-// The acme pair with an incidents channel, in UTC.
+// The acme pair with an incidents channel and a Google Doc, in UTC.
 const execEnv = {
   ...env,
   TIMEZONE: "UTC",
-  CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC" }],
+  DOC_URL,
+  DOC_SECRET: "doc-secret",
+  CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC", doc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
 };
 
 const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
@@ -6550,11 +6583,11 @@ const messageText = (message) => message.blocks.map(blockText).filter(Boolean).j
 
 const execLink = (channel, ts) => `https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
 
-test("/cade exec goes through requirements, then the team's own tasks, and posts the summary where it was run", async (t) => {
+test("/cade export goes through requirements, then the team's own tasks, and adds the summary to the group's Google Doc", async (t) => {
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
   await storeExecWork();
   // Run in a channel outside the group, which has the only group.
-  const { now, later: period } = await runTasksCommand("exec", "CLEADS", execEnv);
+  const { now, later: period } = await runTasksCommand("export", "CLEADS", execEnv);
   assert.equal(now, "");
 
   // Step 1: the period, the past week to today the first time.
@@ -6565,7 +6598,7 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
   assert.equal(execField(period, "to").element.initial_date, today);
 
   const sent = recordResponses(t);
-  await send("/slack/interactions", execClick(period, "exec:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(period, "export:next"), {}, execEnv);
   const first = sent.at(-1);
 
   // Step 2: the requirement completed in the period, ticked to mention.
@@ -6578,40 +6611,40 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
 
   // Step 3: the incident, most urgent, with its incident and task threads to
   // peek at.
-  await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(first, "export:next"), {}, execEnv);
   const incident = sent.at(-1);
   assert.match(messageText(incident), /Requirements and incidents\*  ·  1 of 2[\s\S]*\*Incident:\* <[^|]+\|Checkout is down>  ·  To do  ·  :red_circle: Urgent  ·  Due Immediate  ·  <@UBOB>/);
-  const peek = incident.blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory;
+  const peek = incident.blocks.find((block) => block.accessory?.action_id === "export:peek").accessory;
   assert.deepEqual(JSON.parse(peek.value), [
     { c: "CEXTERNAL", t: "200.4", n: "Incident thread" },
     { c: "CINC", t: "100.8", n: "Incidents channel thread" },
   ]);
-  await send("/slack/interactions", execClick(incident, "exec:next", execFields(incident, { health: "BLOCKED", progress: "", notes: "Waiting on the payment provider\nETA Monday" })), {}, execEnv);
+  await send("/slack/interactions", execClick(incident, "export:next", execFields(incident, { health: "BLOCKED", progress: "", notes: "Waiting on the payment provider\nETA Monday" })), {}, execEnv);
 
   // Step 4: the requirement in discussion, not tracked yet.
   const dark = sent.at(-1);
   assert.match(messageText(dark), /Requirements and incidents\*  ·  2 of 2[\s\S]*Dark mode>  ·  In discussion  ·  :large_green_circle: Low  ·  Due _none_  ·  _Not tracked yet_/);
-  await send("/slack/interactions", execClick(dark, "exec:next", execFields(dark, { health: "ON_TRACK", progress: "", notes: "", included: false })), {}, execEnv);
+  await send("/slack/interactions", execClick(dark, "export:next", execFields(dark, { health: "ON_TRACK", progress: "", notes: "", included: false })), {}, execEnv);
 
   // Step 5: the team's own task, with its dev thread to peek at.
   const own = sent.at(-1);
   assert.match(messageText(own), /The team's own tasks\*  ·  1 of 1[\s\S]*Upgrade Node>  ·  In review/);
-  assert.deepEqual(JSON.parse(own.blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory.value), [
+  assert.deepEqual(JSON.parse(own.blocks.find((block) => block.accessory?.action_id === "export:peek").accessory.value), [
     { c: "CDEV", t: "100.3", n: "Dev thread" },
   ]);
-  await send("/slack/interactions", execClick(own, "exec:next", execFields(own, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
+  await send("/slack/interactions", execClick(own, "export:next", execFields(own, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
 
   // Back keeps what was chosen.
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:back"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, execEnv);
   const ownAgain = sent.at(-1);
   assert.equal(execField(ownAgain, "progress").element.initial_value, "3/5");
   assert.equal(execField(ownAgain, "health").element.initial_option.value, "AT_RISK");
-  await send("/slack/interactions", execClick(ownAgain, "exec:next", execFields(ownAgain, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
+  await send("/slack/interactions", execClick(ownAgain, "export:next", execFields(ownAgain, { health: "AT_RISK", progress: "3/5", notes: "" })), {}, execEnv);
 
   // Step 6: the summary as it will read, worst first, without what was left
   // out.
   const review = sent.at(-1);
-  assert.match(messageText(review), /Step 6 of 6[\s\S]*This is what I'll post in <#CLEADS>/);
+  assert.match(messageText(review), new RegExp(`Step 6 of 6[\\s\\S]*This is what I'll add to the top of <https://docs.google.com/document/d/${DOC_ID}/edit\\|acme's Google Doc>'s Summary tab`));
   const show = (day) => day.split("-").reverse().join("/");
   assert.ok(messageText(review).includes(`_Period: ${show(weekAgo)} – ${show(today)}_`));
   const expected = [
@@ -6630,18 +6663,36 @@ test("/cade exec goes through requirements, then the team's own tasks, and posts
   assert.ok(!/Blocked \(|On track \(|Delayed \(|:no_entry:|:warning:/.test(messageText(review)));
   assert.ok(messageText(review).includes(expected));
 
+  // It goes in the doc, not in Slack: a section of its own, each title
+  // linking to its thread, notes as bullets under it.
   calls.length = 0;
-  await send("/slack/interactions", execClick(review, "exec:post"), {}, execEnv);
-  const posts = calls.filter((call) => call.method === "chat.postMessage");
-  assert.equal(posts.length, 1);
-  assert.equal(posts[0].args.channel, "CLEADS");
-  assert.ok(posts[0].args.text.startsWith("*acme executive summary*"));
-  assert.ok(posts[0].args.text.includes(expected));
-  assert.equal(sent.at(-1).text, `Posted the executive summary for ${show(weekAgo)} – ${show(today)}.`);
+  await send("/slack/interactions", execClick(review, "export:post"), {}, execEnv);
+  assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 0);
+  const writes = calls.filter((call) => call.method === "doc");
+  assert.equal(writes.length, 1);
+  const { secret, action, docId, tab, key, blocks } = writes[0].args;
+  assert.deepEqual({ secret, action, docId, tab }, { secret: "doc-secret", action: "write", docId: DOC_ID, tab: "Summary" });
+  assert.match(key, /^export:\d+$/);
+  assert.deepEqual(blocks, [
+    { type: "heading", level: 2, text: `${show(today)} · acme executive summary` },
+    { type: "paragraph", italic: true, text: `Period: ${show(weekAgo)} – ${show(today)}` },
+    { type: "heading", level: 3, text: "Completed (1)" },
+    { type: "item", level: 0, parts: [{ text: "Export reports", link: execLink("CEXTERNAL", "200.1") }] },
+    { type: "heading", level: 3, text: "Incidents (1)" },
+    { type: "item", level: 0, parts: [{ text: "Checkout is down", link: execLink("CEXTERNAL", "200.4") }, { text: "  ·  Blocked  ·  To do" }] },
+    { type: "item", level: 1, parts: [{ text: "Waiting on the payment provider" }] },
+    { type: "item", level: 1, parts: [{ text: "ETA Monday" }] },
+    { type: "heading", level: 3, text: "At risk (1)" },
+    { type: "item", level: 0, parts: [{ text: "Upgrade Node", link: execLink("CDEV", "100.3") }, { text: "  ·  In review  ·  3/5" }] },
+  ]);
+  assert.equal(
+    sent.at(-1).text,
+    `Added the executive summary for ${show(weekAgo)} – ${show(today)} to <${DOC_TAB}|acme's Google Doc>. After going through it with the client, send \`/cade import\` for what was added to it.`,
+  );
 
-  // Posting again does nothing.
-  await send("/slack/interactions", execClick(review, "exec:post"), {}, execEnv);
-  assert.equal(calls.filter((call) => call.method === "chat.postMessage").length, 1);
+  // Adding it again does nothing.
+  await send("/slack/interactions", execClick(review, "export:post"), {}, execEnv);
+  assert.equal(calls.filter((call) => call.method === "doc").length, 1);
 });
 
 test("Peek at threads shows each thread's latest replies in a modal", async (t) => {
@@ -6660,18 +6711,18 @@ test("Peek at threads shows each thread's latest replies in a modal", async (t) 
     }),
   });
   await storeExecWork();
-  const { later: first } = await runTasksCommand("exec", "CDEV", execEnv);
+  const { later: first } = await runTasksCommand("export", "CDEV", execEnv);
   const sent = recordResponses(t);
-  await send("/slack/interactions", execClick(first, "exec:next"), {}, execEnv);
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:next"), {}, execEnv);
-  const peek = sent.at(-1).blocks.find((block) => block.accessory?.action_id === "exec:peek").accessory;
+  await send("/slack/interactions", execClick(first, "export:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, execEnv);
+  const peek = sent.at(-1).blocks.find((block) => block.accessory?.action_id === "export:peek").accessory;
   calls.length = 0;
   await send("/slack/interactions", interaction({
     type: "block_actions",
     user: { id: "UACTOR" },
     trigger_id: "trigger-7",
     response_url: RESPONSE_URL,
-    actions: [{ action_id: "exec:peek", value: peek.value, block_id: "x" }],
+    actions: [{ action_id: "export:peek", value: peek.value, block_id: "x" }],
   }), {}, execEnv);
 
   const opened = calls.find((call) => call.method === "views.open");
@@ -6691,22 +6742,22 @@ test("Peek at threads shows each thread's latest replies in a modal", async (t) 
   assert.equal(sent.length, 2);
 });
 
-test("the next /cade exec starts from the last one, with its health and progress", async (t) => {
+test("the next /cade export starts from the last one, with its health and progress", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
   await storeExecWork();
-  const { later: first } = await runTasksCommand("exec", "CDEV", execEnv);
+  const { later: first } = await runTasksCommand("export", "CDEV", execEnv);
   const sent = recordResponses(t);
-  for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1) ?? first, "exec:next"), {}, execEnv);
+  for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
   const incident = sent.at(-1);
-  await send("/slack/interactions", execClick(incident, "exec:next", execFields(incident, { health: "DELAYED", progress: "1/2", notes: "Once only" })), {}, execEnv);
-  for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1), "exec:next"), {}, execEnv);
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
+  await send("/slack/interactions", execClick(incident, "export:next", execFields(incident, { health: "DELAYED", progress: "1/2", notes: "Once only" })), {}, execEnv);
+  for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:post"), {}, execEnv);
 
   // The last period ended today, so the next starts today too; nothing was
   // completed today, so after the period comes the incident.
-  const { later: period } = await runTasksCommand("exec", "CDEV", execEnv);
+  const { later: period } = await runTasksCommand("export", "CDEV", execEnv);
   assert.equal(execField(period, "from").element.initial_date, todayIn(execEnv));
-  await send("/slack/interactions", execClick(period, "exec:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(period, "export:next"), {}, execEnv);
   const next = sent.at(-1);
   assert.match(messageText(next), /Step 2 of 5[\s\S]*Checkout is down/);
   assert.equal(execField(next, "health").element.initial_option.value, "DELAYED");
@@ -6715,40 +6766,51 @@ test("the next /cade exec starts from the last one, with its health and progress
   assert.equal(execField(next, "notes").element.initial_value, undefined);
 });
 
-test("/cade exec says so when Cade isn't in the channel", async (t) => {
-  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
+test("/cade export says so when the Google Doc can't be written, and can try again", async (t) => {
+  let refuse = true;
+  mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    doc: () => (refuse ? { ok: false, error: "No item with the given ID could be found." } : { ok: true, url: DOC_TAB }),
+  });
   await storeExecWork();
-  const { later: first } = await runTasksCommand("exec", "CLEADS", execEnv);
+  const { later: first } = await runTasksCommand("export", "CLEADS", execEnv);
   const sent = recordResponses(t);
-  const fakeFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init) =>
-    String(url).endsWith("/chat.postMessage") ? Response.json({ ok: false, error: "not_in_channel" }) : fakeFetch(url, init);
   for (let i = 0; i < 5; i++) {
-    await send("/slack/interactions", execClick(sent.at(-1) ?? first, "exec:next"), {}, execEnv);
+    await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
   }
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
-  assert.match(blockText(sent.at(-1).blocks[0]), /I'm not in <#CLEADS>. Invite me/);
-  // It can be posted once Cade is invited.
-  globalThis.fetch = fakeFetch;
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:post"), {}, execEnv);
-  assert.match(sent.at(-1).text, /^Posted the executive summary for /);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:post"), {}, execEnv);
+  assert.match(blockText(sent.at(-1).blocks[0]), /couldn't add it to the Google Doc just now/);
+  refuse = false;
+  await send("/slack/interactions", execClick(sent.at(-1), "export:post"), {}, execEnv);
+  assert.match(sent.at(-1).text, /^Added the executive summary for /);
 });
 
-test("/cade exec outside a group asks which, when there are several", async (t) => {
+test("/cade export needs the group to have a Google Doc", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
-  const { now } = await runTasksCommand("exec", "CLEADS");
-  assert.equal(JSON.parse(now).text, "Which group? Try `/cade exec acme` or `/cade exec test`.");
-  const { now: unknown } = await runTasksCommand("exec nope", "CLEADS");
+  const { now: noApp } = await runTasksCommand("export", "CDEV");
+  assert.match(JSON.parse(noApp).text, /web app isn't set up yet: run `npm run doc:create`/);
+  const noDoc = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV" }] };
+  const { now, later } = await runTasksCommand("export", "CDEV", noDoc);
+  assert.equal(JSON.parse(now).text, "acme has no Google Doc linked. Add the doc's address as `\"doc\"` to its group in cade.config.json, then run `npm run config`.");
+  assert.equal(later, undefined);
+});
+
+test("/cade export outside a group asks which, when there are several", async (t) => {
+  mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+  const docs = { ...env, DOC_URL, DOC_SECRET: "doc-secret", CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((pair) => ({ ...pair, doc: DOC_ID })) };
+  const { now } = await runTasksCommand("export", "CLEADS", docs);
+  assert.equal(JSON.parse(now).text, "Which group? Try `/cade export acme` or `/cade export test`.");
+  const { now: unknown } = await runTasksCommand("export nope", "CLEADS", docs);
   assert.match(JSON.parse(unknown).text, /I don't know a group called "nope"/);
-  const { now: named, later } = await runTasksCommand("exec test", "CLEADS");
+  const { now: named, later } = await runTasksCommand("export test", "CLEADS", docs);
   assert.equal(named, "");
   assert.match(blockText(later.blocks[0]), /Executive summary: test/);
 });
 
-test("/cade exec offers what was completed in the period picked, from the start of From to the end of To", async (t) => {
+test("/cade export offers what was completed in the period picked, from the start of From to the end of To", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   await storeExecWork();
-  const { later: period } = await runTasksCommand("exec", "CDEV", execEnv);
+  const { later: period } = await runTasksCommand("export", "CDEV", execEnv);
   const sent = recordResponses(t);
   const pick = (from, to) => ({
     [execField(period, "from").block_id]: { value: { type: "datepicker", selected_date: from } },
@@ -6758,27 +6820,27 @@ test("/cade exec offers what was completed in the period picked, from the start 
 
   // A period that ended before "Export reports" was done offers only the
   // older work.
-  await send("/slack/interactions", execClick(period, "exec:next", pick(day(40), day(3))), {}, execEnv);
+  await send("/slack/interactions", execClick(period, "export:next", pick(day(40), day(3))), {}, execEnv);
   let text = messageText(sent.at(-1));
   assert.match(text, /Completed .* \(1–1 of 1\)[\s\S]*Old work/);
   assert.ok(!text.includes("Export reports>  ·  Done"));
 
   // To is counted to the end of its day: "Export reports" is in.
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:back"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, execEnv);
   const again = sent.at(-1);
   assert.equal(execField(again, "from").element.initial_date, day(40));
-  await send("/slack/interactions", execClick(again, "exec:next", pick(day(2), day(2))), {}, execEnv);
+  await send("/slack/interactions", execClick(again, "export:next", pick(day(2), day(2))), {}, execEnv);
   text = messageText(sent.at(-1));
   assert.match(text, /Completed .* \(1–1 of 1\)[\s\S]*Export reports/);
 
   // From after To goes no further.
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:back"), {}, execEnv);
-  await send("/slack/interactions", execClick(sent.at(-1), "exec:next", pick(day(1), day(5))), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:back"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:next", pick(day(1), day(5))), {}, execEnv);
   assert.match(messageText(sent.at(-1)), /From\* must be on or before \*To\*[\s\S]*Step 1 of/);
 });
 
 test("a period's days start and end in TIMEZONE", async () => {
-  const { dayBoundary } = await import("../src/commands/exec.js");
+  const { dayBoundary } = await import("../src/commands/export.js");
   const colombo = { TIMEZONE: "Asia/Colombo" };
   assert.equal(dayBoundary(colombo, "2026-10-25"), "2026-10-24T18:30:00.000Z");
   assert.equal(dayBoundary(colombo, "2026-10-25", { end: true }), "2026-10-25T18:29:59.999Z");
@@ -7107,4 +7169,151 @@ test("/cade remove needs a link", async (t) => {
   mockSlack(t);
   const { now } = await runTasksCommand("remove", "CDEV");
   assert.match(JSON.parse(now).text, /^Paste the link to what to remove/);
+});
+
+// A click on a sync suggestion's button `actionId`.
+const syncClick = (message, actionId) => {
+  const button = message.blocks.at(-1).elements.find((element) => element.action_id === actionId);
+  assert.ok(button, `no ${actionId} button`);
+  return interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    response_url: RESPONSE_URL,
+    trigger_id: "trigger-5",
+    actions: [{ action_id: actionId, value: button.value, block_id: "nav" }],
+  });
+};
+
+// Writes acme's executive summary into its doc, going through the walk as
+// it stands, and returns the responses sent since.
+async function writeExecSummary(t) {
+  const { later: first } = await runTasksCommand("export", "CDEV", execEnv);
+  const sent = recordResponses(t);
+  for (let i = 0; i < 5; i++) await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
+  await send("/slack/interactions", execClick(sent.at(-1), "export:post"), {}, execEnv);
+  assert.match(sent.at(-1).text, /^Added the executive summary/);
+  return sent;
+}
+
+test("findAdditions finds new bullets and lines added under linked ones", async () => {
+  const { findAdditions } = await import("../src/commands/import.js");
+  const link = (ts) => execLink("CEXTERNAL", ts);
+  const written = ["Period: 19/10/2026 – 26/10/2026", "Incidents (1)", "Checkout is down  ·  Blocked  ·  To do", "Waiting on the provider", "On track (1)", "Dark mode  ·  On track  ·  In discussion"];
+  const elements = [
+    { type: "paragraph", level: 0, text: "Period: 19/10/2026 – 26/10/2026", links: [] },
+    { type: "heading", level: 3, text: "Incidents (1)", links: [] },
+    { type: "item", level: 0, text: "Checkout is down  ·  Blocked  ·  To do", links: [link("200.4")] },
+    { type: "item", level: 1, text: "Waiting on the provider", links: [] },
+    { type: "item", level: 1, text: "Fixed by Friday", links: [] },
+    { type: "paragraph", level: 0, text: "Client retests after", links: [] },
+    { type: "heading", level: 3, text: "On track (1)", links: [] },
+    { type: "item", level: 0, text: "Dark mode  ·  On track  ·  In discussion", links: [link("200.2")] },
+    { type: "item", level: 0, text: "Bulk export", links: [] },
+    { type: "item", level: 1, text: "For finance", links: [] },
+    { type: "item", level: 0, text: "  ", links: [] },
+    { type: "item", level: 0, text: "SSO", links: [] },
+  ];
+  const point = { kind: "POINT", channel: "CEXTERNAL", ts: "200.4", title: "Checkout is down", text: "Fixed by Friday\nClient retests after" };
+  assert.deepEqual(findAdditions(elements, written), [
+    point,
+    { kind: "REQUIREMENT", text: "Bulk export", details: "For finance" },
+    { kind: "REQUIREMENT", text: "SSO", details: "" },
+  ]);
+  // What was found before, however decided, isn't found again.
+  assert.deepEqual(findAdditions(elements, written, [{ ...point, text: "Fixed by Friday" }, { kind: "REQUIREMENT", text: "SSO" }]), [
+    { ...point, text: "Client retests after" },
+    { kind: "REQUIREMENT", text: "Bulk export", details: "For finance" },
+  ]);
+});
+
+test("/cade import goes through what the call added, posting points in their threads and starting new requirements", async (t) => {
+  const additions = [
+    { type: "heading", level: 3, text: "Incidents (1)", links: [] },
+    { type: "item", level: 0, text: "Checkout is down  ·  On track  ·  To do", links: [execLink("CEXTERNAL", "200.4")] },
+    { type: "item", level: 1, text: "Provider says fixed by Friday", links: [] },
+    { type: "item", level: 1, text: "Client will retest", links: [] },
+    { type: "item", level: 0, text: "Bulk export to CSV", links: [] },
+    { type: "item", level: 1, text: "Needed for the finance team", links: [] },
+  ];
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    "chat.postMessage": { ts: "900.1" },
+    doc: (body) => (body.action === "read" ? { ok: true, elements: additions } : { ok: true, url: DOC_TAB }),
+  });
+  await storeExecWork();
+  const sent = await writeExecSummary(t);
+  const key = calls.find((call) => call.method === "doc").args.key;
+
+  calls.length = 0;
+  const { now, later } = await runTasksCommand("import", "CDEV", execEnv);
+  assert.equal(now, "");
+  assert.deepEqual(calls.find((call) => call.method === "doc").args, { secret: "doc-secret", action: "read", docId: DOC_ID, tab: "Summary", key });
+  assert.match(messageText(later), /2 to go/);
+  assert.ok(messageText(later).includes(`*Added under* <${execLink("CEXTERNAL", "200.4")}|Checkout is down>\n> Provider says fixed by Friday\n> Client will retest`));
+
+  // Apply opens a text box with the point, to edit, then posts it in its
+  // thread and moves on.
+  calls.length = 0;
+  await send("/slack/interactions", syncClick(later, "import:apply"), {}, execEnv);
+  const box = calls.find((call) => call.method === "views.open").args.view;
+  assert.equal(box.callback_id, "import:point");
+  assert.equal(box.blocks[1].element.initial_value, "Provider says fixed by Friday\nClient will retest");
+  calls.length = 0;
+  await send("/slack/interactions", interaction({
+    type: "view_submission",
+    user: { id: "UACTOR" },
+    view: { callback_id: "import:point", private_metadata: box.private_metadata, state: { values: { message: { value: { value: "Fixed by Friday; the client retests after." } } } } },
+  }), {}, execEnv);
+  const posted = calls.find((call) => call.method === "chat.postMessage").args;
+  assert.equal(posted.channel, "CEXTERNAL");
+  assert.equal(posted.thread_ts, "200.4");
+  assert.equal(posted.text, "Fixed by Friday; the client retests after.");
+  assert.equal(posted.blocks[1].elements[0].text, "From the client call, shared by <@UACTOR>");
+
+  // Then the new requirement: Apply opens the requirement form, with its
+  // lines as the initial message.
+  const second = sent.at(-1);
+  assert.match(messageText(second), /1 to go[\s\S]*\*New requirement:\* Bulk export to CSV\n> Needed for the finance team/);
+  calls.length = 0;
+  await send("/slack/interactions", syncClick(second, "import:apply"), {}, execEnv);
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  assert.equal(form.callback_id, "requirement");
+  assert.equal(form.blocks.find((block) => block.block_id === "title").element.initial_value, "Bulk export to CSV");
+  assert.equal(form.blocks.find((block) => block.block_id === "initial_message").element.initial_value, "Needed for the finance team");
+  calls.length = 0;
+  const { values } = submission({ title: "Bulk export to CSV", priority: "Medium" }).view.state;
+  values.initial_message = { value: { value: "Finance needs it by month end." } };
+  await send("/slack/interactions", interaction({
+    type: "view_submission",
+    user: { id: "UACTOR" },
+    view: { callback_id: "requirement", private_metadata: form.private_metadata, state: { values } },
+  }), {}, execEnv);
+  const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args);
+  assert.equal(posts[0].channel, "CEXTERNAL");
+  assert.equal(posts[0].text, "Requirement: Bulk export to CSV");
+  assert.deepEqual([posts[1].channel, posts[1].thread_ts, posts[1].text], ["CEXTERNAL", "900.1", "Finance needs it by month end."]);
+  assert.match(sent.at(-1).text, /^Nothing more to go through/);
+
+  // Syncing again finds nothing new.
+  const { later: again } = await runTasksCommand("import", "CDEV", execEnv);
+  assert.match(again.text, /^Nothing more to go through/);
+});
+
+test("/cade import can discard a suggestion, and needs a summary in the doc", async (t) => {
+  mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    doc: (body) =>
+      body.action === "read"
+        ? { ok: true, elements: [{ type: "item", level: 0, text: "SSO", links: [] }] }
+        : { ok: true, url: DOC_TAB },
+  });
+  await storeExecWork();
+  const { later: none } = await runTasksCommand("import", "CDEV", execEnv);
+  assert.equal(none.text, "acme has no executive summary in its Google Doc yet. Write one with `/cade export`.");
+
+  const sent = await writeExecSummary(t);
+  const { later } = await runTasksCommand("import", "CDEV", execEnv);
+  assert.match(messageText(later), /\*New requirement:\* SSO/);
+  await send("/slack/interactions", syncClick(later, "import:discard"), {}, execEnv);
+  assert.match(sent.at(-1).text, /^Nothing more to go through/);
 });

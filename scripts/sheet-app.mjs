@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // Creates the Google Sheet Cade records tasks in, with its Apps Script web
 // app, or updates the script, using clasp (Google's Apps Script command line).
-// See GETTING_STARTED.md.
+// The Google Doc web app executive summaries are kept with is made the same
+// way, by doc-app.mjs. See GETTING_STARTED.md.
 //
 //   npm run sheet:create [-- --title "Cade tasks"]
 //   npm run sheet:update
+//   npm run doc:create [-- --title "Cade executive summaries"]
+//   npm run doc:update
 //
 // Both need `npx clasp login`, and the Apps Script API turned on for your
 // Google account (https://script.google.com/home/usersettings).
@@ -21,16 +24,38 @@ import { access, copyFile, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SHEET_DIR = `${ROOT}google-sheet`;
-const SECRET_FILE = `${SHEET_DIR}/Secret.gs`;
-const MANIFEST_FILE = `${SHEET_DIR}/appsscript.json`;
-const APP_FILE = `${ROOT}.sheet-app.json`;
 const CONFIG_FILE = `${ROOT}cade.config.json`;
 
+// Each web app: its folder, the file its IDs are saved in, the Worker secret
+// and cade.config.json setting it gives the Worker, what clasp makes, and
+// what it's called.
+export const APPS = {
+  sheet: {
+    dir: `${ROOT}google-sheet`,
+    appFile: `${ROOT}.sheet-app.json`,
+    secretName: "SHEET_SECRET",
+    configKey: "sheetUrl",
+    type: "sheets",
+    title: "Cade tasks",
+    command: "sheet",
+    noun: "Sheet",
+  },
+  doc: {
+    dir: `${ROOT}google-doc`,
+    appFile: `${ROOT}.doc-app.json`,
+    secretName: "DOC_SECRET",
+    configKey: "docUrl",
+    type: "standalone",
+    title: "Cade executive summaries",
+    command: "doc",
+    noun: "Google Doc web app",
+  },
+};
+
 // Secret.gs, defining the SECRET Code.gs checks requests against.
-export function secretFile(secret) {
+export function secretFile(secret, app = APPS.sheet) {
   if (!/^[0-9a-f]{32,}$/.test(secret)) throw new Error("The secret should be long and hex.");
-  return `// Made by npm run sheet:create. Not committed: it must match the Worker's SHEET_SECRET.\nconst SECRET = "${secret}";\n`;
+  return `// Made by npm run ${app.command}:create. Not committed: it must match the Worker's ${app.secretName}.\nconst SECRET = "${secret}";\n`;
 }
 
 // The web app's address, from the deployment clasp made.
@@ -46,10 +71,11 @@ export function deploymentIdIn(output) {
   return ids.at(-1);
 }
 
-// cade.config.json with `sheetUrl` set, keeping everything else in it.
-export function withSheetUrl(configJson, url) {
+// cade.config.json with `sheetUrl` (or the app's own setting) set, keeping
+// everything else in it.
+export function withSheetUrl(configJson, url, key = "sheetUrl") {
   const config = JSON.parse(configJson);
-  return `${JSON.stringify({ ...config, sheetUrl: url }, null, 2)}\n`;
+  return `${JSON.stringify({ ...config, [key]: url }, null, 2)}\n`;
 }
 
 // Runs a command in `cwd`, showing its output, and returns that output.
@@ -77,7 +103,7 @@ function run(command, args, { cwd = ROOT, input } = {}) {
   });
 }
 
-const clasp = (...args) => run("npx", ["clasp", ...args], { cwd: SHEET_DIR });
+const clasp = (app, ...args) => run("npx", ["clasp", ...args], { cwd: app.dir });
 
 async function exists(file) {
   return access(file).then(
@@ -88,9 +114,9 @@ async function exists(file) {
 
 // clasp may replace appsscript.json with Google's default; this keeps ours,
 // which makes the script a web app anyone can reach, running as you.
-async function pushScript(manifest) {
-  await writeFile(MANIFEST_FILE, manifest);
-  await clasp("push", "--force");
+async function pushScript(app, manifest) {
+  await writeFile(`${app.dir}/appsscript.json`, manifest);
+  await clasp(app, "push", "--force");
 }
 
 function option(args, name) {
@@ -98,74 +124,80 @@ function option(args, name) {
   return at === -1 ? undefined : args[at + 1];
 }
 
-export async function create(args) {
-  if (await exists(APP_FILE)) {
-    throw new Error("A Sheet is already set up (.sheet-app.json). Use npm run sheet:update to change its script.");
+export async function create(args, app = APPS.sheet) {
+  const appFile = app.appFile.slice(ROOT.length);
+  if (await exists(app.appFile)) {
+    throw new Error(`A ${app.noun} is already set up (${appFile}). Use npm run ${app.command}:update to change its script.`);
   }
-  const title = option(args, "title") ?? "Cade tasks";
-  const manifest = await readFile(MANIFEST_FILE, "utf8");
+  const title = option(args, "title") ?? app.title;
+  const manifest = await readFile(`${app.dir}/appsscript.json`, "utf8");
 
-  console.log(`Creating the spreadsheet "${title}" with its script…`);
-  await clasp("create-script", "--type", "sheets", "--title", title, "--rootDir", ".");
-  const project = JSON.parse(await readFile(`${SHEET_DIR}/.clasp.json`, "utf8"));
+  console.log(`Creating ${app.type === "sheets" ? "the spreadsheet " : "the script "}"${title}"…`);
+  await clasp(app, "create-script", "--type", app.type, "--title", title, "--rootDir", ".");
+  const project = JSON.parse(await readFile(`${app.dir}/.clasp.json`, "utf8"));
 
   const secret = randomBytes(32).toString("hex");
-  await writeFile(SECRET_FILE, secretFile(secret));
-  await pushScript(manifest);
+  await writeFile(`${app.dir}/Secret.gs`, secretFile(secret, app));
+  await pushScript(app, manifest);
 
   console.log("Deploying the web app…");
-  const deployment = await clasp("create-deployment", "--description", "Cade");
+  const deployment = await clasp(app, "create-deployment", "--description", "Cade");
   const deploymentId = deploymentIdIn(deployment);
   if (!deploymentId) throw new Error("Couldn't find the deployment ID in clasp's output; see npx clasp list-deployments.");
   const url = webAppUrl(deploymentId);
-  const app = { scriptId: project.scriptId, spreadsheetId: project.parentId ?? "", deploymentId, url };
-  await writeFile(APP_FILE, `${JSON.stringify(app, null, 2)}\n`);
+  const saved = { scriptId: project.scriptId, ...(app.type === "sheets" && { spreadsheetId: project.parentId ?? "" }), deploymentId, url };
+  await writeFile(app.appFile, `${JSON.stringify(saved, null, 2)}\n`);
 
   console.log("Giving the Worker the secret and the address…");
-  await run("npx", ["wrangler", "secret", "put", "SHEET_SECRET"], { input: secret });
+  await run("npx", ["wrangler", "secret", "put", app.secretName], { input: secret });
   if (await exists(CONFIG_FILE)) {
-    await writeFile(CONFIG_FILE, withSheetUrl(await readFile(CONFIG_FILE, "utf8"), url));
+    await writeFile(CONFIG_FILE, withSheetUrl(await readFile(CONFIG_FILE, "utf8"), url, app.configKey));
     await run("node", ["scripts/config.mjs"]);
   } else {
     await copyFile(`${ROOT}cade.config.example.json`, CONFIG_FILE);
-    await writeFile(CONFIG_FILE, withSheetUrl(await readFile(CONFIG_FILE, "utf8"), url));
-    console.log("Made cade.config.json with sheetUrl; fill in your channels, then run npm run config.");
+    await writeFile(CONFIG_FILE, withSheetUrl(await readFile(CONFIG_FILE, "utf8"), url, app.configKey));
+    console.log(`Made cade.config.json with ${app.configKey}; fill in your channels, then run npm run config.`);
   }
 
-  const sheet = app.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${app.spreadsheetId}` : "";
+  const sheet = saved.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${saved.spreadsheetId}` : "";
+  const what = app.type === "sheets" ? "to the spreadsheet" : "to your Google Docs";
   console.log(`
 Done. One step is left, which only you can do: approve the script's access
-to the spreadsheet. Open the script, choose the "authorize" function, click
-Run, and allow it:
-  https://script.google.com/d/${app.scriptId}/edit
+${what}. Open the script, choose the "authorize" function, click Run, and
+allow it:
+  https://script.google.com/d/${saved.scriptId}/edit
 ${sheet ? `\nThe spreadsheet: ${sheet}\n` : ""}`);
 }
 
-export async function update() {
-  let app;
+export async function update(args, app = APPS.sheet) {
+  const appFile = app.appFile.slice(ROOT.length);
+  let saved;
   try {
-    app = JSON.parse(await readFile(APP_FILE, "utf8"));
+    saved = JSON.parse(await readFile(app.appFile, "utf8"));
   } catch {
-    throw new Error("No .sheet-app.json here: create the Sheet with npm run sheet:create first.");
+    throw new Error(`No ${appFile} here: create the ${app.noun} with npm run ${app.command}:create first.`);
   }
-  if (!(await exists(SECRET_FILE))) {
-    throw new Error("google-sheet/Secret.gs is missing, and the script can't work without it. Restore it, or set up a new Sheet.");
+  if (!(await exists(`${app.dir}/Secret.gs`))) {
+    throw new Error(`${app.dir.slice(ROOT.length)}/Secret.gs is missing, and the script can't work without it. Restore it, or set up a new ${app.noun}.`);
   }
-  await pushScript(await readFile(MANIFEST_FILE, "utf8"));
+  await pushScript(app, await readFile(`${app.dir}/appsscript.json`, "utf8"));
   // Same deployment, so the address doesn't change.
-  await clasp("update-deployment", app.deploymentId, "--description", "Cade");
-  console.log(`Updated the script at ${app.url}`);
+  await clasp(app, "update-deployment", saved.deploymentId, "--description", "Cade");
+  console.log(`Updated the script at ${saved.url}`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// Runs `create` or `update`, as the command line asks, for `app`.
+export function main(app, script) {
   const [action, ...args] = process.argv.slice(2);
   const actions = { create, update };
   if (!actions[action]) {
-    console.error("Use: node scripts/sheet-app.mjs create [--title \"Cade tasks\"] | update");
+    console.error(`Use: node scripts/${script} create [--title "${app.title}"] | update`);
     process.exit(1);
   }
-  actions[action](args).catch((error) => {
+  actions[action](args, app).catch((error) => {
     console.error(error.message);
     process.exit(1);
   });
 }
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main(APPS.sheet, "sheet-app.mjs");

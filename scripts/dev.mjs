@@ -21,6 +21,8 @@ export const SECRETS = [
   { name: "SLACK_SIGNING_SECRET" },
   // Asked only when cade.config.json has the Sheet's address.
   { name: "SHEET_SECRET", when: (settings) => Boolean(settings.SHEET_URL) },
+  // And the Google Doc web app's, when it has that one's.
+  { name: "DOC_SECRET", when: (settings) => Boolean(settings.DOC_URL) },
 ];
 
 // The .env file Wrangler reads: values in single quotes, so JSON such as

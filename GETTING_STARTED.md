@@ -48,9 +48,10 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents" }`. `name` is the group's name (its tab in the Sheet); `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name (its tab in the Sheet); `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries. | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `sheetUrl` | Optional | The Google Sheet's web app URL (`https://script.google.com/…/exec`). Without it, nothing is written to a Sheet. | Set for you by `npm run sheet:create` (step 8). |
+| `docUrl` | Optional | The Google Doc web app's URL (`https://script.google.com/…/exec`). Without it, `/cade export` and `/cade import` don't work. | Set for you by `npm run doc:create` (step 8b). |
 
 Start from `cade.config.example.json`. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
@@ -62,13 +63,14 @@ Start from `cade.config.example.json`. `npm run config` checks the file
 | `SLACK_SIGNING_SECRET` | **Required** | Lets Cade check that requests really come from Slack. | Set for you by `npm run slack:create` (step 5). Otherwise: the app's page at <https://api.slack.com/apps> → **Basic Information** → **App Credentials** → **Signing Secret**. |
 | `SLACK_BOT_TOKEN` | **Required** | Lets Cade read and post as the app (`xoxb-…`). | After installing the app (step 6): its page → **OAuth & Permissions** → **Bot User OAuth Token**. `npm run slack:create` asks for it and stores it. |
 | `SHEET_SECRET` | Only with `sheetUrl` | Stops anyone else writing to your Sheet. | Generated and set for you by `npm run sheet:create` (step 8), which also puts it in `google-sheet/Secret.gs` for the script. |
+| `DOC_SECRET` | Only with `docUrl` | Stops anyone else using the Google Doc web app. | Generated and set for you by `npm run doc:create` (step 8b), which also puts it in `google-doc/Secret.gs`. |
 
 ### Used once during setup, never stored
 
 | Credential | What it's for | How to get it |
 | --- | --- | --- |
 | Cloudflare login | Deploying, setting secrets and creating the database with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** and **D1 → Edit** in `CLOUDFLARE_API_TOKEN`. |
-| Google login | Creating or updating the Sheet's script (`npm run sheet:create`, `sheet:update`). | `npx clasp login` (step 8). |
+| Google login | Creating or updating the Sheet's or the Doc's script (`npm run sheet:create`, `doc:create` and their `:update`s). | `npx clasp login` (step 8). |
 | App configuration token | Creating or updating the Slack app (`npm run slack:create`, `slack:update`), which ask for it, hidden. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
 
 `npm run dev` (see [README.md](README.md)) uses the same config file and asks for the
@@ -250,6 +252,33 @@ task. It needs a Google account.
 **If it fails** with the Apps Script API: turn it on (step 1) and run it
 again. Details, doing it by hand, and troubleshooting are in
 [google-sheet/README.md](google-sheet/README.md).
+
+## 8b. Optional: the Google Doc, for executive summaries
+
+`/cade export` writes each group's executive summary into the group's Google
+Doc, to go through on calls with the client; `/cade import` reads back what
+was added during the call. It's separate from the Sheet and works without
+it.
+
+1. **(person)** `npx clasp login` and the Apps Script API, as in step 8.
+2. Create the web app:
+
+   ```sh
+   npm run doc:create
+   ```
+
+   **Expect:** a standalone script deployed as a web app; the Worker gets
+   its address (`docUrl`) and its secret (`DOC_SECRET`).
+3. **(person)** Open the script link it prints, choose `authorize`, click
+   **Run** and allow it.
+4. **(person)** For each group, make a Google Doc (or use the one you
+   already share with the client), and add its address to the group in
+   `cade.config.json` as `"doc"`. Then `npm run config`. The web app runs as
+   you, so you must be able to edit the doc. Cade writes in its **Summary**
+   tab, and adds the tab if it has none.
+
+Details and troubleshooting are in
+[google-doc/README.md](google-doc/README.md).
 
 ## 9. Check it works
 

@@ -12,3 +12,7 @@ cade.config.json
 google-sheet/Secret.gs
 google-sheet/.clasp.json
 .sheet-app.json
+# The same for the Google Doc web app, made by npm run doc:create.
+google-doc/Secret.gs
+google-doc/.clasp.json
+.doc-app.json

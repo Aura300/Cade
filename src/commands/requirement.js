@@ -4,6 +4,7 @@ import { INCIDENT, requirementMessage } from "../requirements.js";
 import { callSlack, escapeSlack, plainText } from "../slack.js";
 import { noPeople, readTaskForm, refreshSummary, setPinned, taskFormBlocks } from "../tasks.js";
 import { moveMessage, offerStart } from "./move.js";
+import { fromTheCall, syncApplied } from "./import.js";
 import { createTask } from "./track.js";
 
 const REQUIREMENT_VIEW = "requirement";
@@ -45,8 +46,27 @@ export default {
 // `origin` is { channel }, and from the prompt for a message posted on its
 // own (see move.js), the message's `moveTs` and its first line as the
 // `title`, to start with; the message is moved into the new thread once it
-// is posted.
-export function requirementView(origin) {
+// is posted. From `/cade import`, it has `sync`, the suggestion it applies
+// (see import.js), and the form has an Initial message, starting as
+// `initial`, posted in the new thread from the client call.
+export function requirementView(origin, { initial } = {}) {
+  const blocks = taskFormBlocks("Requirement name", { title: origin.title });
+  if (origin.sync) {
+    blocks.push({
+      type: "input",
+      block_id: "initial_message",
+      optional: true,
+      label: plainText("Initial message"),
+      hint: plainText("Posted in the requirement's thread once it's started."),
+      element: {
+        type: "plain_text_input",
+        action_id: "value",
+        multiline: true,
+        max_length: 3000,
+        initial_value: initial?.slice(0, 3000) || undefined,
+      },
+    });
+  }
   return {
     type: "modal",
     callback_id: REQUIREMENT_VIEW,
@@ -54,7 +74,7 @@ export function requirementView(origin) {
     title: plainText("New requirement"),
     submit: plainText("Start thread"),
     close: plainText("Cancel"),
-    blocks: taskFormBlocks("Requirement name", { title: origin.title }),
+    blocks,
   };
 }
 
@@ -73,7 +93,17 @@ async function submit(payload, context) {
     dueDate,
     createdBy: payload.user.id,
   };
-  context.waitUntil(createRequirement(context.env, origin.channel, requirement, origin.moveTs));
+  const initial = payload.view.state.values.initial_message?.value?.value?.trim();
+  context.waitUntil(
+    (async () => {
+      const ts = await createRequirement(context.env, origin.channel, requirement, origin.moveTs);
+      if (!origin.sync) return;
+      if (ts && initial) {
+        await callSlack(context.env, "chat.postMessage", { channel: origin.channel, thread_ts: ts, ...fromTheCall(initial, payload.user.id) });
+      }
+      await syncApplied(context.env, origin.sync, payload.user.id);
+    })(),
+  );
   return { response_action: "clear" };
 }
 
@@ -149,15 +179,16 @@ async function submitIncident(payload, context) {
 // Stores the requirement (or incident), then posts it, and moves the message
 // at `moveTs`, if any, into its thread. The move is only made if it is
 // posted straight away, since a retry doesn't know of it; `@Cade move` is
-// there for that.
+// there for that. Returns the root message's ts, if it was posted.
 async function createRequirement(env, channel, requirement, moveTs) {
   const id = await insertRequirement(env, channel, requirement);
   const ts = await publishRequirement(env, { id, channel, requirement, attempts: 0 });
-  if (!ts || !moveTs) return;
+  if (!ts || !moveTs) return ts;
   const problem = await moveMessage(env, { channel, ts: moveTs, targetTs: ts, user: requirement.createdBy }).catch(
     (error) => error.message,
   );
   if (problem) console.warn("Could not move the message", { ts: moveTs, problem });
+  return ts;
 }
 
 // Posts a stored requirement that has no root message yet and pins it; an

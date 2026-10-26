@@ -251,54 +251,54 @@ export async function deleteCanvas(env, channel) {
   await env.DB.prepare("DELETE FROM canvases WHERE channel = ?").bind(channel).run();
 }
 
-// The group's last posted executive summary, as { id, postedAt, until }, or
-// null. `until` is the end of the period it covered, if it had one.
-export async function lastExecSummary(env, group) {
+// The group's last export, as getExport gives it, or null. Its `until` is
+// where the next one's period starts.
+export async function lastExport(env, group) {
   const row = await env.DB.prepare(
-    `SELECT id, posted_at, until FROM exec_summaries
-     WHERE group_name = ? AND posted_at IS NOT NULL
-     ORDER BY posted_at DESC LIMIT 1`,
+    `SELECT id FROM exports
+     WHERE group_name = ? AND exported_at IS NOT NULL AND doc_url IS NOT NULL
+     ORDER BY exported_at DESC LIMIT 1`,
   )
     .bind(group)
     .first();
-  return row ? { id: row.id, postedAt: row.posted_at, until: row.until } : null;
+  return row ? getExport(env, row.id) : null;
 }
 
-// Starts an executive summary draft, `summary` being { group, channel,
-// createdBy, since, until }, and returns its id. `channel` is where it is
-// written and will be posted; `since` and `until` bound its period.
-export async function insertExecSummary(env, summary) {
+// Starts an export draft, `draft` being { group, createdBy, since, until },
+// and returns its id. `since` and `until` bound its period.
+export async function insertExport(env, draft) {
   const { id } = await env.DB.prepare(
-    "INSERT INTO exec_summaries (group_name, channel, created_by, since, until) VALUES (?, ?, ?, ?, ?) RETURNING id",
+    "INSERT INTO exports (group_name, created_by, since, until) VALUES (?, ?, ?, ?) RETURNING id",
   )
-    .bind(summary.group, summary.channel, summary.createdBy, summary.since, summary.until)
+    .bind(draft.group, draft.createdBy, draft.since, draft.until)
     .first();
   return id;
 }
 
-// The executive summary `id`, as { id, group, channel, createdBy, since,
-// until, postedAt, postedChannel, postedTs }, or null.
-export async function getExecSummary(env, id) {
-  const row = await env.DB.prepare("SELECT * FROM exec_summaries WHERE id = ?").bind(id).first();
+// The export `id`, as { id, group, createdBy, since, until, exportedAt,
+// docId, docUrl, docLines }, or null. The doc fields say where it was added
+// in its group's Google Doc, once it was (see recordExportDoc).
+export async function getExport(env, id) {
+  const row = await env.DB.prepare("SELECT * FROM exports WHERE id = ?").bind(id).first();
   return row
     ? {
         id: row.id,
         group: row.group_name,
-        channel: row.channel,
         createdBy: row.created_by,
         since: row.since,
         until: row.until,
-        postedAt: row.posted_at,
-        postedChannel: row.posted_channel,
-        postedTs: row.posted_ts,
+        exportedAt: row.exported_at,
+        docId: row.doc_id,
+        docUrl: row.doc_url,
+        docLines: row.doc_lines ? JSON.parse(row.doc_lines) : [],
       }
     : null;
 }
 
-// What was chosen for each requirement or task in the summary `id`, keyed
+// What was chosen for each requirement or task in the export `id`, keyed
 // by its message's "channel:ts", as { included, health, progress, notes }.
-export async function execItems(env, id) {
-  const { results } = await env.DB.prepare("SELECT * FROM exec_summary_items WHERE summary_id = ?").bind(id).all();
+export async function exportItems(env, id) {
+  const { results } = await env.DB.prepare("SELECT * FROM export_items WHERE export_id = ?").bind(id).all();
   return Object.fromEntries(
     results.map((row) => [
       `${row.task_channel}:${row.task_ts}`,
@@ -308,17 +308,17 @@ export async function execItems(env, id) {
 }
 
 // Sets the period the draft `id` covers.
-export async function setExecPeriod(env, id, since, until) {
-  await env.DB.prepare("UPDATE exec_summaries SET since = ?, until = ? WHERE id = ? AND posted_at IS NULL")
+export async function setExportPeriod(env, id, since, until) {
+  await env.DB.prepare("UPDATE exports SET since = ?, until = ? WHERE id = ? AND exported_at IS NULL")
     .bind(since, until, id)
     .run();
 }
 
-export async function putExecItem(env, id, channel, ts, item) {
+export async function putExportItem(env, id, channel, ts, item) {
   await env.DB.prepare(
-    `INSERT INTO exec_summary_items (summary_id, task_channel, task_ts, included, health, progress, notes)
+    `INSERT INTO export_items (export_id, task_channel, task_ts, included, health, progress, notes)
      VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (summary_id, task_channel, task_ts) DO UPDATE SET
+     ON CONFLICT (export_id, task_channel, task_ts) DO UPDATE SET
        included = excluded.included, health = excluded.health,
        progress = excluded.progress, notes = excluded.notes`,
   )
@@ -326,27 +326,97 @@ export async function putExecItem(env, id, channel, ts, item) {
     .run();
 }
 
-// Claims the summary for posting at `postedAt`. Returns false if it was
-// claimed already, by another click.
-export async function claimExecPost(env, id, postedAt) {
+// Claims the draft for adding to the doc at `exportedAt`. Returns false if
+// it was claimed already, by another click.
+export async function claimExport(env, id, exportedAt) {
   const row = await env.DB.prepare(
-    "UPDATE exec_summaries SET posted_at = ? WHERE id = ? AND posted_at IS NULL RETURNING id",
+    "UPDATE exports SET exported_at = ? WHERE id = ? AND exported_at IS NULL RETURNING id",
   )
-    .bind(postedAt, id)
+    .bind(exportedAt, id)
     .first();
   return Boolean(row);
 }
 
-// Records where the claimed summary was posted.
-export async function recordExecPost(env, id, channel, ts) {
-  await env.DB.prepare("UPDATE exec_summaries SET posted_channel = ?, posted_ts = ? WHERE id = ?")
-    .bind(channel, ts, id)
+// Gives up the claim, when adding it to the doc failed, so it can be tried
+// again.
+export async function releaseExport(env, id) {
+  await env.DB.prepare("UPDATE exports SET exported_at = NULL WHERE id = ? AND doc_url IS NULL").bind(id).run();
+}
+
+// Records that the export was added to the doc `docId`, its tab being at
+// `url`, with `lines`, the text of each line written.
+export async function recordExportDoc(env, id, docId, url, lines) {
+  await env.DB.prepare("UPDATE exports SET doc_id = ?, doc_url = ?, doc_lines = ? WHERE id = ?")
+    .bind(docId, url, JSON.stringify(lines), id)
     .run();
 }
 
-// Gives up the claim, when posting failed, so it can be tried again.
-export async function releaseExecPost(env, id) {
-  await env.DB.prepare("UPDATE exec_summaries SET posted_at = NULL WHERE id = ? AND posted_ts IS NULL").bind(id).run();
+// Stores what an import found, `suggestion` being { kind, channel?, ts?,
+// title?, text, details? }, unless it was found before.
+export async function insertSuggestion(env, exportId, suggestion) {
+  await env.DB.prepare(
+    `INSERT INTO import_suggestions (export_id, kind, channel, ts, title, text, details)
+     VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+  )
+    .bind(
+      exportId,
+      suggestion.kind,
+      suggestion.channel ?? "",
+      suggestion.ts ?? "",
+      suggestion.title ?? "",
+      suggestion.text,
+      suggestion.details ?? "",
+    )
+    .run();
+}
+
+// All the export's suggestions, however they were decided.
+export async function suggestions(env, exportId) {
+  const { results } = await env.DB.prepare("SELECT * FROM import_suggestions WHERE export_id = ? ORDER BY id")
+    .bind(exportId)
+    .all();
+  return results.map(suggestionFromRow);
+}
+
+// The export's suggestions still to decide, in the order they were found.
+export async function pendingSuggestions(env, exportId) {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM import_suggestions WHERE export_id = ? AND status = 'PENDING' ORDER BY id",
+  )
+    .bind(exportId)
+    .all();
+  return results.map(suggestionFromRow);
+}
+
+export async function getSuggestion(env, id) {
+  const row = await env.DB.prepare("SELECT * FROM import_suggestions WHERE id = ?").bind(id).first();
+  return row ? suggestionFromRow(row) : null;
+}
+
+// Decides a pending suggestion: APPLIED or DISCARDED. Returns false if it
+// was decided already, by another click.
+export async function decideSuggestion(env, id, status, user) {
+  const row = await env.DB.prepare(
+    `UPDATE import_suggestions SET status = ?, decided_by = ?, decided_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'PENDING' RETURNING id`,
+  )
+    .bind(status, user, id)
+    .first();
+  return Boolean(row);
+}
+
+function suggestionFromRow(row) {
+  return {
+    id: row.id,
+    exportId: row.export_id,
+    kind: row.kind,
+    channel: row.channel,
+    ts: row.ts,
+    title: row.title,
+    text: row.text,
+    details: row.details,
+    status: row.status,
+  };
 }
 
 // The requirements whose root message Slack hasn't taken yet, as { id,

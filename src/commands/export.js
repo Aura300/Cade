@@ -1,17 +1,18 @@
 import { channelPairs, findPair } from "../channels.js";
 import {
-  claimExecPost,
-  execItems,
-  getExecSummary,
+  claimExport,
+  exportItems,
+  getExport,
   getTask,
-  insertExecSummary,
-  lastExecSummary,
+  insertExport,
+  lastExport,
   postedRequirements,
-  putExecItem,
-  recordExecPost,
-  releaseExecPost,
-  setExecPeriod,
+  putExportItem,
+  recordExportDoc,
+  releaseExport,
+  setExportPeriod,
 } from "../db.js";
+import { docId, docsEnabled, writeSection } from "../doc.js";
 import { REQUIREMENT_STATUSES } from "../requirements.js";
 import { formatTime } from "../sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
@@ -20,15 +21,15 @@ import { byUrgency, groupTasks, threadLink, todayIn } from "./tasks.js";
 
 // Back, Next and Post carry the summary's id and the step to show; Slack
 // wants each button in a block to have its own action_id.
-const BACK_ACTION = "exec:back";
-const NEXT_ACTION = "exec:next";
-const POST_ACTION = "exec:post";
-const CANCEL_ACTION = "exec:cancel";
-const PEEK_ACTION = "exec:peek";
+const BACK_ACTION = "export:back";
+const NEXT_ACTION = "export:next";
+const POST_ACTION = "export:post";
+const CANCEL_ACTION = "export:cancel";
+const PEEK_ACTION = "export:peek";
 // A step of completed work shows up to MAX_SHOWN, each with its own
 // checkbox, and Slack wants each one's action_id to be different.
 const MAX_SHOWN = 20;
-const DONE_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `exec:done:${i}`);
+const DONE_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `export:done:${i}`);
 
 // The first summary of a group covers the past week, to today.
 const FIRST_PERIOD_DAYS = 7;
@@ -49,10 +50,10 @@ export const HEALTH = {
 // The menu lists them best first, as most work is on track.
 const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 
-// `/cade exec` writes an executive summary of a group with whoever runs it,
+// `/cade export` writes an executive summary of a group with whoever runs it,
 // one step at a time, shown only to them, and posts it in the channel it was
 // run in. The group is the channel's own, the only one, or the one named:
-// `/cade exec acme`. It goes through the group's work as the client sees
+// `/cade export acme`. It goes through the group's work as the client sees
 // it, its requirements and incidents, then the team's own tasks, those with
 // no requirement:
 //   0. the period it covers, from one day to another, counted in TIMEZONE:
@@ -65,30 +66,35 @@ const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 //      blocked), its progress, such as 3/5, and any notes; health and
 //      progress start as the last summary had them. Peek at threads shows
 //      the latest messages of its requirement thread and its task thread;
-//   3. the summary as it will read, to post.
-// What's chosen is saved as a draft (see migrations/0004) whenever a step
+//   3. the summary as it will read, to add to the group's Google Doc.
+// What's chosen is saved as a draft (see migrations/0007) whenever a step
 // is left, so Back shows it again. Nothing about the work itself changes.
+//
+// The summary isn't posted in Slack: it goes at the top of the Summary tab
+// of the group's Google Doc (its `doc` in CHANNEL_PAIRS), as a section of
+// its own, which is gone through with the client on a call. `/cade import`
+// then reads the section back for what the call added to it (see import.js).
+// So `/cade export` only works for a group with a doc.
 export default {
-  name: "exec",
-  aliases: ["executive"],
-  description: "Write an executive summary step by step, then post it here: what's done since the last one, then how each requirement and task is going",
-  slashUsage: "/cade exec",
+  name: "export",
+  description: "Write an executive summary step by step, then add it to the group's Google Doc: what's done since the last one, then how each requirement and task is going",
+  slashUsage: "/cade export",
   section: "work",
   async slash(command, context) {
     const { env } = context;
-    const group = pickGroup(env, command);
+    const group = pickGroup(env, command.text, command.channel, "/cade export");
     if (typeof group === "string") return group;
+    const noDoc = docProblem(env, group);
+    if (noDoc) return noDoc;
     context.waitUntil(
       (async () => {
-        const last = await lastExecSummary(env, group.name);
+        const last = await lastExport(env, group.name);
         const to = todayIn(env);
         let from = addDays(to, -FIRST_PERIOD_DAYS);
-        if (last?.until) from = addDays(todayIn(env, new Date(last.until)), 1);
-        else if (last) from = todayIn(env, new Date(last.postedAt));
+        if (last) from = addDays(todayIn(env, new Date(last.until)), 1);
         if (from > to) from = to;
-        const id = await insertExecSummary(env, {
+        const id = await insertExport(env, {
           group: group.name,
-          channel: command.channel,
           createdBy: command.user,
           since: dayBoundary(env, from),
           until: dayBoundary(env, to, { end: true }),
@@ -135,22 +141,41 @@ export default {
   },
 };
 
-// The group the command is for, or what to tell whoever sent it.
-function pickGroup(env, command) {
-  const groups = channelPairs(env);
-  const named = command.text.trim().toLowerCase();
-  if (named) {
-    const group = groups.find((pair) => pair.name.toLowerCase() === named);
-    return group ?? `I don't know a group called "${escapeSlack(command.text.trim())}". Try ${groupNames(groups)}.`;
+// Why the group's summaries can't be written in its Google Doc, if they
+// can't: the doc's web app isn't set up, or the group has no doc.
+export function docProblem(env, group) {
+  if (!docsEnabled(env)) {
+    return "Executive summaries are kept in a Google Doc, and its web app isn't set up yet: run `npm run doc:create` (see GETTING_STARTED.md).";
   }
-  const own = findPair(env, command.channel);
-  if (own) return own;
-  if (groups.length === 1) return groups[0];
-  return `Which group? Try ${groupNames(groups)}.`;
+  if (!docId(group.doc)) {
+    return `${group.name} has no Google Doc linked. Add the doc's address as \`"doc"\` to its group in cade.config.json, then run \`npm run config\`.`;
+  }
+  return undefined;
 }
 
-function groupNames(groups) {
-  return groups.map((pair) => `\`/cade exec ${pair.name}\``).join(" or ");
+// The doc's address, for links to it.
+function docLink(group) {
+  return `https://docs.google.com/document/d/${docId(group.doc)}/edit`;
+}
+
+// The group a command run in `channel` is for: the one `text` names, the
+// channel's own, or the only one. Otherwise, what to tell whoever sent it,
+// suggesting `usage` with each group's name.
+export function pickGroup(env, text, channel, usage) {
+  const groups = channelPairs(env);
+  const named = text.trim().toLowerCase();
+  if (named) {
+    const group = groups.find((pair) => pair.name.toLowerCase() === named);
+    return group ?? `I don't know a group called "${escapeSlack(text.trim())}". Try ${groupNames(groups, usage)}.`;
+  }
+  const own = findPair(env, channel);
+  if (own) return own;
+  if (groups.length === 1) return groups[0];
+  return `Which group? Try ${groupNames(groups, usage)}.`;
+}
+
+function groupNames(groups, usage) {
+  return groups.map((pair) => `\`${usage} ${pair.name}\``).join(" or ");
 }
 
 // Saves the step being left, then shows step `at.i`.
@@ -213,7 +238,7 @@ async function entries(env, group, url) {
 
 // SQLite's CURRENT_TIMESTAMP (UTC, "YYYY-MM-DD HH:MM:SS") as an ISO
 // timestamp, as tasks' completion times are.
-function isoTime(timestamp) {
+export function isoTime(timestamp) {
   return new Date(`${timestamp.replace(" ", "T")}Z`).toISOString();
 }
 
@@ -252,7 +277,7 @@ function addDays(day, days) {
 }
 
 // A day (YYYY-MM-DD) as DD/MM/YYYY.
-function showDay(day) {
+export function showDay(day) {
   const [year, month, date] = day.split("-");
   return `${date}/${month}/${year}`;
 }
@@ -272,7 +297,7 @@ function periodLabel(env, summary) {
 }
 
 // A status label without its emoji.
-function label(text) {
+export function label(text) {
   return text.replace(/^:[a-z0-9_+-]+:\s*/, "");
 }
 
@@ -302,9 +327,9 @@ async function walk(env, summary, url) {
 // health, progress, notes }. Entries not visited yet are included, with the
 // health and progress the last posted summary gave them.
 async function choices(env, summary) {
-  const items = await execItems(env, summary.id);
-  const last = await lastExecSummary(env, summary.group);
-  const previous = last && last.id !== summary.id ? await execItems(env, last.id) : {};
+  const items = await exportItems(env, summary.id);
+  const last = await lastExport(env, summary.group);
+  const previous = last && last.id !== summary.id ? await exportItems(env, last.id) : {};
   return (entry) => {
     const key = `${entry.channel}:${entry.ts}`;
     const before = previous[key];
@@ -334,15 +359,15 @@ async function saveStep(env, id, values = {}) {
     if (field.f === "notes") update.notes = (value.value ?? "").trim();
   }
   if (!Object.keys(updates).length && !Object.keys(days).length) return;
-  const summary = await getExecSummary(env, id);
-  if (!summary || summary.postedAt) return;
+  const summary = await getExport(env, id);
+  if (!summary || summary.exportedAt) return;
   if (Object.keys(days).length) {
     const { from, to } = { ...period(env, summary), ...days };
-    await setExecPeriod(env, id, dayBoundary(env, from), dayBoundary(env, to, { end: true }));
+    await setExportPeriod(env, id, dayBoundary(env, from), dayBoundary(env, to, { end: true }));
   }
   const chosen = await choices(env, summary);
   for (const { channel, ts, ...fields } of Object.values(updates)) {
-    await putExecItem(env, id, channel, ts, { ...chosen({ channel, ts }), ...fields });
+    await putExportItem(env, id, channel, ts, { ...chosen({ channel, ts }), ...fields });
   }
 }
 
@@ -373,9 +398,9 @@ function title(entry) {
 // The message for step `at.i`, with Back, Next (or Post) and Cancel.
 // `notice`, if any, is shown above it.
 async function render(env, at, notice) {
-  const summary = await getExecSummary(env, at.s);
-  if (!summary) return { text: "I can't find that summary any more. Send `/cade exec` to start again." };
-  if (summary.postedAt) return { text: "This executive summary has been posted. Send `/cade exec` to write the next one." };
+  const summary = await getExport(env, at.s);
+  if (!summary) return { text: "I can't find that summary any more. Send `/cade export` to start again." };
+  if (summary.exportedAt) return { text: "This executive summary has been added to the Google Doc. Send `/cade export` to write the next one." };
   // Links are built from the workspace's address.
   const { url } = await callSlack(env, "auth.test", {});
   const { done, active, steps } = await walk(env, summary, url);
@@ -502,7 +527,9 @@ async function render(env, at, notice) {
       },
     );
   } else {
-    blocks.push({ type: "context", elements: [mrkdwn(`*Review.* This is what I'll post in <#${summary.channel}>.`)] });
+    const group = channelPairs(env).find((pair) => pair.name === summary.group);
+    const where = group && docId(group.doc) ? `<${docLink(group)}|${summary.group}'s Google Doc>` : "the group's Google Doc";
+    blocks.push({ type: "context", elements: [mrkdwn(`*Review.* This is what I'll add to the top of ${where}'s Summary tab.`)] });
     for (const chunk of chunks(summaryText(env, summary, done, active, chosen), 3000).slice(0, 40)) {
       blocks.push({ type: "section", text: mrkdwn(chunk) });
     }
@@ -519,7 +546,7 @@ async function render(env, at, notice) {
   if (i > 0) buttons.push(go(BACK_ACTION, i - 1, "◀ Back"));
   const next = steps[i + 1];
   if (next) buttons.push(go(NEXT_ACTION, i + 1, `Next: ${stepName(next)} ▶`, "primary"));
-  else buttons.push(go(POST_ACTION, i, "Post summary", "primary"));
+  else buttons.push(go(POST_ACTION, i, "Add to the Google Doc", "primary"));
   buttons.push({ type: "button", action_id: CANCEL_ACTION, text: plainText("Cancel"), value: "cancel" });
   blocks.push({ type: "actions", elements: buttons });
   return { text: `Executive summary: step ${i + 1} of ${steps.length}`, blocks };
@@ -532,7 +559,7 @@ function stepName(step) {
   return "Review";
 }
 
-// The summary as posted, in sections: Completed, then the active
+// The summary as the review shows it, in sections: Completed, then the active
 // incidents, each saying how it's going, then the rest of the active work
 // by how it's going, worst first. Each active line has its status, progress
 // and notes. Sections with nothing in them are left out, and headings are
@@ -611,40 +638,88 @@ async function fillPeek(env, viewId, threads) {
   await callSlack(env, "views.update", { view_id: viewId, view: peekView(blocks.slice(0, 100)) });
 }
 
-// Posts the summary in the channel it was written in, once, then replaces
-// the walk with a note that it was.
+// Adds the summary to the group's Google Doc, once, then replaces the walk
+// with a note that it was. The section is keyed by the summary, so trying
+// again replaces it rather than adding another.
 async function post(payload, env, at) {
   await saveStep(env, at.s, payload.state?.values);
-  const summary = await getExecSummary(env, at.s);
-  if (!summary || summary.postedAt) {
+  const summary = await getExport(env, at.s);
+  if (!summary || summary.exportedAt) {
     await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at)) });
+    return;
+  }
+  const group = channelPairs(env).find((pair) => pair.name === summary.group);
+  const problem = group ? docProblem(env, group) : `I don't know the group ${summary.group} any more.`;
+  if (problem) {
+    await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at, `:warning: ${problem}`)) });
     return;
   }
   const { url } = await callSlack(env, "auth.test", {});
   const { done, active } = await walk(env, summary, url);
   const chosen = await choices(env, summary);
-  const text = summaryText(env, summary, done, active, chosen);
-  if (!(await claimExecPost(env, summary.id, new Date().toISOString()))) {
+  const blocks = summaryDocBlocks(env, summary, done, active, chosen);
+  if (!(await claimExport(env, summary.id, new Date().toISOString()))) {
     await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at)) });
     return;
   }
-  const channel = summary.channel;
-  let message;
+  const doc = docId(group.doc);
+  let address;
   try {
-    message = await callSlack(env, "chat.postMessage", { channel, text });
+    address = await writeSection(env, doc, `export:${summary.id}`, blocks);
   } catch (error) {
-    await releaseExecPost(env, summary.id);
-    console.warn("Could not post the executive summary", { id: summary.id, error: error.message });
-    const notice = /not_in_channel|channel_not_found/.test(error.message)
-      ? `:warning: I'm not in <#${channel}>. Invite me with \`/invite @Cade\`, then press Post summary again.`
-      : ":warning: Sorry, I couldn't post it just now. Press Post summary to try again.";
+    await releaseExport(env, summary.id);
+    console.warn("Could not add the executive summary to the doc", { id: summary.id, error: error.message });
+    const notice = ":warning: Sorry, I couldn't add it to the Google Doc just now. Press Add to the Google Doc to try again.";
     await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at, notice)) });
     return;
   }
-  await recordExecPost(env, summary.id, channel, message.ts);
-  console.log("Executive summary posted", { id: summary.id, group: summary.group, user: payload.user.id });
+  await recordExportDoc(env, summary.id, doc, address, blocks.map(docBlockText));
+  console.log("Executive summary added to the doc", { id: summary.id, group: summary.group, user: payload.user.id });
   await respondLater(payload.response_url, {
     replace_original: true,
-    text: `Posted the executive summary for ${periodLabel(env, summary)}.`,
+    text: `Added the executive summary for ${periodLabel(env, summary)} to <${address}|${summary.group}'s Google Doc>. After going through it with the client, send \`/cade import\` for what was added to it.`,
   });
+}
+
+// The summary as a section of the doc (see writeSection in doc.js): a
+// heading with the day it was written, the period, then the same sections
+// as summaryText, each line a bullet whose title links to its thread, with
+// its notes as bullets under it.
+export function summaryDocBlocks(env, summary, done, active, chosen) {
+  const health = (entry) => (HEALTH[chosen(entry).health] ? chosen(entry).health : "ON_TRACK");
+  const going = active.filter((entry) => chosen(entry).included);
+  const blocks = [
+    { type: "heading", level: 2, text: `${showDay(todayIn(env))} · ${summary.group} executive summary` },
+    { type: "paragraph", italic: true, text: `Period: ${periodLabel(env, summary)}` },
+  ];
+  const section = (heading, entries, item) => {
+    if (!entries.length) return;
+    blocks.push({ type: "heading", level: 3, text: `${heading} (${entries.length})` }, ...entries.flatMap(item));
+  };
+  const named = (entry) => [...(entry.incident ? [{ text: "Incident: " }] : []), { text: entry.title, link: entry.link }];
+  const activeItem = (entry, label) => {
+    const { progress, notes } = chosen(entry);
+    const rest = [label, entry.status, progress].filter(Boolean).join("  ·  ");
+    return [
+      { type: "item", level: 0, parts: [{ text: entry.title, link: entry.link }, ...(rest ? [{ text: `  ·  ${rest}` }] : [])] },
+      ...(notes ?? "")
+        .split("\n")
+        .map((note) => note.trim())
+        .filter(Boolean)
+        .map((note) => ({ type: "item", level: 1, parts: [{ text: note }] })),
+    ];
+  };
+  section("Completed", done.filter((entry) => chosen(entry).included), (entry) => [{ type: "item", level: 0, parts: named(entry) }]);
+  section("Incidents", going.filter((entry) => entry.incident), (entry) => activeItem(entry, label(HEALTH[health(entry)])));
+  for (const [key, heading] of Object.entries(HEALTH)) {
+    const these = going.filter((entry) => !entry.incident && health(entry) === key);
+    section(label(heading), these, (entry) => activeItem(entry));
+  }
+  if (blocks.length === 2) blocks.push({ type: "paragraph", text: "Nothing completed or active." });
+  return blocks;
+}
+
+// A doc block's text, as the doc shows it.
+export function docBlockText(block) {
+  return block.parts ? block.parts.map((part) => part.text).join("") : block.text;
 }
