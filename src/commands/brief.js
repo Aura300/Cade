@@ -117,6 +117,10 @@ export default {
     [CANCEL_ACTION]: async (payload) => {
       await respondLater(payload.response_url, { delete_original: true });
     },
+    // A message's menus, date pickers and text boxes (action_id "value", as
+    // in the steps here) tell Slack each change; what they hold is read
+    // when a button is pressed, so the changes themselves need nothing.
+    value: async () => {},
     // A modal must be opened within three seconds of the click, so it opens
     // at once and the messages follow.
     [PEEK_ACTION]: async (payload, context) => {

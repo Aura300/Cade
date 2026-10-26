@@ -201,8 +201,12 @@ function tabFor(docId, title) {
     }
   }
   if (!made) Docs.Documents.batchUpdate({ requests: [{ addDocumentTab: { tabProperties: { title } } }] }, docId);
-  doc = DocumentApp.openById(docId);
-  tab = findTab(doc, title);
+  // The new tab can take a moment to show up to DocumentApp.
+  for (let tries = 0; !tab && tries < 5; tries++) {
+    if (tries) Utilities.sleep(1000);
+    doc = DocumentApp.openById(docId);
+    tab = findTab(doc, title);
+  }
   if (!tab) throw new Error(`couldn't make the ${title} tab`);
   return { doc, tab };
 }
