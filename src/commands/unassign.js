@@ -8,7 +8,7 @@ import { noLonger, roleButtons } from "./assign.js";
 export default {
   name: "unassign",
   description: "Unassign people from a role, or from every role (in its thread)",
-  usage: "@Cade unassign developer @person",
+  usage: "@Cade unassign dev @person",
   section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,

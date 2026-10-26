@@ -64,8 +64,10 @@ const PASSED = phraseTest([
 ]);
 const FINISHED = phraseTest(["done", "finished", "complete(d)?", "merged", "deployed", "released", "shipped", "fixed"]);
 // Words that put the progress off or in doubt: "not done yet", "almost
-// finished", "once it's merged".
-const HEDGED = /\b(not|almost|nearly|once|when|after|until|before|if)\b|n['’]t\b/i;
+// finished", "once it's merged"; or say only part of it is: "finished the
+// login subtask", "first part is done".
+const HEDGED =
+  /\b(not|almost|nearly|once|when|after|until|before|if|sub-?tasks?|parts?|partly|partial(ly)?|some of|one of|first|half|step)\b|n['’]t\b/i;
 
 // Status changes people make in their own words, in a task's thread: Cade
 // asks whoever wrote it, privately, whether to move the task on (see
@@ -91,8 +93,8 @@ export default {
     if (!task) return NOT_A_TASK;
 
     const input = command.text.trim();
-    const status = input.toUpperCase().replace(/[\s-]+/g, "_");
-    if (!STATUSES[status]) {
+    const status = parseStatus(input);
+    if (!status) {
       const prompt = input
         ? `I don't know "${escapeSlack(input)}" as a status. Which one did you mean?`
         : "What's the new status?";
@@ -262,6 +264,25 @@ function submitStatus(payload, context) {
     })(),
   );
   return CLOSE_ALL;
+}
+
+// Short names people type for each status, besides its own name ("in
+// progress", "IN_PROGRESS"), in `@Cade status`.
+const STATUS_NAMES = {
+  TODO: ["to do", "todo", "open"],
+  IN_PROGRESS: ["progress", "started", "doing", "wip"],
+  IN_REVIEW: ["review", "code review"],
+  IN_TESTING: ["testing", "test", "qa"],
+  CLIENT_REVIEW: ["client", "approval", "uat"],
+  DONE: ["complete", "completed", "finished", "closed"],
+};
+
+// The status `input` names, or undefined.
+export function parseStatus(input) {
+  const key = input.toUpperCase().replace(/[\s-]+/g, "_");
+  if (STATUSES[key]) return key;
+  const words = input.toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  return Object.keys(STATUS_NAMES).find((status) => STATUS_NAMES[status].includes(words));
 }
 
 // A status menu's option.

@@ -1,6 +1,6 @@
 import { roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest } from "../intents.js";
-import { CLOSE_ALL, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { CLOSE_ALL, callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { clientStatus, loadRequirement, onTheTeam, reflectOnRequirement } from "../requirements.js";
 import {
   NOT_A_TASK,
@@ -21,6 +21,7 @@ const SUGGEST_ASSIGN_ACTION = "assign:suggest";
 const CHOOSE_ACTIONS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `assign:choose:${role}`]));
 const PEOPLE_VIEW = "assign:people";
 const TEAM_VIEW = "assign:team";
+const TEAM_ACTION = "assign:open-team";
 const SUGGEST_SKIP_ACTION = "assign:suggest-skip";
 // "Choose developers and move to In progress", offered to someone saying the
 // work has started who isn't its developer (see suggestStart).
@@ -92,31 +93,34 @@ const startedIntent = intent({
 });
 
 // The words that say the people a message mentions have started already:
-// "@rex has started working on this", "@rex is on it". Checked before
-// developer hand-offs, which ask someone to start ("@rex please start working
-// on this").
+// "@rex has started working on this", "@rex is on it", "@rex is working on
+// the login part". Checked before every hand-off, which ask someone to start
+// ("@rex please start working on this", "@mia please review"): "@rex started
+// working on the review comments" reports work, it doesn't ask for a review.
 const REPORTED = phraseTest([
-  "started (working|work|on (this|it))",
-  "(is|are|['’]s|['’]re) (already )?(working on|looking into|on) (this|it)",
+  "started (working|work|on)",
+  "(is|are|['’]s|['’]re) (already |now |still )?(working on|looking into)",
+  "(is|are|['’]s|['’]re) (already )?on (this|it)",
   "(has|have|already|just) (picked|taken) (this |it )?(up|on)",
   "picked (this |it )?up",
   "took (this|it)( on| over)?",
-  "(has|have) been working on (this|it)",
+  "(has|have) been working on",
 ]);
 
 const reportedIntent = intent({
   name: "started:reported",
-  order: 38,
+  order: 15,
   needs: { thread: true, mention: true },
   match: (message) => !isQuestion(message) && REPORTED(message),
   handle: (message, { env }) => suggestReported(message, env),
 });
 
 // `@Cade assign developer @person [@person …]` in a task thread adds people
-// to that role; `reviewer` and `tester` work the same way. The reply mentions
-// them with what to do next. Without anyone mentioned, `@Cade assign`
-// replies with a button per role (or just the one named), which opens a form
-// with that role's people filled in, to add or remove people.
+// to that role; `reviewer` and `tester` work the same way, and short words
+// do too: `dev`, `review`, `test` or `qa`. The reply mentions them with what
+// to do next. Without anyone mentioned, `@Cade assign` asks privately, with
+// a button that opens the form with every role, filled in with who's
+// assigned now, to add or remove people.
 //
 // There is nothing to review until a pull request is linked, so reviewers
 // can be added ahead of time: until then the reply names no one, so they are
@@ -130,19 +134,16 @@ const reportedIntent = intent({
 export default {
   name: "assign",
   description: "Assign a developer, reviewer or tester (in its thread)",
-  usage: "@Cade assign developer @person",
+  usage: "@Cade assign dev @person",
   section: "thread",
   channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
-    // No one mentioned: a button for the role named, or for each role, that
-    // opens a form to choose its people.
-    if (!command.mentions.length) return roleButtons(role ? [role] : Object.keys(ROLES));
+    // No one mentioned: a private button that opens the form with every role.
+    if (!command.mentions.length) return askTeam(env, command);
     if (!role) {
-      const examples = Object.keys(ROLES)
-        .map((name) => `\`@Cade assign ${name} @person\``)
-        .join(", ");
+      const examples = ["dev", "review", "test"].map((name) => `\`@Cade assign ${name} @person\``).join(", ");
       return `Happy to! Which role should I assign them to? Try ${examples}.`;
     }
 
@@ -162,6 +163,15 @@ export default {
   intents: [...handOffIntents, reportedIntent, startedIntent],
   views: { [PEOPLE_VIEW]: savePeople, [TEAM_VIEW]: saveTeam },
   actions: {
+    // Opening a form must happen within Slack's three seconds of the click.
+    [TEAM_ACTION]: async (payload, { env }) => {
+      const { channel, ts } = JSON.parse(payload.actions[0].value);
+      const task = await loadTask(env, channel, ts);
+      if (!task) return;
+      await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: teamForm({ channel, ts }, task) });
+      // The private button has done its job once the form is open.
+      await dismiss(payload.response_url);
+    },
     ...Object.fromEntries(
       Object.entries(CHOOSE_ACTIONS).map(([role, actionId]) => [
         actionId,
@@ -287,13 +297,44 @@ function savePeople(payload, context) {
   );
 }
 
-// The task card menu's Assign people form (see menu.js): a people picker per
-// role, filled in with who's assigned now, to add or remove people.
-export function teamForm({ channel, ts }, task) {
+// `@Cade assign` with no one mentioned asks whoever sent it, privately, with
+// a button that opens the Assign people form; only a click carries the
+// trigger_id a form needs.
+async function askTeam(env, command) {
+  const task = await loadTask(env, command.channel, command.threadTs);
+  if (!task) return NOT_A_TASK;
+  const text = "Who's working on this task?";
+  await callSlack(env, "chat.postEphemeral", {
+    channel: command.channel,
+    thread_ts: command.threadTs,
+    user: command.user,
+    text,
+    blocks: [
+      { type: "section", text: mrkdwn(text) },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: TEAM_ACTION,
+            text: plainText("Assign people"),
+            style: "primary",
+            value: JSON.stringify({ channel: command.channel, ts: command.threadTs }),
+          },
+        ],
+      },
+    ],
+  });
+}
+
+// The Assign people form, from the task card's menu (see menu.js) or `@Cade
+// assign`: a people picker per role, filled in with who's assigned now, to
+// add or remove people. `origin` is { channel, ts }.
+export function teamForm(origin, task) {
   return {
     type: "modal",
     callback_id: TEAM_VIEW,
-    private_metadata: JSON.stringify({ channel, ts }),
+    private_metadata: JSON.stringify(origin),
     title: plainText("Assign people"),
     submit: plainText("Save"),
     close: plainText("Cancel"),
@@ -464,6 +505,8 @@ async function suggestStart(message, env) {
   if (about.requirement) return offerStartedTracking(env, message, about.requirement);
   const { target, of, task } = about;
   if (task.status === "DONE") return;
+  // A reviewer or tester starting on their part isn't the work starting.
+  if (task.people.reviewer.includes(message.user) || task.people.tester.includes(message.user)) return;
   const developer = task.people.developer.includes(message.user);
   const moveTo = canMove("IN_PROGRESS", task.status) ? "IN_PROGRESS" : null;
   if (developer && !moveTo) return;
@@ -503,7 +546,10 @@ async function suggestReported(message, env) {
   if (about.requirement) return offerStartedTracking(env, message, about.requirement, mentioned);
   const { target, of, task, place } = about;
   if (task.status === "DONE") return;
-  const people = mentioned.filter((id) => !task.people.developer.includes(id));
+  // Someone already on the task is doing their part: a reviewer starting on
+  // the review isn't a new developer.
+  const people = mentioned.filter((id) => !onTask(task, id));
+  if (!people.length && !mentioned.some((id) => task.people.developer.includes(id))) return;
   const moveTo = canMove("IN_PROGRESS", task.status) ? "IN_PROGRESS" : null;
   if (!people.length && !moveTo) return;
 
@@ -553,6 +599,11 @@ async function offerStartedTracking(env, message, requirement, developers) {
     track("Track and assign me", { developers: [message.user] }, "primary"),
     track("Track and choose developers", { chooseDevelopers: true }),
   ]);
+}
+
+// Whether `user` has any role on the task.
+function onTask(task, user) {
+  return Object.keys(ROLES).some((role) => task.people[role].includes(user));
 }
 
 // The button that accepts an assignment (see acceptAssignment).

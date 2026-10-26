@@ -95,10 +95,19 @@ export const REQUESTS = {
 // their names: there's nothing to ask, only to let them know.
 export const STARTED_NOTE = `you're down as developer on this, and it's ${STATUSES.IN_PROGRESS}.`;
 
-// Returns the first role named in `text` ("developers" works too), or null.
+// Short words for each role, besides its name: `@Cade assign dev @rex`.
+const ROLE_WORDS = { dev: "developer", review: "reviewer", rev: "reviewer", test: "tester", qa: "tester" };
+
+// Returns the first role named in `text` ("developers", "dev" and "qa" work
+// too), or null.
 export function parseRole(text) {
   const words = text.toLowerCase().split(/\s+/).filter((word) => !word.startsWith("<@"));
-  return words.map((word) => word.replace(/s$/, "")).find((word) => ROLES[word]) ?? null;
+  return (
+    words
+      .map((word) => word.replace(/s$/, ""))
+      .map((word) => ROLE_WORDS[word] ?? word)
+      .find((word) => ROLES[word]) ?? null
+  );
 }
 
 export function noPeople() {

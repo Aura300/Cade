@@ -541,24 +541,63 @@ test("@Cade assign without a role asks for one", async (t) => {
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
   assert.equal(
     calls[0].args.text,
-    "Happy to! Which role should I assign them to? Try `@Cade assign developer @person`, `@Cade assign reviewer @person`, `@Cade assign tester @person`.",
+    "Happy to! Which role should I assign them to? Try `@Cade assign dev @person`, `@Cade assign review @person`, `@Cade assign test @person`.",
   );
 });
 
-test("@Cade assign without anyone mentioned offers a button per role", async (t) => {
-  for (const [text, roles, prompt] of [
-    ["<@UBOT> assign", ["developer", "reviewer", "tester"], "Who's working on this task?"],
-    ["<@UBOT> assign reviewer", ["reviewer"], "Who should be the reviewer?"],
-  ]) {
-    const calls = mockSlack(t);
+test("@Cade assign without anyone mentioned asks privately, with a button that opens every role's form", async (t) => {
+  for (const text of ["<@UBOT> assign", "<@UBOT> assign reviewer"]) {
+    const calls = mockSlack(t, { stored: [ownTask({ developers: ["UREX"] })] });
+    calls.responses = recordResponses(t);
     await send("/slack/events", threadEvent(text));
-    const reply = calls.at(-1).args;
-    assert.equal(reply.text, prompt, text);
-    assert.deepEqual(
-      reply.blocks[1].elements.map((button) => [button.action_id, button.text.text]),
-      roles.map((role) => [`assign:choose:${role}`, role[0].toUpperCase() + role.slice(1)]),
-      text,
+    assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"], text);
+    const [button] = calls[0].args.blocks[1].elements;
+    assert.equal(button.text.text, "Assign people");
+
+    await send(
+      "/slack/interactions",
+      interaction({
+        type: "block_actions",
+        trigger_id: "T1",
+        user: { id: "UACTOR" },
+        response_url: RESPONSE_URL,
+        actions: [{ action_id: button.action_id, value: button.value }],
+      }),
     );
+    const form = calls.at(-1).args.view;
+    assert.equal(form.callback_id, "assign:team");
+    assert.deepEqual(form.blocks.map((block) => block.block_id), ["developer", "reviewer", "tester"]);
+    assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
+    // The private button goes as soon as the form is open.
+    assert.deepEqual(calls.responses, [{ response_type: "ephemeral", delete_original: true }]);
+
+    await send(
+      "/slack/interactions",
+      interaction({
+        type: "view_submission",
+        user: { id: "UACTOR" },
+        view: {
+          callback_id: form.callback_id,
+          private_metadata: form.private_metadata,
+          state: { values: { developer: { value: { selected_users: ["UREX", "UBOB"] } } } },
+        },
+      }),
+    );
+    assert.deepEqual((await savedTask()).people.developer, ["UREX", "UBOB"]);
+  }
+});
+
+test("@Cade assign takes short words for each role", async (t) => {
+  for (const [text, role] of [
+    ["<@UBOT> assign dev <@UBOB>", "developer"],
+    ["<@UBOT> assign devs <@UBOB>", "developer"],
+    ["<@UBOT> assign review <@UBOB>", "reviewer"],
+    ["<@UBOT> assign test <@UBOB>", "tester"],
+    ["<@UBOT> assign qa <@UBOB>", "tester"],
+  ]) {
+    mockSlack(t, { stored: [storedTask()] });
+    await send("/slack/events", threadEvent(text));
+    assert.deepEqual((await savedTask()).people[role], ["UBOB"], text);
   }
 });
 
@@ -915,7 +954,7 @@ test("@Cade assign outside the dev channel points to it", async (t) => {
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }));
   assert.equal(
     calls[0].args.text,
-    "That one works with `@Cade assign developer @person` in a task thread in <#CDEV>.",
+    "That one works with `@Cade assign dev @person` in a task thread in <#CDEV>.",
   );
 });
 
@@ -1011,8 +1050,8 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     );
     assert.match(lines[1], /`\/cade requirement` · `@Cade requirement` · `\/cade incident` · `@Cade incident` · `\/cade track` · `@Cade track`$/);
     // Saying it comes first in a task thread; the commands follow.
-    assert.match(lines[2], /^\*In a task thread:\* Just talk to me: .* Or: `@Cade assign developer @person`/);
-    for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
+    assert.match(lines[2], /^\*In a task thread:\* Just talk to me: .* Or: `@Cade assign dev @person`/);
+    for (const usage of ["assign dev @person", "unassign dev @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
       assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
     }
     assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary` · `/cade brief` · `/cade debrief`");
@@ -4333,7 +4372,7 @@ test("CHANNEL_PAIRS can be a JSON string, as the Cloudflare dashboard stores it"
   const calls = mockSlack(t);
   const asJson = { ...env, CHANNEL_PAIRS: JSON.stringify(env.CHANNEL_PAIRS) };
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CEXTERNAL" }), {}, asJson);
-  assert.equal(calls[0].args.text, "That one works with `@Cade assign developer @person` in a task thread in <#CDEV>.");
+  assert.equal(calls[0].args.text, "That one works with `@Cade assign dev @person` in a task thread in <#CDEV>.");
 
   const broken = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"), {}, { ...env, CHANNEL_PAIRS: "[{" });
@@ -4500,12 +4539,64 @@ test("the first intent by order wins, and needs are checked first", async () => 
   assert.equal(plainMessage(event("deploying", { bot_id: "B1" }), "UBOT"), null);
 });
 
-test("handlers' intents are registered in order: PR links, hand-offs, started, progress, then new threads", async () => {
+test("handlers' intents are registered in order: PR links, reports, hand-offs, started, progress, then new threads", async () => {
   const { intents } = await import("../src/commands/registry.js");
   assert.deepEqual(
     [...intents].sort((a, b) => a.order - b.order).map((each) => each.name),
-    ["pr-link", "hand-off:reviewer", "hand-off:tester", "started:reported", "hand-off:developer", "started", "progress", "new-thread"],
+    ["pr-link", "started:reported", "hand-off:reviewer", "hand-off:tester", "hand-off:developer", "started", "progress", "new-thread"],
   );
+});
+
+test("@Cade status takes short names for each status", async () => {
+  const { parseStatus } = await import("../src/commands/status.js");
+  for (const [input, status] of [
+    ["to do", "TODO"], ["todo", "TODO"],
+    ["in progress", "IN_PROGRESS"], ["progress", "IN_PROGRESS"], ["wip", "IN_PROGRESS"],
+    ["in review", "IN_REVIEW"], ["review", "IN_REVIEW"],
+    ["in testing", "IN_TESTING"], ["testing", "IN_TESTING"], ["QA", "IN_TESTING"],
+    ["client review", "CLIENT_REVIEW"], ["client", "CLIENT_REVIEW"], ["uat", "CLIENT_REVIEW"],
+    ["done", "DONE"], ["Finished", "DONE"], ["CLIENT_REVIEW", "CLIENT_REVIEW"],
+    ["soon", undefined],
+  ]) {
+    assert.equal(parseStatus(input), status, input);
+  }
+});
+
+test("messages about work already in hand suggest nothing", async (t) => {
+  // UDEV1 and UDEV2 develop it, UMIA reviews and UTOM tests, and it's In
+  // progress: none of these needs a question.
+  const task = () => {
+    const record = ownTask({ developers: ["UDEV1", "UDEV2"], reviewers: ["UMIA"], testers: ["UTOM"] });
+    record.task.status = "IN_PROGRESS";
+    return record;
+  };
+  for (const [user, text] of [
+    ["UDEV1", "<@UDEV2> started working on some subtask"],
+    ["UDEV1", "<@UDEV2> started working on the review comments"],
+    ["UDEV1", "<@UDEV2> started working on the test cases"],
+    ["UDEV1", "<@UDEV2> is working on the login part"],
+    ["UDEV1", "<@UDEV2> started on the subtask"],
+    ["UDEV1", "<@UMIA> started working on the review"],
+    ["UDEV1", "<@UTOM> is working on the test plan"],
+    ["UMIA", "started working on the review"],
+    ["UTOM", "started working on the test cases"],
+    ["UDEV2", "finished the login subtask"],
+    ["UDEV2", "first part is done"],
+    ["UDEV2", "fixed one of the bugs"],
+  ]) {
+    const calls = mockSlack(t, { stored: [task()] });
+    await send("/slack/events", threadEvent(text, { user }));
+    assert.deepEqual(calls.map((call) => call.method), [], `${user}: ${text}`);
+  }
+});
+
+test("a report that someone new started still offers to assign them", async (t) => {
+  const record = ownTask({ developers: ["UDEV1"] });
+  record.task.status = "IN_PROGRESS";
+  const calls = mockSlack(t, { stored: [record] });
+  await send("/slack/events", threadEvent("<@UREX> started working on the review comments", { user: "UDEV1" }));
+  assert.equal(calls[0].method, "chat.postEphemeral");
+  assert.equal(calls[0].args.text, "Sounds like <@UREX> started on this. Should I assign them as developer?");
 });
 
 test("npm run google:create makes Secret.gs, finds the deployment and sets googleUrl", async () => {
