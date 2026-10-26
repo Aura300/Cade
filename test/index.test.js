@@ -1801,36 +1801,109 @@ const cardFormSubmission = (callbackId, values) =>
 const threadPosts = (calls) =>
   calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").map((call) => call.args.text);
 
-test("a task's card has a menu, leaving out the priority and due date a requirement owns", async (t) => {
-  for (const [record, choices] of [
-    [ownTask(), ["assign", "status", "prs", "priority", "due"]],
-    [storedTask(), ["assign", "status", "prs"]],
-  ]) {
-    const calls = mockSlack(t, { stored: [record] });
-    await send("/slack/events", threadEvent("<@UBOT> status in progress"));
-    const card = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args;
-    const { accessory } = card.blocks[0];
-    assert.equal(accessory.action_id, "task:menu");
-    assert.deepEqual(accessory.options.map((option) => option.value), choices);
-  }
+test("a task's card has a menu, with the everyday choices first", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> status in progress"));
+  const card = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args;
+  const { accessory } = card.blocks[0];
+  assert.equal(accessory.action_id, "task:menu");
+  assert.deepEqual(accessory.options.map((option) => option.value), ["assign", "status", "prs", "release", "more"]);
 });
 
 test("choosing from a task card's menu opens its form, filled in", async (t) => {
   for (const [choice, callbackId, initial] of [
     ["status", "status:form", (view) => view.blocks[0].element.initial_option.value],
-    ["priority", "priority:form", (view) => view.blocks[0].element.initial_option.value],
-    ["due", "due:form", (view) => view.blocks[0].element.initial_date],
     ["assign", "assign:team", (view) => view.blocks[0].element.initial_users],
     ["prs", "pr:form", (view) => view.blocks[0].element.initial_value],
+    ["release", "release", (view) => view.blocks[0].element.initial_options.map((option) => option.value)],
   ]) {
-    const calls = mockSlack(t, { stored: [ownTask({ developers: ["UREX"] })] });
+    const record = ownTask({ developers: ["UREX"] });
+    record.task.prs = ["https://github.com/acme/web/pull/9"];
+    const calls = mockSlack(t, { stored: [record] });
     await send("/slack/interactions", cardMenuClick(choice));
     assert.deepEqual(calls.map((call) => call.method), ["views.open"], choice);
     const { view, trigger_id } = calls[0].args;
     assert.equal(trigger_id, "T1");
     assert.equal(view.callback_id, callbackId);
-    assert.deepEqual(initial(view), { status: "TODO", priority: "High", due: "2026-10-31", assign: ["UREX"], prs: undefined }[choice]);
+    const expected = {
+      status: "TODO",
+      assign: ["UREX"],
+      prs: "https://github.com/acme/web/pull/9",
+      release: ["https://github.com/acme/web/pull/9"],
+    };
+    assert.deepEqual(initial(view), expected[choice]);
   }
+});
+
+test("a task card's Send PRs for approval with nothing to send says so privately", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/interactions", cardMenuClick("release"));
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
+  assert.match(calls[0].args.text, /aren't any PRs/);
+});
+
+// The More panel's buttons for the task at CDEV/100.1, after choosing More.
+async function morePanel(t, record) {
+  const calls = mockSlack(t, { stored: [record] });
+  await send("/slack/interactions", cardMenuClick("more"));
+  const { view } = calls.find((call) => call.method === "views.open").args;
+  assert.equal(view.callback_id, "task:more");
+  return view.blocks[1].elements;
+}
+
+const panelClick = (button) =>
+  interaction({
+    type: "block_actions",
+    trigger_id: "T2",
+    user: { id: "UACTOR" },
+    view: { id: "V1" },
+    actions: [{ action_id: button.action_id, value: button.value }],
+  });
+
+test("a task card's More panel offers the priority and due date only when the team owns them", async (t) => {
+  const own = await morePanel(t, ownTask());
+  assert.deepEqual(own.map((button) => button.action_id), ["task:more:priority", "task:more:due", "task:more:delete"]);
+  const tracked = await morePanel(t, storedTask());
+  assert.deepEqual(tracked.map((button) => button.action_id), ["task:more:detach", "task:more:delete"]);
+  // Slack asks before Detach and Delete do anything.
+  assert.ok(tracked.every((button) => button.confirm));
+});
+
+test("the More panel's priority and due date open their forms on top of it, filled in", async (t) => {
+  const buttons = await morePanel(t, ownTask());
+  for (const [button, callbackId, initial] of [
+    [buttons[0], "priority:form", (view) => view.blocks[0].element.initial_option.value],
+    [buttons[1], "due:form", (view) => view.blocks[0].element.initial_date],
+  ]) {
+    const calls = mockSlack(t, { stored: [ownTask()] });
+    await send("/slack/interactions", panelClick(button));
+    assert.deepEqual(calls.map((call) => call.method), ["views.push"]);
+    assert.equal(calls[0].args.trigger_id, "T2");
+    assert.equal(calls[0].args.view.callback_id, callbackId);
+    assert.equal(initial(calls[0].args.view), { "priority:form": "High", "due:form": "2026-10-31" }[callbackId]);
+  }
+});
+
+test("the More panel's Detach detaches the task, tells both threads, and says so on the panel", async (t) => {
+  const [detach] = await morePanel(t, storedTask());
+  const calls = mockSlack(t, { stored: [requirementRoot({ task: true }), storedTask()] });
+  await send("/slack/interactions", panelClick(detach));
+  assert.equal((await savedTask()).source, undefined);
+  assert.ok(calls.some((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL"));
+  assert.match(threadPosts(calls)[0], /^<@UACTOR> detached this task/);
+  const panel = calls.filter((call) => call.method === "views.update").at(-1).args;
+  assert.equal(panel.view_id, "V1");
+  assert.match(blockText(panel.view.blocks[0]), /^Detached \*Fix login\* from its requirement\./);
+});
+
+test("the More panel's Delete removes a task the team owns, and says so on the panel", async (t) => {
+  const [, , remove] = await morePanel(t, ownTask());
+  const calls = mockSlack(t, { stored: [ownTask()], "conversations.replies": { messages: [] } });
+  await send("/slack/interactions", panelClick(remove));
+  assert.equal(await savedTask(), null);
+  assert.ok(calls.some((call) => call.method === "chat.delete" && call.args.ts === "100.1"));
+  const panel = calls.filter((call) => call.method === "views.update").at(-1).args;
+  assert.match(blockText(panel.view.blocks[0]), /^Done, the task/);
 });
 
 test("a task card's menu on a task that's gone says so privately", async (t) => {

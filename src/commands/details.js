@@ -1,6 +1,6 @@
 import { roleOf } from "../channels.js";
 import { INCIDENT_IS_FIXED, NOT_A_REQUIREMENT, findDetails, saveDetails } from "../requirements.js";
-import { acknowledge, callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
+import { CLOSE_ALL, acknowledge, callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import { NOT_A_TASK, PRIORITIES, formatDueDate, pickerDate } from "../tasks.js";
 
 const PRIORITY_ACTION = "priority:select";
@@ -198,12 +198,12 @@ function datePicker(prompt, current) {
 
 // The task card menu's Change priority and Change due date forms (see
 // menu.js), offered only on tasks with no requirement.
-export function openPriorityForm(env, triggerId, { channel, ts, task }) {
+export function priorityForm(origin, task) {
   const option = (name) => ({
     text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true },
     value: name,
   });
-  return openDetailsForm(env, triggerId, PRIORITY_VIEW, "Change priority", { channel, ts }, {
+  return detailsForm(PRIORITY_VIEW, "Change priority", origin, {
     type: "input",
     block_id: "priority",
     label: plainText(`Priority of ${task.title}`.slice(0, 2000)),
@@ -216,8 +216,8 @@ export function openPriorityForm(env, triggerId, { channel, ts, task }) {
   });
 }
 
-export function openDueForm(env, triggerId, { channel, ts, task }) {
-  return openDetailsForm(env, triggerId, DUE_VIEW, "Change due date", { channel, ts }, {
+export function dueForm(origin, task) {
+  return detailsForm(DUE_VIEW, "Change due date", origin, {
     type: "input",
     block_id: "due_date",
     // Saving with no date removes it.
@@ -232,19 +232,16 @@ export function openDueForm(env, triggerId, { channel, ts, task }) {
   });
 }
 
-function openDetailsForm(env, triggerId, callbackId, title, origin, block) {
-  return callSlack(env, "views.open", {
-    trigger_id: triggerId,
-    view: {
-      type: "modal",
-      callback_id: callbackId,
-      private_metadata: JSON.stringify(origin),
-      title: plainText(title),
-      submit: plainText("Save"),
-      close: plainText("Cancel"),
-      blocks: [block],
-    },
-  });
+function detailsForm(callbackId, title, { channel, ts }, block) {
+  return {
+    type: "modal",
+    callback_id: callbackId,
+    private_metadata: JSON.stringify({ channel, ts }),
+    title: plainText(title),
+    submit: plainText("Save"),
+    close: plainText("Cancel"),
+    blocks: [block],
+  };
 }
 
 // Saving a form changes the task as `@Cade priority` or `@Cade due` would,
@@ -267,6 +264,7 @@ function submitDetails(payload, context, fields) {
       await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(text) });
     })(),
   );
+  return CLOSE_ALL;
 }
 
 // Reads DD/MM/YYYY (or D/M/YYYY, or YYYY-MM-DD) as DD/MM/YYYY, or "" when it

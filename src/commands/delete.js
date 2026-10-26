@@ -335,6 +335,18 @@ async function deleteThread(env, channel, ts, user) {
   return mine ? "Done, that message and my replies are gone." : "Done, my replies are gone. The message itself isn't mine, so it stays.";
 }
 
+// Deletes from the task card menu's More panel (see menu.js), whose button
+// has already asked, as `@Cade delete` would: a task its requirement or
+// incident still holds is removed from there instead. Returns what to tell
+// whoever clicked.
+export async function deleteFromMenu(env, channel, ts, user) {
+  const task = await getTask(env, channel, ts);
+  if (!task) return NOT_A_TASK;
+  if (task.source && (await sourceState(env, task.source)).alive) return belongsToRequirement(task);
+  await deleteTaskOnly(env, channel, ts, user);
+  return "Done, the task and my replies in its thread are gone.";
+}
+
 function belongsToRequirement(task) {
   const noun = task.source.incident ? "incident" : "requirement";
   const thread = task.source.link ? `<${task.source.link}|the ${noun} thread>` : `its ${noun} thread`;

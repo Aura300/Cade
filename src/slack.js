@@ -150,3 +150,7 @@ export function linkedMessage(text) {
   const threadTs = new URLSearchParams(match[4] ?? "").get("thread_ts");
   return { channel: match[1], ts, threadTs: threadTs && threadTs !== ts ? threadTs : null };
 }
+
+// A form's answer that closes it and any forms under it, such as the task
+// card menu's More panel (see menu.js) that opened it.
+export const CLOSE_ALL = { response_action: "clear" };

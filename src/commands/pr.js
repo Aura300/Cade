@@ -1,7 +1,7 @@
 import { roleOf } from "../channels.js";
 import { intent } from "../intents.js";
 import { loadRequirement, onTheTeam, reflectOnRequirement } from "../requirements.js";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { CLOSE_ALL, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, STATUSES, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 import { teamChanges } from "./assign.js";
 
@@ -251,46 +251,43 @@ async function acceptSuggestion(payload, env) {
 // The task card menu's Link PRs form (see menu.js): the task's PRs, a link
 // per line, to add or remove, and its reviewers, so linking the first PR
 // needn't ask who reviews it in the thread.
-export function openPullRequestForm(env, triggerId, { channel, ts, task }) {
-  return callSlack(env, "views.open", {
-    trigger_id: triggerId,
-    view: {
-      type: "modal",
-      callback_id: PRS_VIEW,
-      private_metadata: JSON.stringify({ channel, ts }),
-      title: plainText("Link PRs"),
-      submit: plainText("Save"),
-      close: plainText("Cancel"),
-      blocks: [
-        {
-          type: "input",
-          block_id: "prs",
-          // Saving with none unlinks them all.
-          optional: true,
-          label: plainText("Pull requests, one link per line"),
-          element: {
-            type: "plain_text_input",
-            action_id: "value",
-            multiline: true,
-            placeholder: plainText("https://github.com/acme/web/pull/12"),
-            initial_value: task.prs.join("\n") || undefined,
-          },
+export function pullRequestForm({ channel, ts }, task) {
+  return {
+    type: "modal",
+    callback_id: PRS_VIEW,
+    private_metadata: JSON.stringify({ channel, ts }),
+    title: plainText("Link PRs"),
+    submit: plainText("Save"),
+    close: plainText("Cancel"),
+    blocks: [
+      {
+        type: "input",
+        block_id: "prs",
+        // Saving with none unlinks them all.
+        optional: true,
+        label: plainText("Pull requests, one link per line"),
+        element: {
+          type: "plain_text_input",
+          action_id: "value",
+          multiline: true,
+          placeholder: plainText("https://github.com/acme/web/pull/12"),
+          initial_value: task.prs.join("\n") || undefined,
         },
-        {
-          type: "input",
-          block_id: "reviewer",
-          optional: true,
-          label: plainText("Reviewers"),
-          element: {
-            type: "multi_users_select",
-            action_id: "value",
-            placeholder: plainText("Choose reviewers"),
-            ...(task.people.reviewer.length && { initial_users: task.people.reviewer }),
-          },
+      },
+      {
+        type: "input",
+        block_id: "reviewer",
+        optional: true,
+        label: plainText("Reviewers"),
+        element: {
+          type: "multi_users_select",
+          action_id: "value",
+          placeholder: plainText("Choose reviewers"),
+          ...(task.people.reviewer.length && { initial_users: task.people.reviewer }),
         },
-      ],
-    },
-  });
+      },
+    ],
+  };
 }
 
 // Links and unlinks the PRs as the form now lists them, as `@Cade pr add`
@@ -347,6 +344,7 @@ function savePullRequests(payload, context) {
       await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reply });
     })(),
   );
+  return CLOSE_ALL;
 }
 
 function reviewRequest(reviewers, urls) {

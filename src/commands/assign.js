@@ -1,6 +1,6 @@
 import { roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest } from "../intents.js";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { CLOSE_ALL, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { clientStatus, loadRequirement, onTheTeam, reflectOnRequirement } from "../requirements.js";
 import {
   NOT_A_TASK,
@@ -289,31 +289,28 @@ function savePeople(payload, context) {
 
 // The task card menu's Assign people form (see menu.js): a people picker per
 // role, filled in with who's assigned now, to add or remove people.
-export function openTeamForm(env, triggerId, { channel, ts, task }) {
-  return callSlack(env, "views.open", {
-    trigger_id: triggerId,
-    view: {
-      type: "modal",
-      callback_id: TEAM_VIEW,
-      private_metadata: JSON.stringify({ channel, ts }),
-      title: plainText("Assign people"),
-      submit: plainText("Save"),
-      close: plainText("Cancel"),
-      blocks: Object.entries(ROLES).map(([role, label]) => ({
-        type: "input",
-        block_id: role,
-        // Saving a role with no one clears it.
-        optional: true,
-        label: plainText(`${label}s`),
-        element: {
-          type: "multi_users_select",
-          action_id: "value",
-          placeholder: plainText(`Choose ${label.toLowerCase()}s`),
-          ...(task.people[role].length && { initial_users: task.people[role] }),
-        },
-      })),
-    },
-  });
+export function teamForm({ channel, ts }, task) {
+  return {
+    type: "modal",
+    callback_id: TEAM_VIEW,
+    private_metadata: JSON.stringify({ channel, ts }),
+    title: plainText("Assign people"),
+    submit: plainText("Save"),
+    close: plainText("Cancel"),
+    blocks: Object.entries(ROLES).map(([role, label]) => ({
+      type: "input",
+      block_id: role,
+      // Saving a role with no one clears it.
+      optional: true,
+      label: plainText(`${label}s`),
+      element: {
+        type: "multi_users_select",
+        action_id: "value",
+        placeholder: plainText(`Choose ${label.toLowerCase()}s`),
+        ...(task.people[role].length && { initial_users: task.people[role] }),
+      },
+    })),
+  };
 }
 
 // Sets each role to the people saved, then tells the thread who changed what
@@ -346,6 +343,7 @@ function saveTeam(payload, context) {
       await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
     })(),
   );
+  return CLOSE_ALL;
 }
 
 // The thread's record of `user` changing who's on the task: those added are

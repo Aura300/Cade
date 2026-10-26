@@ -133,6 +133,13 @@ async function confirmed(env, asked, user) {
   return `Detached ${name} from its ${noun}.`;
 }
 
+// Detaches from the task card menu's More panel (see menu.js), whose button
+// has already asked twice, as `@Cade detach` does: both threads are told.
+// Returns what to tell whoever clicked.
+export function detachFromMenu(env, channel, ts, user) {
+  return confirmed(env, { channel, ts, user }, user);
+}
+
 function taskName(task) {
   const title = escapeSlack(task.title);
   return task.link ? `<${task.link}|${title}>` : `*${title}*`;

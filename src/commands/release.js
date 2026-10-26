@@ -108,6 +108,14 @@ async function findRelease(env, channel, ts) {
   return { task, requirement, unsent };
 }
 
+// The task card menu's Send PRs for approval form (see menu.js) as { view },
+// or { problem } saying why none can be sent.
+export async function releaseForm(env, { channel, ts }) {
+  const found = await findRelease(env, channel, ts);
+  if (found.problem) return { problem: found.problem };
+  return { view: releaseView({ channel, ts }, found.unsent, found.requirement) };
+}
+
 function releaseView(origin, prs, requirement) {
   // Each PR as reponame/number; option text holds up to 75 characters.
   const option = (url) => {

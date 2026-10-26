@@ -1,7 +1,7 @@
 import { findPair, roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest } from "../intents.js";
 import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
-import { acknowledge, callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { CLOSE_ALL, acknowledge, callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import {
   NOT_A_TASK,
   REQUESTS,
@@ -220,31 +220,28 @@ async function moveAndTell(env, channel, ts, task, status, user) {
 }
 
 // The task card menu's Change status form (see menu.js).
-export function openStatusForm(env, triggerId, { channel, ts, task }) {
-  return callSlack(env, "views.open", {
-    trigger_id: triggerId,
-    view: {
-      type: "modal",
-      callback_id: STATUS_VIEW,
-      private_metadata: JSON.stringify({ channel, ts }),
-      title: plainText("Change status"),
-      submit: plainText("Save"),
-      close: plainText("Cancel"),
-      blocks: [
-        {
-          type: "input",
-          block_id: "status",
-          label: plainText(`Status of ${task.title}`.slice(0, 2000)),
-          element: {
-            type: "static_select",
-            action_id: "value",
-            options: Object.keys(STATUSES).map(statusOption),
-            initial_option: statusOption(task.status),
-          },
+export function statusForm({ channel, ts }, task) {
+  return {
+    type: "modal",
+    callback_id: STATUS_VIEW,
+    private_metadata: JSON.stringify({ channel, ts }),
+    title: plainText("Change status"),
+    submit: plainText("Save"),
+    close: plainText("Cancel"),
+    blocks: [
+      {
+        type: "input",
+        block_id: "status",
+        label: plainText(`Status of ${task.title}`.slice(0, 2000)),
+        element: {
+          type: "static_select",
+          action_id: "value",
+          options: Object.keys(STATUSES).map(statusOption),
+          initial_option: statusOption(task.status),
         },
-      ],
-    },
-  });
+      },
+    ],
+  };
 }
 
 // Saving the form moves the task as the status menu would, and tells its
@@ -264,6 +261,7 @@ function submitStatus(payload, context) {
       if (task.status !== status) await moveAndTell(env, channel, ts, task, status, user);
     })(),
   );
+  return CLOSE_ALL;
 }
 
 // A status menu's option.

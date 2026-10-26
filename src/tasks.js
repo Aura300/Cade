@@ -126,22 +126,23 @@ export function taskMessage(task) {
   ];
   return {
     text: `${task.priority} task: ${task.title}`,
-    blocks: [{ type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`), accessory: taskMenu(task) }],
+    blocks: [{ type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`), accessory: taskMenu() }],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
 }
 
 // The ⋯ menu on a task's card, so people change it without typing a command
-// in its thread (see menu.js). A task tracked from a requirement or incident
-// takes its priority and due date from there, so it offers only the rest.
+// in its thread (see menu.js). Slack shows up to five choices, so the
+// everyday ones come first and the rest are under More.
 export const TASK_MENU_ACTION = "task:menu";
 
-function taskMenu(task) {
+function taskMenu() {
   const choices = [
     ["assign", "Assign people…"],
     ["status", "Change status…"],
     ["prs", "Link PRs…"],
-    ...(task.source ? [] : [["priority", "Change priority…"], ["due", "Change due date…"]]),
+    ["release", "Send PRs for approval…"],
+    ["more", "More…"],
   ];
   return {
     type: "overflow",
