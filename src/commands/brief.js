@@ -50,9 +50,9 @@ export const HEALTH = {
 // The menu lists them best first, as most work is on track.
 const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 
-// `/cade export` writes an executive summary of a group with whoever runs it,
+// `/cade brief` writes an executive summary of a group with whoever runs it,
 // one step at a time, shown only to them. The group is the channel's own,
-// the only one, or the one named: `/cade export acme`. It goes through the
+// the only one, or the one named: `/cade brief acme`. It goes through the
 // group's work as the client sees it: with a client channel, its
 // requirements and incidents; without one, the team's tasks:
 //   0. the period it covers, from one day to another, counted in TIMEZONE:
@@ -71,17 +71,17 @@ const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 //
 // The summary isn't posted in Slack: it goes at the top of the Summary tab
 // of the group's Google Doc (its `doc` in CHANNEL_PAIRS), as a section of
-// its own, which is gone through with the client on a call. `/cade import`
-// then reads the section back for what the call added to it (see import.js).
-// So `/cade export` only works for a group with a doc.
+// its own, which is gone through with the client on a call. `/cade debrief`
+// then reads the section back for what the call added to it (see debrief.js).
+// So `/cade brief` only works for a group with a doc.
 export default {
-  name: "export",
+  name: "brief",
   description: "Write an executive summary step by step, then add it to the group's Google Doc: what's done since the last one, then how each requirement and task is going",
-  slashUsage: "/cade export",
+  slashUsage: "/cade brief",
   section: "work",
   async slash(command, context) {
     const { env } = context;
-    const group = pickGroup(env, command.text, command.channel, "/cade export");
+    const group = pickGroup(env, command.text, command.channel, "/cade brief");
     if (typeof group === "string") return group;
     const noDoc = docProblem(env, group);
     if (noDoc) return noDoc;
@@ -415,8 +415,8 @@ function title(entry) {
 // `notice`, if any, is shown above it.
 async function render(env, at, notice) {
   const summary = await getExport(env, at.s);
-  if (!summary) return { text: "I can't find that summary any more. Send `/cade export` to start again." };
-  if (summary.exportedAt) return { text: "This executive summary has been added to the Google Doc. Send `/cade export` to write the next one." };
+  if (!summary) return { text: "I can't find that summary any more. Send `/cade brief` to start again." };
+  if (summary.exportedAt) return { text: "This executive summary has been added to the Google Doc. Send `/cade brief` to write the next one." };
   // Links are built from the workspace's address.
   const { url } = await callSlack(env, "auth.test", {});
   const { done, active, steps } = await walk(env, summary, url);
@@ -704,7 +704,7 @@ async function post(payload, env, at) {
   console.log("Executive summary added to the doc", { id: summary.id, group: summary.group, user: payload.user.id });
   await respondLater(payload.response_url, {
     replace_original: true,
-    text: `Added the executive summary for ${periodLabel(env, summary)} to ${summary.group}'s Google Doc: <${address}|open it there>. After going through it with the client, send \`/cade import\` for what was added to it.`,
+    text: `Added the executive summary for ${periodLabel(env, summary)} to ${summary.group}'s Google Doc: <${address}|open it there>. After going through it with the client, send \`/cade debrief\` for what was added to it.`,
   });
 }
 

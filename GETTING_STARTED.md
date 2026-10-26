@@ -48,9 +48,9 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name; `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet). `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name; `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade brief` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet). `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade export` and `/cade import` don't work. | Set for you by `npm run google:create` (step 7). |
+| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work. | Set for you by `npm run google:create` (step 7). |
 
 Start from `cade.config.example.json`. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
@@ -191,8 +191,8 @@ npx wrangler secret put SLACK_BOT_TOKEN
 
 Each group can have its own Google Sheet, a record of every task (Slack's
 free plan keeps 90 days of history), and its own Google Doc, where `/cade
-export` writes executive summaries to go through with the client and
-`/cade import` reads back what was added. One web app serves them all. It
+brief` writes executive summaries to go through with the client and
+`/cade debrief` reads back what was added. One web app serves them all. It
 needs a Google account.
 
 1. **(person)** `npx clasp login`, and turn on the Apps Script API at

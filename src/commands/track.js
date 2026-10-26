@@ -2,7 +2,7 @@ import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, hasUnpostedTask, insertTask, markTaskPosted } from "../db.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
-import { fromTheCall, syncApplied } from "./import.js";
+import { fromTheCall, syncApplied } from "./debrief.js";
 import { moveMessage, offerStart } from "./move.js";
 import {
   PRIORITIES,
@@ -141,8 +141,8 @@ async function openModal(env, triggerId, origin) {
   });
 }
 
-// From `/cade import` for a group with no client channel, `origin` has
-// `sync`, the suggestion it applies (see import.js), and the form has an
+// From `/cade debrief` for a group with no client channel, `origin` has
+// `sync`, the suggestion it applies (see debrief.js), and the form has an
 // Initial message, starting as `initial`, posted in the task's thread.
 export function trackView(origin, { initial } = {}) {
   return {
@@ -156,7 +156,7 @@ export function trackView(origin, { initial } = {}) {
   };
 }
 
-// The Initial message of a form opened from `/cade import`, posted in the
+// The Initial message of a form opened from `/cade debrief`, posted in the
 // thread of what it makes: a task or a requirement.
 export function initialMessageBlock(initial, noun) {
   return {

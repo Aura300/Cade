@@ -4,7 +4,7 @@ import { INCIDENT, requirementMessage } from "../requirements.js";
 import { callSlack, escapeSlack, plainText } from "../slack.js";
 import { noPeople, readTaskForm, refreshSummary, setPinned, taskFormBlocks } from "../tasks.js";
 import { moveMessage, offerStart } from "./move.js";
-import { fromTheCall, syncApplied } from "./import.js";
+import { fromTheCall, syncApplied } from "./debrief.js";
 import { createTask, initialMessageBlock } from "./track.js";
 
 const REQUIREMENT_VIEW = "requirement";
@@ -46,8 +46,8 @@ export default {
 // `origin` is { channel }, and from the prompt for a message posted on its
 // own (see move.js), the message's `moveTs` and its first line as the
 // `title`, to start with; the message is moved into the new thread once it
-// is posted. From `/cade import`, it has `sync`, the suggestion it applies
-// (see import.js), and the form has an Initial message, starting as
+// is posted. From `/cade debrief`, it has `sync`, the suggestion it applies
+// (see debrief.js), and the form has an Initial message, starting as
 // `initial`, posted in the new thread from the client call.
 export function requirementView(origin, { initial } = {}) {
   const blocks = taskFormBlocks("Requirement name", { title: origin.title });

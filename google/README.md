@@ -2,8 +2,8 @@
 
 Each group (channel pair) can have its own **Google Sheet**, a record of its
 tasks (Slack's free plan only keeps recent history), and its own **Google
-Doc**, where `/cade export` writes its executive summaries to go through
-with the client and `/cade import` reads back what was added. A free Google
+Doc**, where `/cade brief` writes its executive summaries to go through
+with the client and `/cade debrief` reads back what was added. A free Google
 account is enough.
 
 The Worker reaches both through one Apps Script web app, this folder:
@@ -24,7 +24,7 @@ npm run group -- --name acme --sheet https://docs.google.com/spreadsheets/d/…/
 executive summaries"); an address links one you have; `none` unlinks.
 They're saved on the group in `cade.config.json` as `sheet` and `doc`, and
 uploaded. A group without `sheet` isn't recorded in a Sheet; without `doc`,
-`/cade export` and `/cade import` say how to link one. Share the doc with
+`/cade brief` and `/cade debrief` say how to link one. Share the doc with
 the client as **Editor**.
 
 ## The Sheet
@@ -65,7 +65,7 @@ During the call, add to the section:
 - **Bullets (or lines) under a linked one**: points for that requirement's
   or task's thread.
 
-`/cade import` suggests each, one at a time. Leave the section's heading as
+`/cade debrief` suggests each, one at a time. Leave the section's heading as
 it is: it's how Cade finds the section again (through a named range).
 Editing or removing what Cade wrote is fine, but it isn't read back. Only
 what's new is.

@@ -1015,7 +1015,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     for (const usage of ["assign developer @person", "unassign developer @person", "status", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
       assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary` · `/cade export` · `/cade import`");
+    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary` · `/cade brief` · `/cade debrief`");
   }
 });
 
@@ -6612,11 +6612,11 @@ const messageText = (message) => message.blocks.map(blockText).filter(Boolean).j
 
 const execLink = (channel, ts) => `https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel}`;
 
-test("/cade export goes through a client group's requirements and incidents, and adds the summary to its Google Doc", async (t) => {
+test("/cade brief goes through a client group's requirements and incidents, and adds the summary to its Google Doc", async (t) => {
   const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
   await storeExecWork();
   // Run in a channel outside the group, which has the only group.
-  const { now, later: period } = await runTasksCommand("export", "CLEADS", execEnv);
+  const { now, later: period } = await runTasksCommand("brief", "CLEADS", execEnv);
   assert.equal(now, "");
 
   // Step 1: the period, the past week to today the first time.
@@ -6708,7 +6708,7 @@ test("/cade export goes through a client group's requirements and incidents, and
   ]);
   assert.equal(
     sent.at(-1).text,
-    `Added the executive summary for ${show(weekAgo)} – ${show(today)} to acme's Google Doc: <${DOC_TAB}|open it there>. After going through it with the client, send \`/cade import\` for what was added to it.`,
+    `Added the executive summary for ${show(weekAgo)} – ${show(today)} to acme's Google Doc: <${DOC_TAB}|open it there>. After going through it with the client, send \`/cade debrief\` for what was added to it.`,
   );
 
   // Adding it again does nothing.
@@ -6732,7 +6732,7 @@ test("Peek at threads shows each thread's latest replies in a modal", async (t) 
     }),
   });
   await storeExecWork();
-  const { later: first } = await runTasksCommand("export", "CDEV", execEnv);
+  const { later: first } = await runTasksCommand("brief", "CDEV", execEnv);
   const sent = recordResponses(t);
   await send("/slack/interactions", execClick(first, "export:next"), {}, execEnv);
   await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, execEnv);
@@ -6763,10 +6763,10 @@ test("Peek at threads shows each thread's latest replies in a modal", async (t) 
   assert.equal(sent.length, 2);
 });
 
-test("the next /cade export starts from the last one, with its health and progress", async (t) => {
+test("the next /cade brief starts from the last one, with its health and progress", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, "chat.postMessage": { ts: "900.1" } });
   await storeExecWork();
-  const { later: first } = await runTasksCommand("export", "CDEV", execEnv);
+  const { later: first } = await runTasksCommand("brief", "CDEV", execEnv);
   const sent = recordResponses(t);
   for (let i = 0; i < 2; i++) await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
   const incident = sent.at(-1);
@@ -6776,7 +6776,7 @@ test("the next /cade export starts from the last one, with its health and progre
 
   // The last period ended today, so the next starts today too; nothing was
   // completed today, so after the period comes the incident.
-  const { later: period } = await runTasksCommand("export", "CDEV", execEnv);
+  const { later: period } = await runTasksCommand("brief", "CDEV", execEnv);
   assert.equal(execField(period, "from").element.initial_date, todayIn(execEnv));
   await send("/slack/interactions", execClick(period, "export:next"), {}, execEnv);
   const next = sent.at(-1);
@@ -6790,10 +6790,10 @@ test("the next /cade export starts from the last one, with its health and progre
   assert.ok(messageText(next).includes(`*In the last summary* (${day}): Delayed  ·  1/2\n_Once only_`));
 });
 
-test("/cade export shows nothing from a last summary that didn't have the item", async (t) => {
+test("/cade brief shows nothing from a last summary that didn't have the item", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   await storeExecWork();
-  const { later: period } = await runTasksCommand("export", "CDEV", execEnv);
+  const { later: period } = await runTasksCommand("brief", "CDEV", execEnv);
   const sent = recordResponses(t);
   await send("/slack/interactions", execClick(period, "export:next"), {}, execEnv);
   await send("/slack/interactions", execClick(sent.at(-1), "export:next"), {}, execEnv);
@@ -6802,14 +6802,14 @@ test("/cade export shows nothing from a last summary that didn't have the item",
   assert.equal(execField(incident, "notes").element.initial_value, undefined);
 });
 
-test("/cade export says so when the Google Doc can't be written, and can try again", async (t) => {
+test("/cade brief says so when the Google Doc can't be written, and can try again", async (t) => {
   let refuse = true;
   mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
     doc: () => (refuse ? { ok: false, error: "No item with the given ID could be found." } : { ok: true, url: DOC_TAB }),
   });
   await storeExecWork();
-  const { later: first } = await runTasksCommand("export", "CLEADS", execEnv);
+  const { later: first } = await runTasksCommand("brief", "CLEADS", execEnv);
   const sent = recordResponses(t);
   for (let i = 0; i < 4; i++) {
     await send("/slack/interactions", execClick(sent.at(-1) ?? first, "export:next"), {}, execEnv);
@@ -6821,24 +6821,24 @@ test("/cade export says so when the Google Doc can't be written, and can try aga
   assert.match(sent.at(-1).text, /^Added the executive summary for /);
 });
 
-test("/cade export needs the group to have a Google Doc", async (t) => {
+test("/cade brief needs the group to have a Google Doc", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
-  const { now: noApp } = await runTasksCommand("export", "CDEV");
+  const { now: noApp } = await runTasksCommand("brief", "CDEV");
   assert.match(JSON.parse(noApp).text, /Google web app isn't set up yet: run `npm run google:create`/);
   const noDoc = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV" }] };
-  const { now, later } = await runTasksCommand("export", "CDEV", noDoc);
+  const { now, later } = await runTasksCommand("brief", "CDEV", noDoc);
   assert.equal(JSON.parse(now).text, "acme has no Google Doc linked. Add the doc's address as `\"doc\"` to its group in cade.config.json, then run `npm run config`.");
   assert.equal(later, undefined);
 });
 
-test("/cade export outside a group asks which, when there are several", async (t) => {
+test("/cade brief outside a group asks which, when there are several", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   const docs = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((pair) => ({ ...pair, doc: DOC_ID })) };
-  const { now } = await runTasksCommand("export", "CLEADS", docs);
-  assert.equal(JSON.parse(now).text, "Which group? Try `/cade export acme` or `/cade export test`.");
-  const { now: unknown } = await runTasksCommand("export nope", "CLEADS", docs);
+  const { now } = await runTasksCommand("brief", "CLEADS", docs);
+  assert.equal(JSON.parse(now).text, "Which group? Try `/cade brief acme` or `/cade brief test`.");
+  const { now: unknown } = await runTasksCommand("brief nope", "CLEADS", docs);
   assert.match(JSON.parse(unknown).text, /I don't know a group called "nope"/);
-  const { now: named, later } = await runTasksCommand("export test", "CLEADS", docs);
+  const { now: named, later } = await runTasksCommand("brief test", "CLEADS", docs);
   assert.equal(named, "");
   assert.match(blockText(later.blocks[0]), /Executive summary: test/);
 });
@@ -6847,10 +6847,10 @@ test("/cade export outside a group asks which, when there are several", async (t
 // incidents channels' tasks.
 const teamEnv = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV", incidents: "CINC", doc: execEnv.CHANNEL_PAIRS[0].doc }] };
 
-test("/cade export goes through a team group's tasks", async (t) => {
+test("/cade brief goes through a team group's tasks", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   await storeExecWork();
-  const { later: period } = await runTasksCommand("export", "CDEV", teamEnv);
+  const { later: period } = await runTasksCommand("brief", "CDEV", teamEnv);
   const sent = recordResponses(t);
   // Step 1 is the period, step 2 the task done in it, then the open tasks,
   // the incident first, with their dev or incidents thread to peek at.
@@ -6870,10 +6870,10 @@ test("/cade export goes through a team group's tasks", async (t) => {
   assert.ok(!sent.some((message) => messageText(message).includes("Dark mode")));
 });
 
-test("/cade export offers what was completed in the period picked, from the start of From to the end of To", async (t) => {
+test("/cade brief offers what was completed in the period picked, from the start of From to the end of To", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   await storeExecWork();
-  const { later: period } = await runTasksCommand("export", "CDEV", teamEnv);
+  const { later: period } = await runTasksCommand("brief", "CDEV", teamEnv);
   const sent = recordResponses(t);
   const pick = (from, to) => ({
     [execField(period, "from").block_id]: { value: { type: "datepicker", selected_date: from } },
@@ -6903,7 +6903,7 @@ test("/cade export offers what was completed in the period picked, from the star
 });
 
 test("a period's days start and end in TIMEZONE", async () => {
-  const { dayBoundary } = await import("../src/commands/export.js");
+  const { dayBoundary } = await import("../src/commands/brief.js");
   const colombo = { TIMEZONE: "Asia/Colombo" };
   assert.equal(dayBoundary(colombo, "2026-10-25"), "2026-10-24T18:30:00.000Z");
   assert.equal(dayBoundary(colombo, "2026-10-25", { end: true }), "2026-10-25T18:29:59.999Z");
@@ -7250,7 +7250,7 @@ const syncClick = (message, actionId) => {
 // Writes acme's executive summary into its doc, going through the walk as
 // it stands, and returns the responses sent since.
 async function writeExecSummary(t, environment = execEnv) {
-  const { later: first } = await runTasksCommand("export", "CDEV", environment);
+  const { later: first } = await runTasksCommand("brief", "CDEV", environment);
   const sent = recordResponses(t);
   // Through every step to the review, which has no Next.
   let at = first;
@@ -7264,7 +7264,7 @@ async function writeExecSummary(t, environment = execEnv) {
 }
 
 test("findAdditions finds new bullets and lines added under linked ones", async () => {
-  const { findAdditions } = await import("../src/commands/import.js");
+  const { findAdditions } = await import("../src/commands/debrief.js");
   const link = (ts) => execLink("CEXTERNAL", ts);
   const written = ["Period: 19/10/2026 – 26/10/2026", "Incidents (1)", "Checkout is down  ·  Blocked  ·  To do", "Waiting on the provider", "On track (1)", "Dark mode  ·  On track  ·  In discussion"];
   const elements = [
@@ -7294,7 +7294,7 @@ test("findAdditions finds new bullets and lines added under linked ones", async 
   ]);
 });
 
-test("/cade import goes through what the call added, posting points in their threads and starting new requirements", async (t) => {
+test("/cade debrief goes through what the call added, posting points in their threads and starting new requirements", async (t) => {
   const additions = [
     { type: "heading", level: 3, text: "Incidents (1)", links: [] },
     { type: "item", level: 0, text: "Checkout is down  ·  On track  ·  To do", links: [execLink("CEXTERNAL", "200.4")] },
@@ -7313,7 +7313,7 @@ test("/cade import goes through what the call added, posting points in their thr
   const key = calls.find((call) => call.method === "doc").args.key;
 
   calls.length = 0;
-  const { now, later } = await runTasksCommand("import", "CDEV", execEnv);
+  const { now, later } = await runTasksCommand("debrief", "CDEV", execEnv);
   assert.equal(now, "");
   assert.deepEqual(calls.find((call) => call.method === "doc").args, { secret: "google-secret", action: "doc.read", docId: DOC_ID, tab: "Summary", key });
   assert.match(messageText(later), /2 to go/);
@@ -7363,11 +7363,11 @@ test("/cade import goes through what the call added, posting points in their thr
   assert.match(sent.at(-1).text, /^Nothing more to go through/);
 
   // Syncing again finds nothing new.
-  const { later: again } = await runTasksCommand("import", "CDEV", execEnv);
+  const { later: again } = await runTasksCommand("debrief", "CDEV", execEnv);
   assert.match(again.text, /^Nothing more to go through/);
 });
 
-test("/cade import can discard a suggestion, and needs a summary in the doc", async (t) => {
+test("/cade debrief can discard a suggestion, and needs a summary in the doc", async (t) => {
   mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
     doc: (body) =>
@@ -7376,11 +7376,11 @@ test("/cade import can discard a suggestion, and needs a summary in the doc", as
         : { ok: true, url: DOC_TAB },
   });
   await storeExecWork();
-  const { later: none } = await runTasksCommand("import", "CDEV", execEnv);
-  assert.equal(none.text, "acme has no executive summary in its Google Doc yet. Write one with `/cade export`.");
+  const { later: none } = await runTasksCommand("debrief", "CDEV", execEnv);
+  assert.equal(none.text, "acme has no executive summary in its Google Doc yet. Write one with `/cade brief`.");
 
   const sent = await writeExecSummary(t);
-  const { later } = await runTasksCommand("import", "CDEV", execEnv);
+  const { later } = await runTasksCommand("debrief", "CDEV", execEnv);
   assert.match(messageText(later), /\*New requirement:\* SSO/);
   await send("/slack/interactions", syncClick(later, "import:discard"), {}, execEnv);
   assert.match(sent.at(-1).text, /^Nothing more to go through/);
@@ -7507,7 +7507,7 @@ test("the dev channel's summary links the group's Google Sheet, the client chann
   assert.ok(!client.includes("Google Sheet"));
 });
 
-test("/cade import tracks a new item as a dev task for a group with no client channel", async (t) => {
+test("/cade debrief tracks a new item as a dev task for a group with no client channel", async (t) => {
   const calls = mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
     "chat.postMessage": (args) => (args.channel === "CDEV" && !args.thread_ts ? { channel: "CDEV", ts: "100.9" } : { ts: "300.1" }),
@@ -7519,7 +7519,7 @@ test("/cade import tracks a new item as a dev task for a group with no client ch
   });
   await storeExecWork();
   const sent = await writeExecSummary(t, teamEnv);
-  const { later } = await runTasksCommand("import", "CDEV", teamEnv);
+  const { later } = await runTasksCommand("debrief", "CDEV", teamEnv);
   assert.match(messageText(later), /\*New requirement:\* Bulk export to CSV[\s\S]*Apply opens the task form, with the lines under it as the initial message, to track it in <#CDEV>/);
 
   calls.length = 0;

@@ -2,7 +2,7 @@ import { channelPairs } from "../channels.js";
 import { decideSuggestion, getExport, getSuggestion, insertSuggestion, lastExport, pendingSuggestions, suggestions } from "../db.js";
 import { readSection } from "../doc.js";
 import { callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.js";
-import { docProblem, pickGroup, showDay } from "./export.js";
+import { docProblem, pickGroup, showDay } from "./brief.js";
 import { requirementView } from "./requirement.js";
 import { trackView } from "./track.js";
 import { threadLink, todayIn } from "./tasks.js";
@@ -12,8 +12,8 @@ const DISCARD_ACTION = "import:discard";
 const STOP_ACTION = "import:stop";
 const POINT_VIEW = "import:point";
 
-// `/cade import` follows up a call with the client, after going through the
-// group's last executive summary in its Google Doc (see export.js) with them.
+// `/cade debrief` follows up a call with the client, after going through the
+// group's last executive summary in its Google Doc (see brief.js) with them.
 // It reads the summary's section back and compares it with what Cade wrote,
 // for what was added during the call:
 //   - a bullet of its own, with no link: a new requirement, with the lines
@@ -29,16 +29,16 @@ const POINT_VIEW = "import:point";
 //     thread in the client channel once it's started; it's tracked from
 //     there as any requirement. A group with no client channel gets the task
 //     form instead, the same way, for a task in its dev channel.
-// Each is found once: sending `/cade import` again goes on with those not
+// Each is found once: sending `/cade debrief` again goes on with those not
 // decided yet, and adds any added to the doc since.
 export default {
-  name: "import",
+  name: "debrief",
   description: "After a client call, go through what was added to the last executive summary in the group's Google Doc",
-  slashUsage: "/cade import",
+  slashUsage: "/cade debrief",
   section: "work",
   async slash(command, context) {
     const { env } = context;
-    const group = pickGroup(env, command.text, command.channel, "/cade import");
+    const group = pickGroup(env, command.text, command.channel, "/cade debrief");
     if (typeof group === "string") return group;
     const problem = docProblem(env, group);
     if (problem) return problem;
@@ -96,7 +96,7 @@ export default {
 // and returns the first suggestion to show.
 async function sync(env, group) {
   const summary = await lastExport(env, group.name);
-  if (!summary) return { text: `${group.name} has no executive summary in its Google Doc yet. Write one with \`/cade export\`.` };
+  if (!summary) return { text: `${group.name} has no executive summary in its Google Doc yet. Write one with \`/cade brief\`.` };
   const elements = await readSection(env, summary.docId, `export:${summary.id}`);
   if (!elements) {
     return { text: `I couldn't find the executive summary of ${writtenOn(env, summary)} in <${summary.docUrl}|the Google Doc> any more. Was its heading deleted?` };
@@ -113,7 +113,7 @@ async function next(env, responseUrl, exportId) {
   const summary = exportId && (await getExport(env, exportId));
   await respondLater(responseUrl, {
     replace_original: true,
-    ...(summary ? await render(env, summary) : { text: "I can't find that summary any more. Send `/cade import` to start again." }),
+    ...(summary ? await render(env, summary) : { text: "I can't find that summary any more. Send `/cade debrief` to start again." }),
   });
 }
 

@@ -3,7 +3,7 @@ import { callGoogle, googleEnabled } from "./google.js";
 // Each group's executive summaries are kept in its Google Doc (its `doc` in
 // CHANNEL_PAIRS), shared with the client and gone through on calls with
 // them: a section per summary in its Summary tab, newest first. After a
-// call, `/cade import` reads the section back to find what was added. They
+// call, `/cade debrief` reads the section back to find what was added. They
 // are written and read through the Google web app (see google.js).
 export const docsEnabled = googleEnabled;
 

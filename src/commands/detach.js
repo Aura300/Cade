@@ -18,7 +18,7 @@ const CANCEL_ACTION = "detach:cancel";
 // date changed from its thread from then on; its message still links to
 // the thread it was tracked from. The requirement's message is
 // kept, saying where the work went, and Cade no longer tracks it: it counts
-// as deleted, so it leaves the summaries and `/cade export`, and nothing
+// as deleted, so it leaves the summaries and `/cade brief`, and nothing
 // reaches its thread any more.
 //
 // It is the team taking the work over, so it is sent from the task's

@@ -1,11 +1,11 @@
 -- Executive summaries are exported to the group's Google Doc rather than
 -- posted in Slack, and what the client call added to them is imported back
--- (see src/commands/export.js and src/commands/import.js). None were written
+-- (see src/commands/brief.js and src/commands/debrief.js). None were written
 -- before this, so the old tables are replaced rather than changed.
 DROP TABLE exec_summary_items;
 DROP TABLE exec_summaries;
 
--- `/cade export` starts a draft; its items are what was chosen for each
+-- `/cade brief` starts a draft; its items are what was chosen for each
 -- requirement or task on the way through. Once exported, its period's end is
 -- where the next one starts, and its items fill in the next one's health and
 -- progress.
@@ -47,7 +47,7 @@ CREATE TABLE export_items (
   PRIMARY KEY (export_id, task_channel, task_ts)
 );
 
--- What `/cade import` found added to an export's section of the doc:
+-- What `/cade debrief` found added to an export's section of the doc:
 --   POINT        a line under one of its requirements or tasks, to post in
 --                its thread (`channel`, `ts`)
 --   REQUIREMENT  a line of its own, with no link, to start as a requirement;
