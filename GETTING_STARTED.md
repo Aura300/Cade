@@ -48,9 +48,9 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name; `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet). `npm run group` sets them for you (step 8). | In Slack, open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). Step 7. |
-| `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade export` and `/cade import` don't work. | Set for you by `npm run google:create` (step 8). |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name; `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade export` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet). `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
+| `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. Nothing else uses it. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade export` and `/cade import` don't work. | Set for you by `npm run google:create` (step 7). |
 
 Start from `cade.config.example.json`. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.
@@ -59,7 +59,7 @@ To add or change a group without editing the file, `npm run group` takes
 you through it: the group's name, then each channel (a new one, which Cade
 makes and is then in, or one that exists: a public one Cade joins itself, a
 private one once you send `/invite @Cade` in it), people to add to them by
-email or member ID, and, once the Google web app is set up (step 8), the
+email or member ID, and, once the Google web app is set up (step 7), the
 group's Doc and Sheet. It says what it will do before doing it, then saves
 and uploads the file. It asks for Cade's bot token (or takes
 `SLACK_BOT_TOKEN`), and needs the app's channel permissions (`npm run
@@ -83,14 +83,14 @@ does.
 | --- | --- | --- | --- |
 | `SLACK_SIGNING_SECRET` | **Required** | Lets Cade check that requests really come from Slack. | Set for you by `npm run slack:create` (step 5). Otherwise: the app's page at <https://api.slack.com/apps> → **Basic Information** → **App Credentials** → **Signing Secret**. |
 | `SLACK_BOT_TOKEN` | **Required** | Lets Cade read and post as the app (`xoxb-…`). | After installing the app (step 6): its page → **OAuth & Permissions** → **Bot User OAuth Token**. `npm run slack:create` asks for it and stores it. |
-| `GOOGLE_SECRET` | Only with `googleUrl` | Stops anyone else using your Google web app. | Generated and set for you by `npm run google:create` (step 8), which also puts it in `google/Secret.gs` for the script. |
+| `GOOGLE_SECRET` | Only with `googleUrl` | Stops anyone else using your Google web app. | Generated and set for you by `npm run google:create` (step 7), which also puts it in `google/Secret.gs` for the script. |
 
 ### Used once during setup, never stored
 
 | Credential | What it's for | How to get it |
 | --- | --- | --- |
 | Cloudflare login | Deploying, setting secrets and creating the database with `wrangler`. | `npx wrangler login` (step 2), or an API token with **Workers Scripts → Edit** and **D1 → Edit** in `CLOUDFLARE_API_TOKEN`. |
-| Google login | Creating or updating the Google web app (`npm run google:create`, `google:update`). | `npx clasp login` (step 8). |
+| Google login | Creating or updating the Google web app (`npm run google:create`, `google:update`). | `npx clasp login` (step 7). |
 | App configuration token | Creating or updating the Slack app (`npm run slack:create`, `slack:update`), which ask for it, hidden. | <https://api.slack.com/apps> → **Your App Configuration Tokens** → **Generate Token** (`xoxe.xoxp-…`); it lasts 12 hours. Step 4. |
 
 `npm run dev` (see [README.md](README.md)) uses the same config file and asks for the
@@ -187,70 +187,7 @@ and paste it when the script asks. If you skipped that:
 npx wrangler secret put SLACK_BOT_TOKEN
 ```
 
-## 7. Set up the channels
-
-For each team or project (a **group**), pick one of two setups:
-
-- **Team only:** a **dev** channel (for example `#acme-dev`), where the team
-  tracks its work with `/cade track`, setting each task's priority and due
-  date. This is the simplest setup, and enough when no client works in
-  Slack with you.
-- **With a client:** the dev channel, plus an **external** channel shared
-  with the client (`#acme-external`), where they start requirements and
-  report incidents that the team tracks as tasks in the dev channel, and
-  optionally an **incidents** channel (`#acme-incidents`) for incidents'
-  tasks.
-
-You can add the external channel to a group later.
-
-Find each channel's ID: open the channel → click its name → **About** →
-**Channel ID** at the bottom (it starts with `C`). Put them in
-`cade.config.json`, starting from the example:
-
-```sh
-cp cade.config.example.json cade.config.json
-```
-
-```json
-{
-  "timezone": "UTC",
-  "channels": [
-    { "name": "acme", "tasks": "C…" },
-    { "name": "globex", "external": "C…", "tasks": "C…", "incidents": "C…" }
-  ]
-}
-```
-
-Add one line to `channels` per group: `acme` is team only, `globex` has a
-client. Each key is described under
-[Settings](#settings); `timezone` and `googleUrl` are optional.
-
-`cade.config.json` stays on your machine (git ignores it). Upload it:
-
-```sh
-npm run config
-```
-
-It checks the file (every group has a name and real channel IDs, no channel
-is used twice, the time zone exists), prints what it found, and stores it as
-the Worker secrets `CHANNEL_PAIRS` and `TIMEZONE` in one go. Secrets take
-effect straight away and survive every `npm run deploy`. To change anything
-later, edit `cade.config.json` and run `npm run config` again.
-
-The secrets aren't in this file; see [Settings](#settings).
-
-Then invite the app to every channel:
-
-```
-/invite @Cade
-```
-
-**Expect:** `npx wrangler secret list` shows `CHANNEL_PAIRS`,
-`SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`. **If `npm run config`
-stops**, it says what's wrong in `cade.config.json`; nothing is uploaded
-until the file is right.
-
-## 8. Optional: Google Sheets and Docs
+## 7. Optional: Google Sheets and Docs
 
 Each group can have its own Google Sheet, a record of every task (Slack's
 free plan keeps 90 days of history), and its own Google Doc, where `/cade
@@ -271,19 +208,58 @@ needs a Google account.
    uploaded) and its secret (`GOOGLE_SECRET`).
 3. **(person)** Open the script link it prints, choose `authorize`, click
    **Run** and allow it.
-4. Link each group's files, new (`new`) or yours (their addresses):
 
-   ```sh
-   npm run group -- --name acme --sheet new --doc new
-   ```
-
-   **Expect:** "acme tasks" and "acme executive summaries" in your Google
-   Drive, linked to the group in `cade.config.json` and uploaded.
-5. **(person)** Share the doc with the client as **Editor**.
+Each group's Doc and Sheet are made or linked when you set the group up
+(step 8). Skip this step for now and add them later with `npm run group`.
 
 **If it fails** with the Apps Script API: turn it on (step 1) and run it
 again. Details, doing it by hand, and troubleshooting are in
 [google/README.md](google/README.md).
+
+## 8. Set up your first group (person)
+
+A **group** is a team or project, with its own channels:
+
+- **Team only:** a **dev** channel (for example `#acme-dev`), where the team
+  tracks its work with `/cade track`, setting each task's priority and due
+  date. This is the simplest setup, and enough when no client works in
+  Slack with you.
+- **With a client:** the dev channel, plus a **client** (external) channel
+  shared with the client (`#acme-client`), where they start requirements and
+  report incidents that the team tracks as tasks in the dev channel, and
+  optionally an **incidents** channel (`#acme-incidents`) for incidents'
+  tasks.
+
+`npm run group` takes you through it. It asks questions, so run it in a
+terminal window of your own, in this folder:
+
+```sh
+npm run group
+```
+
+1. Cade's bot token, hidden: the `xoxb-…` token from step 6 (or set
+   `SLACK_BOT_TOKEN` first, to skip the question).
+2. The group's name, then your team's time zone (the first time only).
+3. For each channel, **existing or new**: an existing channel by its ID
+   (the channel's name → **About** → **Channel ID**, `C…`), which Cade joins
+   if it's public, or waits for `/invite @Cade` in it if it's private; or a
+   new one by name, which Cade makes, public or private, and is then in.
+   The client and incidents channels can be left out (`-`), and added later.
+4. People to add to the channels, by email or Slack member ID.
+5. With the Google web app (step 7), the group's Doc and Sheet: `new`, the
+   address of one you have, or none.
+6. What it will do, to confirm. It then does it, saves the group in
+   `cade.config.json` (git ignores it) and uploads it as the Worker secrets
+   `CHANNEL_PAIRS` and `TIMEZONE`.
+
+**Expect:** "Done", with each channel's link. Then, in Slack, share the
+client channel with the client (channel name → **Share channel**), and the
+group's Doc with them as **Editor**.
+
+Run `npm run group` again for every other group, or to change one: Enter
+keeps what it has. To set the first group up later, skip this step and run
+it when you're ready. Editing `cade.config.json` by hand and running `npm
+run config` works too (see [Settings](#settings)).
 
 ## 9. Check it works
 

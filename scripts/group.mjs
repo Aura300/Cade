@@ -16,7 +16,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { callSlack } from "../src/slack.js";
-import { readConfig, uploadConfig } from "./config.mjs";
+import { checkZone, readConfig, uploadConfig } from "./config.mjs";
 import { askHidden } from "./prompt.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -118,11 +118,11 @@ async function currentConfig() {
   }
 }
 
-// Saves the group with `fields` in cade.config.json, checked first so a
-// mistake leaves the file as it was, and uploads it. Returns the group as
-// saved.
-async function saveGroup(json, name, fields) {
-  const next = withGroup(json, name, fields);
+// Saves the group with `fields` in cade.config.json, and `settings` (such
+// as the time zone) with it, checked first so a mistake leaves the file as
+// it was, and uploads it. Returns the group as saved.
+async function saveGroup(json, name, fields, settings = {}) {
+  const next = withGroup(JSON.stringify({ ...JSON.parse(json), ...settings }), name, fields);
   readConfig(next);
   await writeFile(CONFIG_FILE, next);
   const known = JSON.parse(json).channels?.some((other) => other.name === name);
@@ -276,6 +276,20 @@ async function guided() {
     const current = config.channels?.find((other) => other.name === name) ?? {};
     if (current.name) console.log(`  ${name} is set up already; what you give changes it, and Enter keeps what it has.`);
 
+    // The first group, at setup, also sets the time zone.
+    const settings = {};
+    if (!config.timezone) {
+      const local = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      while (!settings.timezone) {
+        const zone = await ask(`\nYour team's time zone, for times in the Sheet (an IANA name such as Asia/Colombo) [${local}]: `, local);
+        try {
+          settings.timezone = checkZone(zone);
+        } catch (error) {
+          console.log(`  ${error.message}`);
+        }
+      }
+    }
+
     // Each channel: { field, action: "create" | "join" | "use" | "keep" |
     // "remove", id?, name?, isPrivate? }.
     const plans = [];
@@ -322,6 +336,7 @@ async function guided() {
       const what = field === "doc" ? "Google Doc" : "Google Sheet";
       console.log(`  ${what}: ${value === "new" ? `make "${NEW_TITLES[field](name)}"` : value === "none" ? "unlink it" : `link ${value}`}`);
     }
+    if (settings.timezone) console.log(`  set the time zone to ${settings.timezone}`);
     console.log("  save the group in cade.config.json and upload it");
     if (/^n/i.test(await ask("Go ahead? (Y/n): "))) {
       console.log("Nothing changed.");
@@ -358,7 +373,7 @@ async function guided() {
     if (ids.length) console.log("Added the people to the channels.");
     for (const [field, value] of Object.entries(files)) fields[field] = await fileAddress(field, value, name, config);
 
-    const saved = await saveGroup(json, name, fields);
+    const saved = await saveGroup(json, name, fields, settings);
     console.log(`\nDone. ${name}'s channels:`);
     for (const role of ROLES) {
       if (saved[role.field]) console.log(`  ${role.what.split(",")[0]}: ${url}archives/${saved[role.field]}`);
