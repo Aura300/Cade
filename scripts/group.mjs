@@ -204,13 +204,53 @@ export async function memberIds(slack, input) {
   return ids;
 }
 
+// What to do for one of the group's channels, asked: an existing channel,
+// by its ID, which Cade joins if it's public, or waits to be invited to if
+// it's private (it can't see a private one before); or a new one, by name,
+// which Cade makes, and is then in. `current` is the channel the group has,
+// kept with Enter. Returns null for none.
+export async function channelPlan(slack, ask, role, group, options, current) {
+  while (true) {
+    const choice = (await ask(`  Existing or new? (${options.join(", ")}): `)).toLowerCase();
+    if (!choice && current) return { field: role.field, action: "keep", id: current };
+    if (choice === "-" && !role.required) return current ? { field: role.field, action: "remove" } : null;
+    if (choice === "e" || choice === "existing") {
+      const id = await ask("  Its channel ID (in Slack: the channel's name → About → Channel ID, C…): ");
+      if (!/^[CG][A-Z0-9]{8,}$/.test(id)) {
+        console.log("  That isn't a channel ID; they start with C and are about 11 characters.");
+        continue;
+      }
+      let found = await findChannel(slack, id);
+      while (!found) {
+        const next = await ask(`  I can't see ${id}. If it's private, send /invite @Cade in it, then press Enter to look again; or type back: `);
+        if (/^back$/i.test(next)) break;
+        found = await findChannel(slack, id);
+      }
+      if (found) return { field: role.field, action: found.isMember ? "use" : "join", ...found };
+      continue;
+    }
+    if (choice === "n" || choice === "new") {
+      const suggested = `${group}-${role.suffix}`.toLowerCase();
+      const wanted = channelName(await ask(`  Its name [${suggested}]: `, suggested));
+      if (!validChannelName(wanted)) {
+        console.log("  Channel names are lower case letters, numbers, - and _, up to 80.");
+        continue;
+      }
+      if (await findChannel(slack, wanted)) {
+        console.log(`  #${wanted} exists already; choose e and give its ID to use it, or another name.`);
+        continue;
+      }
+      const isPrivate = /^y/i.test(await ask(`  Make #${wanted} private? (y/N): `));
+      return { field: role.field, action: "create", name: wanted, isPrivate };
+    }
+  }
+}
+
 // `npm run group` with no options: asks for each setting in turn, says what
 // it will do, and does it once confirmed. For each channel it makes a new
-// one (Cade is then in it) or links one that exists: a public one Cade
-// joins itself, a private one only once someone sends /invite @Cade in it,
-// as Cade can't see it before. It adds people to all of them (those already
-// in are skipped), makes or links the group's Google Doc and Sheet, and
-// saves and uploads the group.
+// one or links an existing one (see channelPlan), adds people to all of
+// them (those already in are skipped), makes or links the group's Google
+// Doc and Sheet, and saves and uploads the group.
 async function guided() {
   if (!process.stdin.isTTY) throw new Error(`Run it in a terminal to be asked for each setting, or give them: ${USAGE}`);
   console.log("Setting up a group: its Slack channels, then its Google Doc and Sheet. Nothing changes until you confirm.\n");
@@ -236,41 +276,18 @@ async function guided() {
     const current = config.channels?.find((other) => other.name === name) ?? {};
     if (current.name) console.log(`  ${name} is set up already; what you give changes it, and Enter keeps what it has.`);
 
-    // Each channel: { field, action: "create" | "join" | "use" | "remove", id?, name, isPrivate }.
+    // Each channel: { field, action: "create" | "join" | "use" | "keep" |
+    // "remove", id?, name?, isPrivate? }.
     const plans = [];
     for (const role of ROLES) {
-      const fallback = current[role.field] ?? `${name}-${role.suffix}`;
-      const skip = role.required ? "" : current[role.field] ? ", or - to remove it" : ", or - for none";
-      while (true) {
-        const answer = await ask(`\n${role.what}.\n  A new channel's name, or an existing one's name or ID [${fallback}${skip}]: `, fallback);
-        if (answer === "-" && !role.required) {
-          if (current[role.field]) plans.push({ field: role.field, action: "remove" });
-          break;
-        }
-        let found = await findChannel(slack, answer);
-        const wanted = channelName(answer);
-        const isId = /^[CG][A-Z0-9]{8,}$/.test(answer.trim());
-        // Cade sees only the private channels it's in: one it can't see may
-        // be private, so it asks before making a new one.
-        while (!found) {
-          const next = await ask(
-            `  I can't see ${isId ? answer.trim() : `#${wanted}`}. If it's an existing private channel, send /invite @Cade in it, then press Enter to look again${
-              !isId && validChannelName(wanted) ? `; or type new to make #${wanted}` : ""
-            }; or type back to give another: `,
-          );
-          if (/^back$/i.test(next)) break;
-          if (/^new$/i.test(next) && !isId && validChannelName(wanted)) {
-            const isPrivate = /^y/i.test(await ask(`  Make #${wanted} private? (y/N): `));
-            plans.push({ field: role.field, action: "create", name: wanted, isPrivate });
-            break;
-          }
-          found = await findChannel(slack, answer);
-        }
-        if (found) plans.push({ field: role.field, action: found.isMember ? "use" : "join", ...found });
-        if (plans.some((plan) => plan.field === role.field)) break;
-      }
+      console.log(`\n${role.what}.`);
+      const options = ["e for an existing one", "n to make a new one"];
+      if (current[role.field]) options.push(`Enter to keep ${current[role.field]}`);
+      if (!role.required) options.push(current[role.field] ? "- to remove it" : "- for none");
+      const plan = await channelPlan(slack, ask, role, name, options, current[role.field]);
+      if (plan) plans.push(plan);
     }
-    const channels = plans.filter((plan) => plan.action !== "remove");
+    const channels = plans.filter((plan) => plan.id || plan.action === "create");
     const people = channels.length
       ? await ask("\nPeople to add to these channels: emails or Slack member IDs, separated by commas [none]: ")
       : "";
@@ -295,6 +312,7 @@ async function guided() {
         create: `make ${plan.isPrivate ? "private" : "public"} #${plan.name}`,
         join: `join #${plan.name} (public, so I can join it myself)`,
         use: `use #${plan.name}, which I'm in`,
+        keep: `keep ${plan.id}`,
         remove: "unlink it",
       }[plan.action];
       console.log(`  ${role}: ${line}`);

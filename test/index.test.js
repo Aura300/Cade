@@ -7396,3 +7396,55 @@ test("npm run group's guided setup finds channels and people", async () => {
   await assert.rejects(memberIds(slack, "bob@acme.test"), /No one in this Slack workspace has the email bob@acme.test/);
   await assert.rejects(memberIds(slack, "bob"), /isn't an email or a Slack member ID/);
 });
+
+test("npm run group asks for each channel, existing by ID or new by name", async () => {
+  const { channelPlan } = await import("../scripts/group.mjs");
+  const channels = {
+    C0000000001: { id: "C0000000001", name: "acme-dev", is_member: false },
+    C0000000002: { id: "C0000000002", name: "acme-client", is_member: true },
+  };
+  let invited = false;
+  const slack = async (method, args) => {
+    if (method === "conversations.info") {
+      // G0000000003 is private: Cade sees it only once invited.
+      const found = channels[args.channel] ?? (invited && args.channel === "G0000000003" && { id: "G0000000003", name: "acme-incidents", is_private: true, is_member: true });
+      if (!found) throw new Error("Slack conversations.info failed: channel_not_found");
+      return { channel: found };
+    }
+    if (method === "conversations.list") return { channels: Object.values(channels) };
+    throw new Error(`unexpected ${method}`);
+  };
+  // Answers in order, as typed; each question asked is recorded.
+  const answering = (answers, onAsk = () => {}) => {
+    const asked = [];
+    const ask = async (question, fallback = "") => {
+      asked.push(question);
+      onAsk(asked.length);
+      if (!answers.length) throw new Error(`ran out of answers at: ${question}`);
+      return answers.shift() || fallback;
+    };
+    return { ask, asked };
+  };
+  const role = { field: "tasks", suffix: "dev", required: true };
+  const log = console.log;
+  console.log = () => {};
+  try {
+    // An existing public channel Cade isn't in: joined.
+    let { ask } = answering(["e", "C0000000001"]);
+    assert.deepEqual(await channelPlan(slack, ask, role, "Acme", [], undefined), { field: "tasks", action: "join", id: "C0000000001", name: "acme-dev", isPrivate: false, isMember: false });
+    // A private one, seen once invited.
+    ({ ask } = answering(["e", "G0000000003", ""], (n) => n === 3 && (invited = true)));
+    assert.equal((await channelPlan(slack, ask, { ...role, field: "incidents" }, "Acme", [], undefined)).action, "use");
+    // A new one: a taken name is refused, then the suggested one is made, private.
+    const answers = answering(["n", "acme-dev", "n", "", "y"]);
+    assert.deepEqual(await channelPlan(slack, answers.ask, role, "Beta", [], undefined), { field: "tasks", action: "create", name: "beta-dev", isPrivate: true });
+    assert.ok(answers.asked.some((question) => question.includes("[beta-dev]")));
+    // Enter keeps the group's channel; - removes an optional one.
+    ({ ask } = answering([""]));
+    assert.deepEqual(await channelPlan(slack, ask, role, "Acme", [], "C0000000002"), { field: "tasks", action: "keep", id: "C0000000002" });
+    ({ ask } = answering(["-"]));
+    assert.deepEqual(await channelPlan(slack, ask, { ...role, required: false }, "Acme", [], "C0000000002"), { field: "tasks", action: "remove" });
+  } finally {
+    console.log = log;
+  }
+});
