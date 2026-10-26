@@ -5590,6 +5590,82 @@ test("Move without a pick asks for one, and Cancel removes the picker", async (t
   assert.equal(calls.length, 1);
 });
 
+// Choosing Cade's message shortcut `callbackId` (⋯ → More actions) on
+// `message` in `channel`.
+const shortcutClick = (callbackId, message, channel = "CEXTERNAL") =>
+  interaction({
+    type: "message_action",
+    callback_id: callbackId,
+    trigger_id: "T1",
+    user: { id: "UCLIENT" },
+    channel: { id: channel },
+    message,
+  });
+
+test("Move to task opens a form with the channel's open threads, and moves the message on Move", async (t) => {
+  let calls = mockSlack(t, {
+    ...moveSlack(),
+    stored: [requirementRoot(), otherRequirement("200.7", { title: "Old report", status: "DONE" })],
+  });
+  await send("/slack/interactions", shortcutClick("move", strayMessage));
+  const { view, trigger_id } = calls.find((call) => call.method === "views.open").args;
+  assert.equal(trigger_id, "T1");
+  assert.equal(view.callback_id, "move:form");
+  assert.deepEqual(view.blocks[0].element.options.map((option) => option.value), ["200.1"]);
+  assert.equal(blockText(view.blocks[1]), "Also add a CSV export");
+
+  calls = mockSlack(t, { ...moveSlack(), stored: [requirementRoot()] });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "view_submission",
+      user: { id: "UCLIENT" },
+      view: {
+        callback_id: view.callback_id,
+        private_metadata: view.private_metadata,
+        state: { values: { target: { value: { selected_option: { value: "200.1" } } } } },
+      },
+    }),
+  );
+  const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => [call.args.thread_ts, call.args.text]);
+  assert.equal(posts[0][0], "200.1");
+  assert.match(posts[0][1], /^Moved from <@UCLIENT>'s/);
+  assert.equal(posts[1][0], "400.1");
+  assert.match(posts[1][1], /^<@UCLIENT> moved this message to the requirement thread/);
+});
+
+test("Message shortcuts say privately why they can't, without opening a form", async (t) => {
+  for (const [callbackId, message, channel, stored, root, reply] of [
+    ["move", { ...strayMessage, thread_ts: "300.1" }, "CEXTERNAL", [requirementRoot()], strayMessage, /not replies in a thread/],
+    ["move", strayMessage, "COTHER", [requirementRoot()], strayMessage, /^I only move messages/],
+    ["move", strayMessage, "CEXTERNAL", [], strayMessage, /^There are no open requirements here/],
+    ["move", strayMessage, "CEXTERNAL", [requirementRoot()], { ...strayMessage, bot_id: "B1" }, /people's messages/],
+    ["convert", strayMessage, "COTHER", [], strayMessage, /^Convert to task works on messages in the dev channel/],
+  ]) {
+    const calls = mockSlack(t, { ...moveSlack(root), stored });
+    await send("/slack/interactions", shortcutClick(callbackId, message, channel));
+    assert.ok(!calls.some((call) => call.method === "views.open"), callbackId);
+    const told = calls.find((call) => call.method === "chat.postEphemeral").args;
+    assert.equal(told.user, "UCLIENT");
+    assert.match(told.text, reply);
+  }
+});
+
+test("Convert to task opens the task form in the dev channel and the requirement form in the client's, named from the message", async (t) => {
+  for (const [channel, message, callbackId] of [
+    ["CDEV", devStray, "track"],
+    ["CEXTERNAL", strayMessage, "requirement"],
+  ]) {
+    const calls = mockSlack(t, moveSlack(message));
+    await send("/slack/interactions", shortcutClick("convert", message, channel));
+    const { view } = calls.find((call) => call.method === "views.open").args;
+    assert.equal(view.callback_id, callbackId);
+    const title = message.text.split("\n")[0];
+    assert.equal(view.blocks[0].element.initial_value, title);
+    assert.deepEqual(JSON.parse(view.private_metadata), { channel, moveTs: message.ts, title });
+  }
+});
+
 // Cade's note under a message it moved already.
 const movedNote = {
   ts: "400.3",

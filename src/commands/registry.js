@@ -33,6 +33,8 @@ import unassign from "./unassign.js";
 //               the command's triggerId, so it can open a modal straight away,
 //     views?: { [callbackId]: handler(payload, context) } for its modals,
 //     actions?: { [actionId]: handler(payload, context) } for its buttons,
+//     shortcuts?: { [callbackId]: handler(payload, context) } for its items
+//               in a message's ⋯ → More actions (see slack/manifest.json),
 //     intents?: plain messages it acts on, made with intent() (see intents.js),
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
@@ -54,6 +56,11 @@ export const views = Object.assign(
 );
 
 export const intents = handlers.flatMap((handler) => handler.intents ?? []);
+
+export const shortcuts = Object.assign(
+  {},
+  ...interactive.map((handler) => handler.shortcuts ?? {}),
+);
 
 export const actions = Object.assign(
   {},

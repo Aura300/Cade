@@ -10,6 +10,20 @@
       "display_name": "{{APP_NAME}}",
       "always_online": true
     },
+    "shortcuts": [
+      {
+        "name": "Convert to task",
+        "type": "message",
+        "callback_id": "convert",
+        "description": "Track this message as a task, or as a requirement in the client channel"
+      },
+      {
+        "name": "Move to task",
+        "type": "message",
+        "callback_id": "move",
+        "description": "Move this message into an open task's, requirement's or incident's thread"
+      }
+    ],
     "slash_commands": [
       {
         "command": "{{COMMAND}}",

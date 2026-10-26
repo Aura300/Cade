@@ -16,6 +16,11 @@ const INCIDENT_ACTION = "move:report-incident";
 const TRACK_ACTION = "move:track-task";
 const EXISTING_ACTION = "move:existing";
 const DISMISS_ACTION = "move:dismiss";
+// The message shortcuts, ⋯ → More actions → Move to task and Convert to
+// task, by the callback_ids the manifest gives them, and Move's form.
+const MOVE_SHORTCUT = "move";
+const CONVERT_SHORTCUT = "convert";
+const MOVE_VIEW = "move:form";
 
 // Added to a moved message, so it can be passed over without opening it.
 const MOVED_REACTION = "outbox_tray";
@@ -72,6 +77,10 @@ const targetsIn = (env, channel) => (roleOf(env, channel) === "external" ? REQUI
 // ✅ on the command, so it can be pasted into old threads one after another.
 // Without a link, it asks as above.
 //
+// ⋯ → More actions → Move to task, Cade's message shortcut, does the same
+// from the message itself, with a form (see openMoveForm); Convert to task
+// starts a task or requirement from it (see openConvertForm).
+//
 // A message posted on its own in the external channel, not in a thread, gets
 // a private question for whoever posted it: start a requirement or report
 // an incident from it, with its first line as the name, or move it to an
@@ -99,6 +108,8 @@ export default {
     if (!open.length) return `${targets.none} ${targets.start}`;
     await privately(env, command, picker(command.channel, command.threadTs, open, targets));
   },
+  shortcuts: { [MOVE_SHORTCUT]: openMoveForm, [CONVERT_SHORTCUT]: openConvertForm },
+  views: { [MOVE_VIEW]: submitMoveForm },
   intents: [
     intent({
       name: "new-thread",
@@ -145,6 +156,102 @@ export default {
     },
   },
 };
+
+// The message a shortcut was chosen on, if it can be moved or have
+// something started from it, as { channel, ts, text }; otherwise tells
+// whoever chose it why not, privately, and returns null. Only messages posted
+// in the channel itself count, not replies. A form must open within Slack's
+// three seconds of the click, so these are the quick checks `@Cade move`
+// makes.
+async function shortcutMessage(payload, env, roles, wrongPlace) {
+  const channel = payload.channel.id;
+  const { ts, thread_ts: threadTs, text = "" } = payload.message;
+  const tell = async (reply) => {
+    await callSlack(env, "chat.postEphemeral", { channel, user: payload.user.id, text: reply });
+    return null;
+  };
+  if (!roles.includes(roleOf(env, channel))) return tell(wrongPlace);
+  if (threadTs && threadTs !== ts) return tell("I can only do that with messages posted in the channel itself, not replies in a thread.");
+  const { problem, moved } = await checkRoot(env, channel, ts);
+  if (problem || moved) return tell(problem ?? moved);
+  return { channel, ts, text, tell };
+}
+
+// ⋯ → More actions → Move to task: a form to choose where the message goes,
+// the same choices as `@Cade move`, without a command in its thread.
+async function openMoveForm(payload, { env }) {
+  const message = await shortcutMessage(
+    payload,
+    env,
+    ["external", "tasks", "incidents"],
+    "I only move messages in the client, dev and incidents channels I look after.",
+  );
+  if (!message) return;
+  const { channel, ts, tell } = message;
+  const targets = targetsIn(env, channel);
+  const open = await targets.list(env, channel);
+  if (!open.length) return tell(`${targets.none} ${targets.start}`);
+  await callSlack(env, "views.open", {
+    trigger_id: payload.trigger_id,
+    view: {
+      type: "modal",
+      callback_id: MOVE_VIEW,
+      private_metadata: JSON.stringify({ channel, ts }),
+      title: plainText("Move to task"),
+      submit: plainText("Move"),
+      close: plainText("Cancel"),
+      blocks: [
+        {
+          type: "input",
+          block_id: "target",
+          label: plainText("Move it to"),
+          element: {
+            type: "static_select",
+            action_id: "value",
+            placeholder: plainText(targets === TASKS ? "Choose a task" : "Choose a requirement"),
+            options: open.map((target) => ({ text: plainText(optionText(targets.label(target))), value: target.ts })),
+          },
+        },
+        { type: "context", elements: [mrkdwn(optionText(firstLine(message.text)) || "_The message_")] },
+      ],
+    },
+  });
+}
+
+// ⋯ → More actions → Convert to task: in the dev channel, the Track task
+// form; in the client channel, where the client's work starts as a
+// requirement, the Start requirement form. Each is named from the message's
+// first line, and takes the message into its thread once it's posted, as
+// Track as task and Start requirement do.
+async function openConvertForm(payload, { env }) {
+  const message = await shortcutMessage(
+    payload,
+    env,
+    ["external", "tasks"],
+    "Convert to task works on messages in the dev channel, or the client channel for a requirement.",
+  );
+  if (!message) return;
+  const { channel, ts, text } = message;
+  const view = roleOf(env, channel) === "external" ? requirementView : trackView;
+  await callSlack(env, "views.open", {
+    trigger_id: payload.trigger_id,
+    view: view({ channel, moveTs: ts, title: firstLine(text) }),
+  });
+}
+
+// Moves the message as Move on the picker would, telling only whoever chose
+// it if it couldn't.
+function submitMoveForm(payload, context) {
+  const { channel, ts } = JSON.parse(payload.view.private_metadata);
+  const targetTs = payload.view.state.values.target.value.selected_option.value;
+  const user = payload.user.id;
+  context.waitUntil(
+    (async () => {
+      const problem = await moveMessage(context.env, { channel, ts, targetTs, user });
+      if (problem) await callSlack(context.env, "chat.postEphemeral", { channel, user, text: problem });
+    })(),
+  );
+}
 
 function picker(channel, ts, open, targets) {
   const text = "Where should I move this message?";

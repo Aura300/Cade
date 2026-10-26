@@ -1,6 +1,6 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
-import { actions, intents, views } from "./commands/registry.js";
+import { actions, intents, shortcuts, views } from "./commands/registry.js";
 import { findIntent, plainMessage } from "./intents.js";
 import { retryUnposted } from "./retry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
@@ -106,8 +106,9 @@ async function handleSlashCommand(body, request, context) {
   return respond(reply && { response_type: "ephemeral", ...messageBody(reply) });
 }
 
-// Modal submissions and button clicks go to the handler that registered the
-// modal's callback_id or the button's action_id.
+// Modal submissions, button clicks and message shortcuts (Cade's items in a
+// message's ⋯ → More actions) go to the handler that registered the modal's
+// callback_id, the button's action_id or the shortcut's callback_id.
 async function handleInteraction(body, request, context) {
   const payload = JSON.parse(new URLSearchParams(body).get("payload"));
   let id;
@@ -118,6 +119,9 @@ async function handleInteraction(body, request, context) {
   } else if (payload.type === "block_actions") {
     id = payload.actions?.[0]?.action_id;
     handler = actions[id];
+  } else if (payload.type === "message_action") {
+    id = payload.callback_id;
+    handler = shortcuts[id];
   } else {
     return respond();
   }
