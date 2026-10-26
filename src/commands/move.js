@@ -121,6 +121,7 @@ export default {
     intent({
       name: "new-thread",
       order: 50,
+      kinds: ["new-threads"],
       match: (message) => !message.inThread,
       handle: (message, { env }) => offerThread(env, message),
     }),

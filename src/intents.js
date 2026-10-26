@@ -3,7 +3,9 @@
 // `intents` (see registry.js), each made with `intent`:
 //
 //   intent({
-//     name,                   // for logs, such as "hand-off:tester"
+//     name,                   // for logs, such as "pr-link"
+//     kinds,                  // the `suggestions` kinds it serves (see
+//                             // SUGGESTION_KINDS); off when all are off
 //     order,                  // lower is checked first; the first match wins
 //     phrases,                // words that signal it, or…
 //     match(message),         // …a test of the message, true when it matches
@@ -20,10 +22,11 @@
 
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
-export function intent({ phrases, match, needs = {}, ...rest }) {
+export function intent({ phrases, match, needs = {}, kinds = [], ...rest }) {
   if (!phrases === !match) throw new Error(`Intent ${rest.name} needs either phrases or match.`);
+  if (!kinds.every((kind) => SUGGESTION_KINDS.includes(kind))) throw new Error(`Intent ${rest.name} has an unknown kind.`);
   const test = match ?? phraseTest(phrases);
-  return { ...rest, needs, test };
+  return { ...rest, needs, kinds, test };
 }
 
 export function phraseTest(phrases) {
@@ -61,6 +64,28 @@ export function plainMessage(event, botUserId) {
     mentions,
     botUserId,
   };
+}
+
+// The kinds of suggestion, as `suggestions` in cade.config.json names them
+// (SUGGESTIONS).
+export const SUGGESTION_KINDS = ["pr-links", "hand-offs", "started", "progress", "new-threads"];
+
+// Whether the suggestion kind `kind` is turned on: all are, unless
+// SUGGESTIONS is false (none) or lists the kinds that are.
+export function suggesting(env, kind) {
+  let kinds;
+  try {
+    kinds = env.SUGGESTIONS === undefined ? true : JSON.parse(env.SUGGESTIONS);
+  } catch {
+    return true;
+  }
+  if (kinds === true) return true;
+  return Array.isArray(kinds) && kinds.includes(kind);
+}
+
+// The intents with a kind turned on.
+export function intentsOn(env, intents) {
+  return intents.filter((candidate) => candidate.kinds.some((kind) => suggesting(env, kind)));
 }
 
 // The first intent, by order, that matches the message, or undefined.

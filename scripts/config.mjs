@@ -7,6 +7,9 @@
 //   timezone  for times in the Google Sheet (optional)        → TIMEZONE
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
 //             each group's Sheet and Doc
+//   suggestions what Cade offers from people's own words       → SUGGESTIONS
+//             (optional): false for nothing, or a list of the
+//             kinds to keep, from SUGGESTION_KINDS (intents.js)
 //   reactions the emoji that convert or move a message when    → REACTIONS
 //             added to it (optional): { "convert": "ticket",
 //             "move": "twisted_rightwards_arrows" }, by Slack name
@@ -26,6 +29,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { channelPairs } from "../src/channels.js";
 import { docId } from "../src/doc.js";
+import { SUGGESTION_KINDS } from "../src/intents.js";
 import { sheetId } from "../src/sheet.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -39,7 +43,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["channels", "timezone", "googleUrl", "reactions"];
+  const known = ["channels", "timezone", "googleUrl", "suggestions", "reactions"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
@@ -62,8 +66,21 @@ export function readConfig(json) {
     }
     secrets.GOOGLE_URL = config.googleUrl;
   }
+  if (config.suggestions !== undefined) secrets.SUGGESTIONS = JSON.stringify(checkSuggestions(config.suggestions));
   if (config.reactions !== undefined) secrets.REACTIONS = JSON.stringify(checkReactions(config.reactions));
   return secrets;
+}
+
+// Returns `suggestions` if it's true, false or a list of known kinds; else
+// throws.
+export function checkSuggestions(suggestions) {
+  if (typeof suggestions === "boolean") return suggestions;
+  const kinds = SUGGESTION_KINDS;
+  const unknown = Array.isArray(suggestions) ? suggestions.find((kind) => !kinds.includes(kind)) : suggestions;
+  if (unknown !== undefined) {
+    throw new Error(`suggestions is true, false or a list of: ${kinds.join(", ")}. "${unknown}" isn't one of them.`);
+  }
+  return suggestions;
 }
 
 // Returns `reactions` if it names emoji for convert and move only, as Slack
@@ -111,6 +128,7 @@ export async function uploadConfig() {
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
+  if (secrets.SUGGESTIONS) console.log(`suggestions: ${secrets.SUGGESTIONS}`);
   if (secrets.REACTIONS) console.log(`reactions: ${secrets.REACTIONS}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.

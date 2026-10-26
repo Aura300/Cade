@@ -12,6 +12,7 @@ import requirement, { incident } from "./requirement.js";
 import resync from "./resync.js";
 import standup from "./standup.js";
 import status from "./status.js";
+import suggest from "./suggest.js";
 import summary from "./summary.js";
 import tasks from "./tasks.js";
 import track from "./track.js";
@@ -49,15 +50,16 @@ export const commands = Object.fromEntries(
   ),
 );
 
-// The task card's menu only answers clicks, so it isn't a command.
-const interactive = [...handlers, menu];
+// The task card's menu and suggestions from people's own words only answer
+// clicks and messages, so they aren't commands.
+const interactive = [...handlers, menu, suggest];
 
 export const views = Object.assign(
   {},
   ...interactive.map((handler) => handler.views ?? {}),
 );
 
-export const intents = handlers.flatMap((handler) => handler.intents ?? []);
+export const intents = interactive.flatMap((handler) => handler.intents ?? []);
 
 export const shortcuts = Object.assign(
   {},

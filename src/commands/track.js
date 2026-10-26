@@ -128,10 +128,11 @@ export default {
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
 // From a requirement thread it also has `requirement: true` and the
 // requirement's title, priority and due date, to show in the form, and from
-// "Track and assign" the `developers` to start the task with. From someone
-// saying they've started (see suggestStart in assign.js) it also has
-// `started: true`, so the task starts In progress, and `chooseDevelopers:
-// true` when the form should ask who the developers are. From `/cade track` it has only the channel,
+// "Track and assign" the `developers` to start the task with; with `started:
+// true` the task starts In progress, and `chooseDevelopers: true` makes the
+// form ask who the developers are. Cade no longer offers "Track and assign"
+// (suggestions use pickers now, see suggest.js), but buttons posted before
+// still work. From `/cade track` it has only the channel,
 // and for a message in a tasks channel (see move.js) the message's `moveTs`
 // and its first line as the `title`, to start with.
 async function openModal(env, triggerId, origin) {
@@ -270,9 +271,8 @@ export async function createTask(env, task, origin) {
     task.dueDate = requirement ? requirement.dueDate : origin.dueDate;
   }
   // Tracked because someone was asked to start working on it: they are its
-  // developers. It stays To do until one of them says they've started (see
-  // the started intent in assign.js), unless it was tracked because someone
-  // said so already.
+  // developers. It stays To do unless it was tracked because someone said
+  // they'd started already.
   if (origin.developers?.length) task.people.developer = origin.developers;
   if (origin.started) task.status = "IN_PROGRESS";
   const tasksChannel = origin.incident

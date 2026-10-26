@@ -11,6 +11,10 @@ const SUGGEST_LINK_ACTION = "pr:suggest-link";
 // has one too; its value says what to do, as for the other button.
 const SUGGEST_LINK_ONLY_ACTION = "pr:suggest-link-only";
 const SUGGEST_SKIP_ACTION = "pr:suggest-skip";
+// The reviewer picker on the question, for a task with no reviewer yet; its
+// choice is read when Link is pressed.
+const SUGGEST_REVIEWERS_ACTION = "pr:suggest-reviewers";
+const SUGGEST_REVIEWERS_BLOCK = "pr:suggest-reviewers";
 const PRS_VIEW = "pr:form";
 
 // Slack sends links as <https://…> or <https://…|label>; pasted text may also
@@ -77,6 +81,7 @@ export default {
     intent({
       name: "pr-link",
       order: 10,
+      kinds: ["pr-links"],
       needs: { thread: true },
       match: (message) => pullRequestsIn(message.text).length > 0,
       handle: (message, { env }) => suggestPullRequests(message, env),
@@ -96,6 +101,8 @@ export default {
     [SUGGEST_SKIP_ACTION]: async (payload) => {
       await respondLater(payload.response_url, { delete_original: true });
     },
+    // Choosing reviewers only chooses; Link links.
+    [SUGGEST_REVIEWERS_ACTION]: async () => {},
   },
 };
 
@@ -164,7 +171,11 @@ async function suggestPullRequests(message, env) {
   // mentions notified people there, not in the task's thread.
   const mentioned = place === "external" ? [] : [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))];
   const reviewers = mentioned.filter((id) => id !== botUserId && !task.people.reviewer.includes(id));
-  if (!unlinked.length && !reviewers.length) return;
+  // PRs that are all linked already need nothing.
+  if (!unlinked.length) return;
+  // No one reviews it yet: the question asks who, with the people the
+  // message mentioned picked to begin with.
+  if (!task.people.reviewer.length) return askWithReviewers(env, message, target, mentioned, unlinked, reviewers);
 
   const question = suggestion(unlinked, urls, reviewers);
   // Who the message mentioned, so they aren't asked again.
@@ -204,6 +215,48 @@ async function suggestPullRequests(message, env) {
   });
 }
 
+// The question for a task with no reviewer: whether to link the PRs, with a
+// picker for who reviews them, and Link and Not now.
+async function askWithReviewers(env, message, target, mentioned, unlinked, reviewers) {
+  const them = unlinked.length === 1 ? "it" : "them";
+  const question = `I see you posted ${unlinked.map(prLink).join(", ")}. Should I link ${them} to this task? There's no reviewer yet, so choose who reviews ${them}.`;
+  const base = { ...target, mentioned };
+  await callSlack(env, "chat.postEphemeral", {
+    channel: message.channel,
+    thread_ts: message.threadTs,
+    user: message.user,
+    text: question,
+    blocks: [
+      { type: "section", text: mrkdwn(question) },
+      {
+        type: "actions",
+        block_id: SUGGEST_REVIEWERS_BLOCK,
+        elements: [
+          {
+            type: "multi_users_select",
+            action_id: SUGGEST_REVIEWERS_ACTION,
+            placeholder: plainText("Choose reviewers"),
+            ...(reviewers.length && { initial_users: reviewers }),
+          },
+        ],
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: SUGGEST_LINK_ACTION,
+            text: plainText(unlinked.length === 1 ? "Link PR" : "Link PRs"),
+            style: "primary",
+            value: JSON.stringify({ ...base, urls: unlinked, reviewers }),
+          },
+          { type: "button", action_id: SUGGEST_SKIP_ACTION, text: plainText("Not now"), value: JSON.stringify(base) },
+        ],
+      },
+    ],
+  });
+}
+
 function suggestion(unlinked, urls, reviewers) {
   const people = mentions(reviewers);
   const as = reviewers.length === 1 ? "as reviewer" : "as reviewers";
@@ -219,7 +272,10 @@ function suggestion(unlinked, urls, reviewers) {
 // new to it: the task moving to In review, a review request for reviewers
 // the message didn't mention, or, with no reviewer at all, who should review.
 async function acceptSuggestion(payload, env) {
-  const { channel, ts, urls = [], reviewers = [], mentioned = [] } = JSON.parse(payload.actions[0].value);
+  const { channel, ts, urls = [], mentioned = [], ...fields } = JSON.parse(payload.actions[0].value);
+  // Reviewers chosen on the question's picker, when it had one.
+  const picked = payload.state?.values?.[SUGGEST_REVIEWERS_BLOCK]?.[SUGGEST_REVIEWERS_ACTION]?.selected_users;
+  const reviewers = picked ?? fields.reviewers ?? [];
   const user = payload.user.id;
   const task = await loadTask(env, channel, ts);
   let reply = null;
