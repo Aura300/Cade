@@ -1,9 +1,11 @@
 // Each group's tasks, in its own spreadsheet (see Code.gs for how requests
-// arrive): a tab named after the group (for example "acme"), made the first
-// time, with one row per task, updated on every change. Deleted tasks stay,
+// arrive): a "Tasks" tab, made the first time, with one row per task,
+// updated on every change. Deleted tasks stay,
 // with the status "Deleted". Filter the Status column to see completed
 // tasks. A row is keyed by column header, with "Task ID" identifying the
 // task.
+
+const TAB = "Tasks";
 
 const HEADERS = [
   "Title",
@@ -22,7 +24,7 @@ const HEADERS = [
 ];
 
 // Records a task's row: { spreadsheetId, project, row }, `project` being
-// the group's name, which names its tab.
+// the group's name.
 function recordRow(body) {
   if (!body.project) throw new Error("missing project");
   if (!body.spreadsheetId) throw new Error("missing spreadsheetId");
@@ -56,13 +58,19 @@ function findRow(sheet, id) {
   return index === -1 ? 0 : index + 2;
 }
 
-// Creates the pair's tab in `book` with a bold, frozen header row the first
-// time it is used. A new spreadsheet's empty first tab is removed then, so
-// the pair's own spreadsheet holds just its tab.
-function sheetFor(book, name) {
-  let sheet = book.getSheetByName(name);
+// The Tasks tab in the group's spreadsheet `book`. Tabs used to be named
+// after the group, so one called `group` is renamed, keeping its rows.
+// Otherwise it's made the first time, with a bold, frozen header row, and a
+// new spreadsheet's empty first tab is removed then, so it holds just this
+// one.
+function sheetFor(book, group) {
+  let sheet = book.getSheetByName(TAB);
+  if (!sheet && group !== TAB) {
+    sheet = book.getSheetByName(group);
+    if (sheet) sheet.setName(TAB);
+  }
   if (!sheet) {
-    sheet = book.insertSheet(name);
+    sheet = book.insertSheet(TAB);
     sheet.appendRow(HEADERS);
     sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight("bold");
     sheet.setFrozenRows(1);

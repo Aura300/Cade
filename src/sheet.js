@@ -4,7 +4,7 @@ import { callSlack } from "./slack.js";
 // Slack's free plan drops old messages, so every task is also recorded in a
 // Google Sheet: each channel pair's own spreadsheet, its `sheet` in
 // CHANNEL_PAIRS, through the Google web app (see google.js), which keeps a
-// tab named after the pair up to date, a row per task. Syncing is skipped
+// "Tasks" tab up to date, a row per task. Syncing is skipped
 // when the web app isn't set up, and for a pair with no `sheet`.
 export function sheetEnabled(env, group) {
   return googleEnabled(env) && Boolean(sheetId(group.sheet));

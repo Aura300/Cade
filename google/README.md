@@ -29,8 +29,9 @@ the client as **Editor**.
 
 ## The Sheet
 
-Cade keeps a tab named after the group in its spreadsheet, made on the
-first update (a new spreadsheet's empty first tab is removed then). Every
+Cade keeps a **Tasks** tab in the group's spreadsheet, made on the first
+update (a new spreadsheet's empty first tab is removed then). A tab named
+after the group, as older versions made, is renamed Tasks, rows and all. Every
 task has one row, updated on every change:
 
 Title, Status, Priority, Due date, Developer, Reviewer, Tester, Tracked by,
