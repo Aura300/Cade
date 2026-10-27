@@ -7613,3 +7613,227 @@ test("/cade debrief tracks a new item as a dev task for a group with no client c
   assert.ok(!posts.some((post) => post.channel === "CEXTERNAL"));
   assert.match(sent.at(-1).text, /^Nothing more to go through/);
 });
+
+// ---- Suggestions read with AI (see ai.js and ai-suggest.js) ----
+
+// An environment with AI on, whose model answers `answer` (an object, as the
+// changes it read) or throws it (an Error). The model's inputs are kept in
+// `asked`.
+function aiEnv(answer) {
+  const asked = [];
+  const AI = {
+    run: async (model, input) => {
+      asked.push({ model, input });
+      if (answer instanceof Error) throw answer;
+      return { choices: [{ message: { content: JSON.stringify(answer) } }] };
+    },
+  };
+  return { environment: { ...env, AI, AI_MODEL: "on" }, asked };
+}
+
+// What the model read, with nothing changed but `fields`.
+const aiRead = (fields = {}) => ({
+  developer: { add: [], remove: [] },
+  reviewer: { add: [], remove: [] },
+  tester: { add: [], remove: [] },
+  status: "",
+  priority: "",
+  dueDate: "",
+  ...fields,
+});
+
+const aiClick = (button, extra = {}) =>
+  interaction({
+    type: "block_actions",
+    user: { id: "UACTOR" },
+    channel: { id: "CDEV" },
+    trigger_id: "T1",
+    container: { is_ephemeral: true },
+    response_url: RESPONSE_URL,
+    actions: [{ action_id: button.action_id, value: button.value }],
+    ...extra,
+  });
+
+test("AI's changes are checked against the message and the task", async () => {
+  const { checkChanges } = await import("../src/ai.js");
+  const task = { status: "IN_PROGRESS", priority: "High", dueDate: "31/10/2026", people: { developer: ["UBOB"], reviewer: [], tester: [] } };
+  const message = { user: "UACTOR", mentions: ["UREX", "UMIA"] };
+  const allowed = { roles: ["developer", "reviewer", "tester"], fromMentions: true, status: true, details: true };
+  const raw = aiRead({
+    // UZED wasn't mentioned, and UBOB is a developer already.
+    developer: { add: ["UREX", "UZED", "UBOB"], remove: ["UMIA"] },
+    reviewer: { add: ["UMIA", "UMIA"], remove: [] },
+    tester: { add: [], remove: ["UTOM"] },
+    status: "IN_REVIEW",
+    priority: "High",
+    dueDate: "2026-02-30",
+  });
+  assert.deepEqual(checkChanges(raw, { task, message, allowed }), {
+    people: { developer: { add: ["UREX"], remove: [] }, reviewer: { add: ["UMIA"], remove: [] } },
+    status: "IN_REVIEW",
+  });
+  assert.deepEqual(checkChanges(aiRead({ priority: "Urgent", dueDate: "2026-11-06" }), { task, message, allowed }), {
+    priority: "Urgent",
+    dueDate: "06/11/2026",
+  });
+  assert.deepEqual(checkChanges(aiRead({ dueDate: "clear" }), { task, message, allowed }), { dueDate: "" });
+  // What isn't allowed is dropped; with nothing left, nothing changes.
+  const narrow = { roles: ["developer"], fromMentions: false, status: false, details: false };
+  assert.equal(checkChanges(raw, { task, message, allowed: narrow }), null);
+  assert.deepEqual(
+    checkChanges(aiRead({ developer: { add: ["UACTOR", "UREX"], remove: [] } }), { task, message, allowed: narrow }),
+    { people: { developer: { add: ["UACTOR"], remove: [] } } },
+  );
+  assert.equal(checkChanges(aiRead({ status: "IN_PROGRESS", priority: "Loud" }), { task, message, allowed }), null);
+});
+
+test("with AI on, a message is read for every change and confirmed privately", async (t) => {
+  const { environment, asked } = aiEnv(
+    aiRead({
+      developer: { add: ["UREX"], remove: ["UBOB"] },
+      reviewer: { add: ["UMIA"], remove: [] },
+      status: "IN_PROGRESS",
+      priority: "Urgent",
+      dueDate: "2026-10-30",
+    }),
+  );
+  const calls = mockSlack(t, { stored: [ownTask({ developers: ["UBOB"] })] });
+  calls.responses = recordResponses(t);
+  const text = "<@UREX> can you take this over from <@UBOB>? <@UMIA> please review. Need it by Friday, it's blocking the release";
+  await send("/slack/events", threadEvent(text), {}, environment);
+
+  assert.equal(asked[0].model, "@cf/google/gemma-4-26b-a4b-it");
+  const input = JSON.parse(asked[0].input.messages[1].content);
+  assert.deepEqual(input.mentioned, ["UREX", "UBOB", "UMIA"]);
+  assert.equal(input.task.status, "TODO");
+
+  const question = ephemeral(calls);
+  assert.equal(question.user, "UACTOR");
+  assert.equal(question.text, "Should I update the task? From your message:");
+  assert.equal(
+    question.blocks[1].text.text,
+    [
+      "*Developers:* + <@UREX>   − <@UBOB>",
+      "*Reviewers:* + <@UMIA>",
+      "*Status:* :memo: To do → :arrow_forward: In progress",
+      "*Priority:* :large_orange_circle: High → :red_circle: Urgent",
+      "*Due:* 31/10/2026 → 30/10/2026",
+    ].join("\n"),
+  );
+  const [confirm, change, skip] = question.blocks[2].elements;
+  assert.deepEqual([confirm.text.text, change.text.text, skip.text.text], ["Confirm", "Change…", "Not now"]);
+
+  // Confirm applies it all, and the thread hears it as one message.
+  await send("/slack/interactions", aiClick(confirm), {}, environment);
+  const saved = await savedTask();
+  assert.deepEqual(saved.people, { developer: ["UREX"], reviewer: ["UMIA"], tester: [] });
+  assert.deepEqual([saved.status, saved.priority, saved.dueDate], ["IN_PROGRESS", "Urgent", "30/10/2026"]);
+  const posts = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1");
+  assert.equal(posts.length, 1);
+  assert.equal(
+    posts[0].args.text,
+    [
+      "<@UACTOR> assigned <@UREX> as developer.",
+      "<@UACTOR> removed <@UBOB> as developer.",
+      "<@UACTOR> assigned <@UMIA> as reviewer.",
+      "<@UACTOR> set the priority to :red_circle: Urgent.",
+      "<@UACTOR> set the due date to 30/10/2026.",
+      "<@UACTOR> set the status to :arrow_forward: In progress.",
+      "<@UREX>, could you pick this up when you get a chance? Thanks!",
+      "<@UBOB>, there's no need to work on this anymore. Thanks!",
+    ].join("\n"),
+  );
+  assert.deepEqual(calls.responses, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("Change… opens a form filled in with what AI read, and saving it applies the form", async (t) => {
+  const { environment } = aiEnv(aiRead({ tester: { add: ["UTESS"], remove: [] }, status: "IN_TESTING" }));
+  const calls = mockSlack(t, { stored: [ownTask({ testers: ["UTOM"] })] });
+  calls.responses = recordResponses(t);
+  await send("/slack/events", threadEvent("<@UTESS> can you test this now?"), {}, environment);
+  const [, change] = ephemeral(calls).blocks[2].elements;
+
+  await send("/slack/interactions", aiClick(change), {}, environment);
+  const form = calls.at(-1).args.view;
+  assert.equal(calls.at(-1).method, "views.open");
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["developer", "reviewer", "tester", "status", "priority", "due_date"]);
+  assert.deepEqual(form.blocks[2].element.initial_users, ["UTOM", "UTESS"]);
+  assert.equal(form.blocks[3].element.initial_option.value, "IN_TESTING");
+  assert.equal(form.blocks[5].element.initial_date, "2026-10-31");
+
+  // Whoever saved it changed their mind about UTOM, and moved the due date.
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "view_submission",
+      user: { id: "UACTOR" },
+      view: {
+        callback_id: form.callback_id,
+        private_metadata: form.private_metadata,
+        state: {
+          values: {
+            developer: { value: { selected_users: [] } },
+            reviewer: { value: { selected_users: [] } },
+            tester: { value: { selected_users: ["UTESS"] } },
+            status: { value: { selected_option: { value: "IN_TESTING" } } },
+            priority: { value: { selected_option: { value: "High" } } },
+            due_date: { value: { selected_date: "2026-11-02" } },
+          },
+        },
+      },
+    }),
+    {},
+    environment,
+  );
+  const saved = await savedTask();
+  assert.deepEqual(saved.people.tester, ["UTESS"]);
+  assert.deepEqual([saved.status, saved.dueDate], ["IN_TESTING", "02/11/2026"]);
+  assert.equal(
+    calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text,
+    [
+      "<@UACTOR> assigned <@UTESS> as tester.",
+      "<@UACTOR> removed <@UTOM> as tester.",
+      "<@UACTOR> set the due date to 02/11/2026.",
+      "<@UACTOR> set the status to :test_tube: In testing.",
+      "<@UTESS>, could you give this a test when you get a chance? Thanks!",
+    ].join("\n"),
+  );
+  // The private question goes once the form is saved.
+  assert.deepEqual(calls.responses, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("AI isn't asked about the priority and due date of a task whose client owns them", async (t) => {
+  const { environment } = aiEnv(aiRead({ priority: "Urgent", dueDate: "2026-10-30" }));
+  const calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("This is urgent, need it by Friday"), {}, environment);
+  assert.equal(ephemeral(calls), undefined);
+});
+
+test("with AI on, a message that changes nothing gets no question", async (t) => {
+  const { environment, asked } = aiEnv(aiRead());
+  const calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("cc <@UREX>, thanks for the review earlier"), {}, environment);
+  assert.equal(asked.length, 1);
+  assert.equal(ephemeral(calls), undefined);
+});
+
+test("when AI fails, the message is read by its phrases instead", async (t) => {
+  const { environment } = aiEnv(new Error("model unavailable"));
+  const calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, environment);
+  const question = ephemeral(calls);
+  assert.equal(question.text, "Should I update the task? I've filled this in from your message: change anything, then Save.");
+});
+
+test("ai in cade.config.json turns AI on, names a model, or turns it off", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const channels = [{ name: "acme", external: "C0000000001", tasks: "C0000000002" }];
+  assert.equal(readConfig(JSON.stringify({ channels, ai: true })).AI_MODEL, "on");
+  assert.equal(readConfig(JSON.stringify({ channels, ai: false })).AI_MODEL, "off");
+  assert.equal(readConfig(JSON.stringify({ channels, ai: "@cf/qwen/qwen3-30b-a3b-fp8" })).AI_MODEL, "@cf/qwen/qwen3-30b-a3b-fp8");
+  assert.throws(() => readConfig(JSON.stringify({ channels, ai: "gpt" })), /ai is true, false or a Workers AI/);
+  const { aiModel } = await import("../src/ai.js");
+  assert.equal(aiModel({ AI_MODEL: "on" }), null, "no binding");
+  assert.equal(aiModel({ AI: {}, AI_MODEL: "off" }), null);
+  assert.equal(aiModel({ AI: {}, AI_MODEL: "@cf/x/y" }), "@cf/x/y");
+});

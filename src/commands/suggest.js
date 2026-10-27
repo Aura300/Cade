@@ -1,11 +1,12 @@
+import { aiModel } from "../ai.js";
 import { pairFor, roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest, suggesting } from "../intents.js";
 import { loadRequirement, onTheTeam } from "../requirements.js";
-import { oneMessage } from "../notify.js";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
-import { ROLES, STATUSES, loadTask, saveTask } from "../tasks.js";
-import { teamChanges } from "./assign.js";
-import { progressOptions, soundsLikeProgress, statusChange, statusOption } from "./status.js";
+import { ROLES, STATUSES, loadTask } from "../tasks.js";
+import { suggestWithAi } from "./ai-suggest.js";
+import { applyChanges } from "./changes.js";
+import { progressOptions, soundsLikeProgress, statusOption } from "./status.js";
 
 const SAVE_ACTION = "suggest:save";
 const SKIP_ACTION = "suggest:skip";
@@ -14,7 +15,12 @@ const SKIP_ACTION = "suggest:skip";
 const ROLE_PICKS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `suggest:role:${role}`]));
 const STATUS_PICK = "suggest:status";
 
-// People's own words in a task's thread often mean the task should change:
+// People's own words in a task's thread often mean the task should change.
+// With AI on (`ai` in cade.config.json), the message is read with AI, which
+// can tell more: see ai-suggest.js. Otherwise, or if AI fails, it's read by
+// its phrases, as below; both apply changes the same way (see changes.js).
+//
+// By phrases:
 // "@mia can you review this?", "on it", "lgtm", "done". Cade reads the
 // message for what it asks of each role and what it says about the work,
 // then asks whoever wrote it, privately, with pickers to change the task:
@@ -30,6 +36,8 @@ const STATUS_PICK = "suggest:status";
 //              the task, the developers picker
 //   progress   a reviewer approving, a tester passing it, or anyone on it
 //              saying it's finished: the next status (see progressOptions)
+//   details    with AI only: the priority and due date, on the team's own
+//              tasks
 //
 // In the thread of a requirement or incident tracked as a task, the
 // suggestions are for its task, and only the team gets them (see
@@ -101,13 +109,47 @@ const MOVES_FROM = {
   IN_TESTING: ["TODO", "IN_PROGRESS", "IN_REVIEW"],
 };
 
+// Messages that might change a task, beyond what the phrases catch, for AI
+// to read: any mentioning someone, or words about status, priority or dates.
+// Without AI, the phrases decide, and these come to nothing.
+const MIGHT_CHANGE = phraseTest([
+  "urgent",
+  "asap",
+  "block(er|ing|ed)",
+  "critical",
+  "priority",
+  "due",
+  "deadline",
+  "by (today|tonight|tomorrow|eod|eow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|end of)",
+  "tomorrow",
+  "\\d{1,2}(st|nd|rd|th)",
+  "\\d{1,2}/\\d{1,2}",
+  "lgtm",
+  "approv*",
+  "merged",
+  "deployed",
+  "done",
+  "finished",
+  "review*",
+  "test*",
+  "qa",
+  "started",
+  "in progress",
+  "wip",
+]);
+
 const workIntent = intent({
   name: "work",
   order: 20,
-  kinds: ["hand-offs", "started", "progress"],
+  kinds: ["hand-offs", "started", "progress", "details"],
   needs: { thread: true },
   match: (message) =>
-    rolesAskedIn(message).length > 0 || STARTED(message) || REPORTED(message) || soundsLikeProgress(message),
+    message.mentions.length > 0 ||
+    MIGHT_CHANGE(message) ||
+    rolesAskedIn(message).length > 0 ||
+    STARTED(message) ||
+    REPORTED(message) ||
+    soundsLikeProgress(message),
   handle: (message, { env }) => suggestWork(message, env),
 });
 
@@ -178,6 +220,13 @@ export function suggestionsFor(env, message, task, { place, hasClient }) {
 async function suggestWork(message, env) {
   const about = await threadTask(env, message);
   if (!about) return;
+  if (aiModel(env)) {
+    try {
+      return await suggestWithAi(env, message, about);
+    } catch (error) {
+      console.warn("AI couldn't read the message, so its phrases are read instead", { error: error.message });
+    }
+  }
   const { target, of, task, place } = about;
   const hasClient = Boolean(pairFor(env, target.channel)?.external);
   const { roles, status } = suggestionsFor(env, message, task, { place, hasClient });
@@ -253,37 +302,26 @@ async function threadTask(env, message) {
 }
 
 // Saves what the pickers show: each role set to the people chosen, and the
-// status chosen, then tells the task's thread what changed, credited to
-// whoever saved it, and removes the question. A status left as suggested
-// isn't applied if the task has moved since the question was asked.
+// status chosen, as one change (see changes.js), and removes the question. A
+// status left as suggested isn't applied if the task has moved since the
+// question was asked.
 async function save(payload, env) {
   const { channel, ts, people = {}, status: suggested, from } = JSON.parse(payload.actions[0].value);
   const values = payload.state?.values ?? {};
-  const user = payload.user.id;
   const task = await loadTask(env, channel, ts);
   if (task) {
-    const changes = Object.entries(people).map(([role, before]) => {
+    const changes = { people: {} };
+    for (const [role, before] of Object.entries(people)) {
       const pick = ROLE_PICKS[role];
       const chosen = values[pick]?.[pick]?.selected_users ?? before;
-      const change = {
-        role,
-        added: chosen.filter((id) => !task.people[role].includes(id)),
-        removed: task.people[role].filter((id) => !chosen.includes(id)),
+      changes.people[role] = {
+        add: chosen.filter((id) => !task.people[role].includes(id)),
+        remove: task.people[role].filter((id) => !chosen.includes(id)),
       };
-      task.people[role] = chosen;
-      return change;
-    });
-    const team = teamChanges(user, task, changes);
-    if (team.log.length) await saveTask(env, channel, ts, task);
-    let moved = { log: [], notes: [] };
-
+    }
     const status = values[STATUS_PICK]?.[STATUS_PICK]?.selected_option?.value ?? suggested;
-    const stale = status === suggested && task.status !== from;
-    // Testers just added to a task moving to In testing are asked with the
-    // rest, by the status change.
-    if (status && status !== task.status && !stale) moved = await statusChange(env, channel, ts, status, user);
-    const text = oneMessage(team, moved);
-    if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+    if (status) changes.status = status;
+    await applyChanges(env, { channel, ts }, changes, payload.user.id, { from: status === suggested ? from : undefined });
   }
   // An ephemeral message can only be changed through its response_url.
   await respondLater(payload.response_url, { delete_original: true });

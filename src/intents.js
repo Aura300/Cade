@@ -68,7 +68,7 @@ export function plainMessage(event, botUserId) {
 
 // The kinds of suggestion, as `suggestions` in cade.config.json names them
 // (SUGGESTIONS).
-export const SUGGESTION_KINDS = ["pr-links", "hand-offs", "started", "progress", "new-threads"];
+export const SUGGESTION_KINDS = ["pr-links", "hand-offs", "started", "progress", "details", "new-threads"];
 
 // Whether the suggestion kind `kind` is turned on: all are, unless
 // SUGGESTIONS is false (none) or lists the kinds that are.

@@ -116,6 +116,20 @@ function cannotChange(env, channel, found) {
   return `The client owns this task's priority and due date, so they're changed in ${thread}.`;
 }
 
+// Changes the priority or due date, or both, of the task at `channel`/`ts`
+// for `user` when the team owns them (see cannotChange), and returns the
+// change log, as { log, notes } (see oneMessage in notify.js), or null when
+// they can't be changed there. Shared with suggestions.
+export async function detailsChange(env, channel, ts, fields, user) {
+  const found = await findDetails(env, channel, ts);
+  if (cannotChange(env, channel, found)) return null;
+  const log = [];
+  for (const [name, value] of Object.entries(fields)) {
+    if ((found.item[name] ?? "") !== value) log.push(await change(env, found, { [name]: value }, user));
+  }
+  return { log, notes: [] };
+}
+
 // Saves the change and returns the confirmation. A change to a requirement
 // with a tracked task is also noted in the task's thread.
 async function change(env, found, fields, user) {

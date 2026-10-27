@@ -1,3 +1,4 @@
+import aiSuggest from "./ai-suggest.js";
 import assign from "./assign.js";
 import remove from "./delete.js";
 import detach from "./detach.js";
@@ -52,7 +53,7 @@ export const commands = Object.fromEntries(
 
 // The task card's menu and suggestions from people's own words only answer
 // clicks and messages, so they aren't commands.
-const interactive = [...handlers, menu, suggest];
+const interactive = [...handlers, menu, suggest, aiSuggest];
 
 export const views = Object.assign(
   {},

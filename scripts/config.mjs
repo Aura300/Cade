@@ -10,6 +10,10 @@
 //   suggestions what Cade offers from people's own words       → SUGGESTIONS
 //             (optional): false for nothing, or a list of the
 //             kinds to keep, from SUGGESTION_KINDS (intents.js)
+//   ai        read people's own words with Workers AI          → AI_MODEL
+//             (optional): true for the default model, a model
+//             name such as "@cf/google/gemma-4-26b-a4b-it", or
+//             false to read them by their phrases (see ai.js)
 //   reactions the emoji that convert or move a message when    → REACTIONS
 //             added to it (optional): { "convert": "ticket",
 //             "move": "twisted_rightwards_arrows" }, by Slack name
@@ -43,7 +47,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["channels", "timezone", "googleUrl", "suggestions", "reactions"];
+  const known = ["channels", "timezone", "googleUrl", "suggestions", "ai", "reactions"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
@@ -68,7 +72,16 @@ export function readConfig(json) {
   }
   if (config.suggestions !== undefined) secrets.SUGGESTIONS = JSON.stringify(checkSuggestions(config.suggestions));
   if (config.reactions !== undefined) secrets.REACTIONS = JSON.stringify(checkReactions(config.reactions));
+  if (config.ai !== undefined) secrets.AI_MODEL = checkAi(config.ai);
   return secrets;
+}
+
+// AI_MODEL for `ai`: "on" for the default model, the model's name, or "off"
+// (so turning it off replaces the secret, which a missing key wouldn't).
+export function checkAi(ai) {
+  if (typeof ai === "boolean") return ai ? "on" : "off";
+  if (typeof ai === "string" && /^@(cf|hf)\/\S+$/.test(ai)) return ai;
+  throw new Error(`ai is true, false or a Workers AI text model's name, such as "@cf/google/gemma-4-26b-a4b-it".`);
 }
 
 // Returns `suggestions` if it's true, false or a list of known kinds; else
@@ -130,6 +143,7 @@ export async function uploadConfig() {
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
   if (secrets.SUGGESTIONS) console.log(`suggestions: ${secrets.SUGGESTIONS}`);
   if (secrets.REACTIONS) console.log(`reactions: ${secrets.REACTIONS}`);
+  if (secrets.AI_MODEL) console.log(`ai: ${secrets.AI_MODEL}`);
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.
   const dir = await mkdtemp(join(tmpdir(), "cade-config-"));
