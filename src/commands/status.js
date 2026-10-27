@@ -1,5 +1,5 @@
 import { isQuestion, phraseTest } from "../intents.js";
-import { oneMessage, request, statusChanged } from "../notify.js";
+import { oneMessage, request, statusChanged, toAsk } from "../notify.js";
 import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
   NOT_A_TASK,
@@ -84,7 +84,7 @@ export default {
     // A status typed in the command needs only a ✅, since the task card shows
     // it, plus the testers' request when it reached In testing.
     if (status === "CLIENT_REVIEW") await askApprover(env, command.channel, command.threadTs, command.user);
-    return acknowledge(testersAsked(task, previous) ?? undefined);
+    return acknowledge(testersAsked(task, previous, command.user) ?? undefined);
   },
   actions: {
     [APPROVE_ACTION]: async (payload, context) => {
@@ -152,21 +152,22 @@ export async function setStatus(env, channel, ts, status, user) {
 // privately, who approves it (see askApprover); setting it again asks
 // again, since a private message is easily lost. Null if it isn't a task.
 // Shared with suggestions.
-export async function statusChange(env, channel, ts, status, user) {
+export async function statusChange(env, channel, ts, status, user, told) {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
   const previous = task.status;
   await applyStatus(env, channel, ts, task, status);
   if (status === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
-  const ask = testersAsked(task, previous);
+  const ask = testersAsked(task, previous, user, told);
   return { log: [statusChanged(user, status)], notes: ask ? [ask] : [] };
 }
 
-// The request to a task's testers when it has just reached In testing from
-// `previous`, or null. Testers assigned once it's In testing are asked then
-// (see notify.js).
-function testersAsked(task, previous) {
-  const { tester } = task.people;
+// The request to a task's testers when `user` has just moved it to In
+// testing from `previous`, or null. A tester who moved it isn't asked, nor
+// one `told` already by the message it came from. Testers assigned once
+// it's In testing are asked then (see notify.js).
+function testersAsked(task, previous, user, told) {
+  const tester = toAsk(task.people.tester, user, told);
   return task.status === "IN_TESTING" && previous !== "IN_TESTING" && tester.length ? request(tester, "tester") : null;
 }
 

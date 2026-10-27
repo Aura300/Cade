@@ -10,6 +10,12 @@ import { STATUSES, prLink, unsentPrs } from "./tasks.js";
 // mention notifies them anyway, so the request comes with it, in the same
 // message, rather than as a ping of its own.
 //
+// Someone who assigns or removes themselves is named as "themselves", and
+// isn't asked or told anything: they made the change. Nor is anyone `told`
+// already, by the message a suggested change came from: they're named by
+// their Slack name, { [id]: name }, rather than mentioned, which would
+// notify them again.
+//
 // People are only asked when there's something for them to do now (see
 // onTheirPlate): reviewers when there are PRs to review, testers when the
 // task is In testing, developers until it's Done. Those removed are only
@@ -20,13 +26,29 @@ import { STATUSES, prLink, unsentPrs } from "./tasks.js";
 
 // ---- Acknowledgements ----
 
-export function assigned(user, people, role) {
-  return `<@${user}> assigned ${mentions(people)} as ${role}.`;
+export function assigned(user, people, role, told = {}) {
+  return `<@${user}> assigned ${named(user, people, told)} as ${role}.`;
 }
 
 // `role` null: removed from every role.
-export function unassigned(user, people, role) {
-  return `<@${user}> removed ${mentions(people)} ${role ? `as ${role}` : "from this task"}.`;
+export function unassigned(user, people, role, told = {}) {
+  return `<@${user}> removed ${named(user, people, told)} ${role ? `as ${role}` : "from this task"}.`;
+}
+
+// `people` as named by `user`: "themselves" first if they're among them,
+// then the others, by name if they've been `told` already, by mention if
+// not.
+function named(user, people, told) {
+  const others = people.filter((id) => id !== user);
+  const self = others.length < people.length ? ["themselves"] : [];
+  const names = others.map((id) => told[id] ?? `<@${id}>`);
+  return [...self, ...(names.length ? [names.join(", ")] : [])].join(" and ");
+}
+
+// Those of `people` to ask or tell something: not `user`, who made the
+// change, nor anyone `told` already.
+export function toAsk(people, user, told = {}) {
+  return people.filter((id) => id !== user && !(id in told));
 }
 
 export function linked(user, urls, moved) {
@@ -59,18 +81,22 @@ function onTheirPlate(task, role) {
   return [];
 }
 
-// The request to people just assigned to `role`, or null when there's
-// nothing for them to do yet.
-export function requestIfDue(task, people, role) {
-  const prs = onTheirPlate(task, role);
-  return prs && request(people, role, prs);
+// The request to people `user` just assigned to `role`, but not `user`
+// themselves or anyone `told` already, or null when there's no one to ask or nothing for them to do
+// yet.
+export function requestIfDue(task, people, role, user, told) {
+  const others = toAsk(people, user, told);
+  const prs = others.length ? onTheirPlate(task, role) : null;
+  return prs && request(others, role, prs);
 }
 
-// The note to people just removed from `role`, or every role (`role` null),
-// or null when they'd have had nothing to do.
-export function noLongerIfDue(task, people, role) {
+// The note to people `user` just removed from `role`, or every role (`role`
+// null), but not `user` themselves or anyone `told` already, or null when there's no one to tell or
+// they'd have had nothing to do.
+export function noLongerIfDue(task, people, role, user, told) {
+  const others = toAsk(people, user, told);
   const due = role ? onTheirPlate(task, role) : [];
-  return due && task.status !== "DONE" ? noLonger(people, role) : null;
+  return others.length && due && task.status !== "DONE" ? noLonger(others, role) : null;
 }
 
 // What each role is asked to do; reviewers are asked about pull requests.

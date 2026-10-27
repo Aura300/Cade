@@ -41,14 +41,15 @@ const ASSIGN_USAGE = `Who, and as what? Try ${["dev", "review", "test"].map((nam
 // notes } for oneMessage: the change log, a line per role for who was
 // assigned and who was removed, and what it means for them, a line each,
 // only when there's something for them to do now (see notify.js). Shared
-// with `@Cade assign` and suggestions.
-export function teamChanges(user, task, changes) {
+// with `@Cade assign` and suggestions, whose message `told` some of them
+// already.
+export function teamChanges(user, task, changes, told = {}) {
   const log = [];
   const notes = [];
   for (const { role, added, removed } of changes) {
-    if (added.length) log.push(assigned(user, added, role));
-    if (removed.length) log.push(unassigned(user, removed, role));
-    notes.push(added.length && requestIfDue(task, added, role), removed.length && noLongerIfDue(task, removed, role));
+    if (added.length) log.push(assigned(user, added, role, told));
+    if (removed.length) log.push(unassigned(user, removed, role, told));
+    notes.push(added.length && requestIfDue(task, added, role, user, told), removed.length && noLongerIfDue(task, removed, role, user, told));
   }
   return { log, notes: notes.filter(Boolean) };
 }

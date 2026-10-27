@@ -30,7 +30,7 @@ export default {
     }
     await saveTask(env, command.channel, command.threadTs, task);
     const people = [...removed];
-    const note = noLongerIfDue(task, people, role);
+    const note = noLongerIfDue(task, people, role, command.user);
     return oneMessage({ log: [unassigned(command.user, people, role)], notes: note ? [note] : [] });
   },
 };

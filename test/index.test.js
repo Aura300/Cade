@@ -768,7 +768,7 @@ const sheetEnv = { ...env, CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS), GOOGLE_
 const sendWithSheet = (path, body) => send(path, body, {}, sheetEnv);
 const slackUsers = {
   "users.info": (args) => ({
-    user: { profile: { display_name: { UCREATOR: "Randil", UALICE: "Alice", UBOB: "Bob" }[args.user] } },
+    user: { profile: { display_name: { UCREATOR: "Randil", UALICE: "Alice", UBOB: "Bob", UREX: "Rex", UMIA: "Mia", UTESS: "Tess", UTOM: "Tom" }[args.user] } },
   }),
 };
 const sheetRow = (calls) => {
@@ -3773,7 +3773,7 @@ test("Accept applies the suggestion and tells the thread who changed what", asyn
   await send("/slack/events", threadReply("<@UTESS> please test it"));
   const question = ephemeral(calls);
 
-  calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"], testers: ["UTOM"] })] });
+  calls = mockSlack(t, { ...slackUsers, stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"], testers: ["UTOM"] })] });
   const sent = recordResponses(t);
   await send("/slack/interactions", answerSuggestion(question));
   const saved = await savedTask();
@@ -3784,13 +3784,47 @@ test("Accept applies the suggestion and tells the thread who changed what", asyn
   assert.equal(
     post.text,
     [
-      "<@UACTOR> assigned <@UTESS> as tester.",
+      // Tess was mentioned in the message, so is named and not asked again;
+      // moving to In testing asks the other testers.
+      "<@UACTOR> assigned Tess as tester.",
       "<@UACTOR> set the status to :test_tube: In testing.",
-      // Moving to In testing asks every tester at once, the new one too.
-      "<@UTOM>, <@UTESS>, could you give this a test when you get a chance? Thanks!",
+      "<@UTOM>, could you give this a test when you get a chance? Thanks!",
     ].join("\n"),
   );
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("someone who assigns or removes themselves is named as themselves, and isn't asked anything", async (t) => {
+  for (const [text, record, reply] of [
+    ["<@UBOT> assign dev <@UACTOR>", storedTask(), "<@UACTOR> assigned themselves as developer."],
+    [
+      "<@UBOT> assign dev <@UACTOR> <@UBOB>",
+      storedTask(),
+      "<@UACTOR> assigned themselves and <@UBOB> as developer.\n<@UBOB>, could you pick this up when you get a chance? Thanks!",
+    ],
+    ["<@UBOT> unassign dev <@UACTOR>", storedTask({ developers: ["UACTOR"] }), "<@UACTOR> removed themselves as developer."],
+    ["<@UBOT> unassign <@UACTOR>", storedTask({ developers: ["UACTOR"] }), "<@UACTOR> removed themselves from this task."],
+  ]) {
+    const calls = mockSlack(t, { stored: [record] });
+    await send("/slack/events", threadEvent(text));
+    assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, reply, text);
+  }
+
+  // Accepting "started working on this" makes the writer a developer, and
+  // asks no one.
+  let calls = mockSlack(t, { stored: [taskWith("TODO")] });
+  await send("/slack/events", threadReply("okay, started working on this"));
+  const question = ephemeral(calls);
+  calls = mockSlack(t, { stored: [taskWith("TODO")] });
+  recordResponses(t);
+  await send("/slack/interactions", answerSuggestion(question));
+  const post = calls.filter((call) => call.method === "chat.postMessage").at(-1).args;
+  assert.equal(post.text, "<@UACTOR> assigned themselves as developer.\n<@UACTOR> set the status to :arrow_forward: In progress.");
+
+  // A tester who moves it to In testing isn't asked to test it.
+  calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { testers: ["UACTOR", "UTOM"] })] });
+  await send("/slack/events", threadEvent("<@UBOT> status in testing"));
+  assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UTOM>, could you give this a test when you get a chance? Thanks!");
 });
 
 test("Edit… on a suggestion by phrases opens the task's Edit form, filled in with it", async (t) => {
@@ -4803,6 +4837,47 @@ test("/cade remove needs a link", async (t) => {
   assert.match(JSON.parse(now).text, /^Paste the link to what to remove/);
 });
 
+test("/cade replace changes what one of Cade's messages says, from anywhere", async (t) => {
+  const REPLY = "1700000000.000200";
+  const link = `<${messageLink("CDEV", REPLY, "?thread_ts=1700000000.000100&cid=CDEV")}>`;
+  for (const [text, said] of [
+    [`replace ${link} "The *deposit* goes live on Friday, <@UBOB>"`, "The *deposit* goes live on Friday, <@UBOB>"],
+    [`replace ${link} No quotes needed`, "No quotes needed"],
+  ]) {
+    const calls = mockSlack(t);
+    const { now, later } = await runTasksCommand(text, "CRANDOM");
+    assert.equal(now, "");
+    const update = calls.find((call) => call.method === "chat.update").args;
+    assert.deepEqual(update, {
+      channel: "CDEV",
+      ts: REPLY,
+      text: said,
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: said } }],
+      attachments: [],
+    });
+    assert.equal(later.text, "Done, the message says that now.");
+  }
+});
+
+test("/cade replace leaves task cards and other people's messages alone, and needs a link and text", async (t) => {
+  // A task's card is drawn from the task.
+  let calls = mockSlack(t, { stored: [devTask(TARGET, "Fix login", "TODO")] });
+  let { later } = await runTasksCommand(`replace <${messageLink("CDEV", TARGET)}> New title`, "CDEV");
+  assert.ok(!calls.some((call) => call.method === "chat.update"));
+  assert.match(later.text, /^That's a task's card/);
+
+  // Slack won't let Cade change someone else's message.
+  calls = mockSlack(t, { "chat.update": { ok: false, error: "cant_update_message" } });
+  ({ later } = await runTasksCommand(`replace <${messageLink("CDEV", TARGET)}> Hello`, "CDEV"));
+  assert.equal(later.text, "I can only change my own messages, so that one stays as it is.");
+
+  for (const text of ["replace", `replace <${messageLink("CDEV", TARGET)}>`, `replace <${messageLink("CDEV", TARGET)}> ""`, "replace just words"]) {
+    mockSlack(t);
+    const { now } = await runTasksCommand(text, "CDEV");
+    assert.match(JSON.parse(now).text, /^Paste the link to my message, then what it should say/, text);
+  }
+});
+
 // A click on a sync suggestion's button `actionId`.
 const syncClick = (message, actionId) => {
   const button = message.blocks.at(-1).elements.find((element) => element.action_id === actionId);
@@ -5158,7 +5233,7 @@ test("with AI on, a message is read for every change and confirmed privately", a
       dueDate: "2026-10-30",
     }),
   );
-  const calls = mockSlack(t, { stored: [ownTask({ developers: ["UBOB"] })] });
+  const calls = mockSlack(t, { ...slackUsers, stored: [ownTask({ developers: ["UBOB"] })] });
   calls.responses = recordResponses(t);
   const text = "<@UREX> can you take this over from <@UBOB>? <@UMIA> please review. Need it by Friday, it's blocking the release";
   await send("/slack/events", threadEvent(text), {}, environment);
@@ -5185,7 +5260,9 @@ test("with AI on, a message is read for every change and confirmed privately", a
   const [confirm, change, skip] = question.blocks[2].elements;
   assert.deepEqual([confirm.text.text, change.text.text, skip.text.text], ["Accept", "Edit…", "Reject"]);
 
-  // Accept applies it all, and the thread hears it as one message.
+  // Accept applies it all, and the thread hears it as one message. Everyone
+  // it names was mentioned in the message, so they're named, not notified
+  // again, and asked nothing.
   await send("/slack/interactions", aiClick(confirm), {}, environment);
   const saved = await savedTask();
   assert.deepEqual(saved.people, { developer: ["UREX"], reviewer: ["UMIA"], tester: [] });
@@ -5195,14 +5272,12 @@ test("with AI on, a message is read for every change and confirmed privately", a
   assert.equal(
     posts[0].args.text,
     [
-      "<@UACTOR> assigned <@UREX> as developer.",
-      "<@UACTOR> removed <@UBOB> as developer.",
-      "<@UACTOR> assigned <@UMIA> as reviewer.",
+      "<@UACTOR> assigned Rex as developer.",
+      "<@UACTOR> removed Bob as developer.",
+      "<@UACTOR> assigned Mia as reviewer.",
       "<@UACTOR> set the priority to :red_circle: Urgent.",
       "<@UACTOR> set the due date to 30/10/2026.",
       "<@UACTOR> set the status to :arrow_forward: In progress.",
-      "<@UREX>, could you pick this up when you get a chance? Thanks!",
-      "<@UBOB>, there's no need to work on this anymore. Thanks!",
     ].join("\n"),
   );
   assert.deepEqual(calls.responses, [{ response_type: "ephemeral", delete_original: true }]);
@@ -5210,7 +5285,7 @@ test("with AI on, a message is read for every change and confirmed privately", a
 
 test("Edit… opens the task's Edit form filled in with what AI read, and saving it applies the form", async (t) => {
   const { environment } = aiEnv(aiRead({ tester: { add: ["UTESS"], remove: [] }, status: "IN_TESTING" }));
-  const calls = mockSlack(t, { stored: [ownTask({ testers: ["UTOM"] })] });
+  const calls = mockSlack(t, { ...slackUsers, stored: [ownTask({ testers: ["UTOM"] })] });
   calls.responses = recordResponses(t);
   await send("/slack/events", threadEvent("<@UTESS> can you test this now?"), {}, environment);
   const [, change] = ephemeral(calls).blocks[2].elements;
@@ -5255,11 +5330,11 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
   assert.equal(
     calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text,
     [
-      "<@UACTOR> assigned <@UTESS> as tester.",
+      // Tess was mentioned in the message; Tom, removed in the form, wasn't.
+      "<@UACTOR> assigned Tess as tester.",
       "<@UACTOR> removed <@UTOM> as tester.",
       "<@UACTOR> set the due date to 02/11/2026.",
       "<@UACTOR> set the status to :test_tube: In testing.",
-      "<@UTESS>, could you give this a test when you get a chance? Thanks!",
     ].join("\n"),
   );
   // The private question goes once the form is saved.

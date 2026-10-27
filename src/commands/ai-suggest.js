@@ -38,7 +38,9 @@ export async function suggestWithAi(env, message, { target, task }) {
 // Reject. Shared with suggestions by phrases (see suggest.js).
 export async function askToChange(env, message, { target, task }, changes) {
   const question = "Should I update the task? From your message:";
-  const value = JSON.stringify({ ...target, changes, from: task.status });
+  // Whoever the message mentioned was notified by it, so applying it
+  // doesn't notify them again (see applyChanges).
+  const value = JSON.stringify({ ...target, changes, from: task.status, told: message.mentions });
   await callSlack(env, "chat.postEphemeral", {
     channel: message.channel,
     thread_ts: message.threadTs,
@@ -76,24 +78,24 @@ export function summary(task, changes) {
 export default {
   actions: {
     [ACCEPT_ACTION]: async (payload, context) => {
-      const { changes, from, ...target } = JSON.parse(payload.actions[0].value);
+      const { changes, from, told, ...target } = JSON.parse(payload.actions[0].value);
       context.waitUntil(
         (async () => {
           // The private message goes first, so the click shows at once:
           // saving takes a few seconds, and may fail.
           await dismiss(payload.response_url);
-          await applyChanges(context.env, target, changes, payload.user.id, { from });
+          await applyChanges(context.env, target, changes, payload.user.id, { from, told });
         })(),
       );
     },
     // Opening a form must happen within Slack's three seconds of the click.
     [EDIT_ACTION]: async (payload, { env }) => {
-      const { channel, ts, changes } = JSON.parse(payload.actions[0].value);
+      const { channel, ts, changes, told } = JSON.parse(payload.actions[0].value);
       const task = await loadTask(env, channel, ts);
       if (!task) return;
       await callSlack(env, "views.open", {
         trigger_id: payload.trigger_id,
-        view: editForm({ channel, ts }, task, { changes, responseUrl: payload.response_url }),
+        view: editForm({ channel, ts }, task, { changes, told, responseUrl: payload.response_url }),
       });
     },
     [REJECT_ACTION]: async (payload) => {

@@ -15,8 +15,9 @@ const EDIT_VIEW = "task:edit";
 
 // The form for the task at `channel`/`ts`, with `changes` (as changes.js
 // takes them) already applied to what it shows. `responseUrl` is the private
-// suggestion to remove once it's saved.
-export function editForm({ channel, ts }, task, { changes = {}, responseUrl } = {}) {
+// suggestion to remove once it's saved, and `told` who its message
+// mentioned, so saving doesn't notify them again (see applyChanges).
+export function editForm({ channel, ts }, task, { changes = {}, told, responseUrl } = {}) {
   const details = !task.incident;
   const peopleAfter = (role) => {
     const { add = [], remove = [] } = changes.people?.[role] ?? {};
@@ -31,7 +32,7 @@ export function editForm({ channel, ts }, task, { changes = {}, responseUrl } = 
     callback_id: EDIT_VIEW,
     // `opened` is the status as it was, so one left alone isn't applied over
     // a move linking a PR makes (see applyChanges).
-    private_metadata: JSON.stringify({ channel, ts, details, opened: task.status, responseUrl }),
+    private_metadata: JSON.stringify({ channel, ts, details, opened: task.status, responseUrl, told }),
     title: plainText("Edit task"),
     submit: plainText("Save"),
     close: plainText("Cancel"),
@@ -112,7 +113,7 @@ export function editForm({ channel, ts }, task, { changes = {}, responseUrl } = 
 // Saves the form as the changes from the task as it is now, having removed
 // the private suggestion it came from, if any.
 function saveEdit(payload, context) {
-  const { channel, ts, details, opened, responseUrl } = JSON.parse(payload.view.private_metadata);
+  const { channel, ts, details, opened, responseUrl, told } = JSON.parse(payload.view.private_metadata);
   const { values } = payload.view.state;
   const lines = (values.prs?.value.value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
   const urls = lines.map((line) => parsePullRequest(line.replace(/^<|[|>].*$/g, ""))?.url);
@@ -142,7 +143,7 @@ function saveEdit(payload, context) {
       }
       const wanted = [...new Set(urls)];
       changes.prs = { add: wanted.filter((url) => !task.prs.includes(url)), remove: task.prs.filter((url) => !wanted.includes(url)) };
-      await applyChanges(env, { channel, ts }, changes, payload.user.id);
+      await applyChanges(env, { channel, ts }, changes, payload.user.id, { told });
     })(),
   );
   return CLOSE_ALL;

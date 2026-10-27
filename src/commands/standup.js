@@ -105,7 +105,9 @@ async function assignDeveloper(payload, env) {
     task.people.developer = [...task.people.developer, developer];
     await saveTask(env, channel, ts, task);
     const user = payload.user.id;
-    const text = [assigned(user, [developer], "developer"), request([developer], "developer")].join("\n");
+    // Picking yourself needs no request.
+    const asked = developer !== user && request([developer], "developer");
+    const text = [assigned(user, [developer], "developer"), asked].filter(Boolean).join("\n");
     await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
   }
   await show(payload, env, walk);

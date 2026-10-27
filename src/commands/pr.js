@@ -1,6 +1,6 @@
 import { roleOf } from "../channels.js";
 import { intent } from "../intents.js";
-import { assigned, linked as linkedText, movedTo, request, unlinked as unlinkedText } from "../notify.js";
+import { assigned, linked as linkedText, movedTo, request, toAsk, unlinked as unlinkedText } from "../notify.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 
@@ -268,7 +268,8 @@ async function acceptSuggestion(payload, env) {
 
     const lines = [];
     if (linked?.moved) lines.push(movedTo(user, "IN_REVIEW"));
-    const unasked = task.people.reviewer.filter((id) => !mentioned.includes(id));
+    // Not those the message mentioned, nor whoever wrote it.
+    const unasked = toAsk(task.people.reviewer, user, Object.fromEntries(mentioned.map((id) => [id, null])));
     if (linked && unasked.length) lines.push(request(unasked, "reviewer", linked.added));
     if (linked && !task.people.reviewer.length) reply = reviewerPicker(lines.join("\n"), linked.added);
     else if (lines.length) reply = lines.join("\n");
@@ -336,7 +337,9 @@ async function chooseReviewers(payload, env) {
   const lead = (payload.message.text ?? "").split("\n").slice(0, -1).join("\n");
   if (lead) await callSlack(env, "chat.update", { channel, ts: payload.message.ts, ...asSection(lead) });
   else await callSlack(env, "chat.delete", { channel, ts: payload.message.ts });
-  const text = [assigned(payload.user.id, chosen, "reviewer"), request(chosen, "reviewer", urls)].join("\n");
+  // Whoever picked themselves isn't asked.
+  const others = chosen.filter((id) => id !== payload.user.id);
+  const text = [assigned(payload.user.id, chosen, "reviewer"), others.length && request(others, "reviewer", urls)].filter(Boolean).join("\n");
   await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
 }
 

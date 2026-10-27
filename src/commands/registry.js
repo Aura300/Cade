@@ -1,6 +1,7 @@
 import aiSuggest from "./ai-suggest.js";
 import assign from "./assign.js";
 import remove from "./delete.js";
+import replace from "./replace.js";
 import edit from "./edit.js";
 import { due, priority } from "./details.js";
 import brief from "./brief.js";
@@ -43,7 +44,7 @@ import unassign from "./unassign.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, remove, move, resync, tasks, standup, syncup, summary, brief, debrief];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, remove, replace, move, resync, tasks, standup, syncup, summary, brief, debrief];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>
