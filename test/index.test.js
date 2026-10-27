@@ -4078,7 +4078,10 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   const { now, later } = await runTasksCommand("summary", "CDEV", env);
 
   assert.equal(now, "");
-  assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
+  assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date. Only I can edit it.");
+  // Read-only for the channel: Cade rewrites it on every change anyway.
+  const lock = calls.find((call) => call.method === "canvases.access.set").args;
+  assert.deepEqual(lock, { canvas_id: "F0CANVAS", access_level: "read", channel_ids: '["CDEV"]' });
   const create = calls.find((call) => call.method === "conversations.canvases.create");
   assert.equal(create.args.channel_id, "CDEV");
   assert.equal(create.args.title, "acme tasks");
@@ -4105,7 +4108,7 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   // Sent again, the same canvas is rewritten.
   calls.length = 0;
   const again = await runTasksCommand("summary", "CDEV", env);
-  assert.equal(again.later.text, "Updated the summary in this channel's canvas.");
+  assert.equal(again.later.text, "Updated the summary in this channel's canvas. Only I can edit it.");
   const edits = calls.filter((call) => call.method === "canvases.edit");
   assert.deepEqual(edits.map((call) => call.args.canvas_id), ["F0CANVAS", "F0CANVAS"]);
   assert.deepEqual(edits.map((call) => JSON.parse(call.args.changes)[0].operation), ["replace", "rename"]);
@@ -4119,10 +4122,14 @@ test("/cade summary uses the canvas the channel already has", async (t) => {
     "conversations.info": { channel: { id: "CDEV", properties: { canvas: { file_id: "F0THEIRS" } } } },
   });
   const fakeFetch = globalThis.fetch;
+  // Slack won't let Cade change who can edit a canvas someone else made;
+  // the summary goes in it all the same.
   globalThis.fetch = async (url, init) =>
     url.endsWith("/conversations.canvases.create")
       ? (await fakeFetch(url, init), Response.json({ ok: false, error: "channel_canvas_already_exists" }))
-      : fakeFetch(url, init);
+      : url.endsWith("/canvases.access.set")
+        ? (await fakeFetch(url, init), Response.json({ ok: false, error: "no_permission" }))
+        : fakeFetch(url, init);
 
   const { later } = await runTasksCommand("summary", "CDEV");
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");

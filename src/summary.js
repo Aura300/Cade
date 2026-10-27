@@ -82,8 +82,9 @@ export async function refreshSummary(env, channel) {
 
 // For `/cade summary`: writes the channel's summary to its canvas, the one
 // Slack shows in the channel's header, making it if there is none. What the
-// canvas held is replaced, and it takes the summary's title. Returns what
-// happened, to tell whoever asked.
+// canvas held is replaced, and it takes the summary's title. The canvas is
+// then made read-only for the channel, as Cade rewrites it on every change
+// anyway (see lockCanvas). Returns what happened, to tell whoever asked.
 export async function publishSummary(env, channel, user) {
   const title = summaryTitle(env, channel);
   const markdown = await summaryMarkdown(env, channel);
@@ -92,7 +93,7 @@ export async function publishSummary(env, channel, user) {
     try {
       await writeCanvas(env, canvasId, markdown);
       await renameCanvas(env, canvasId, title);
-      return "Updated the summary in this channel's canvas.";
+      return `Updated the summary in this channel's canvas.${await lockCanvas(env, canvasId, channel)}`;
     } catch (error) {
       // Deleted by hand: a new one is made below.
       if (!/canvas_not_found|canvas_deleted|file_not_found/.test(error.message)) throw error;
@@ -106,7 +107,7 @@ export async function publishSummary(env, channel, user) {
       document_content: { type: "markdown", markdown },
     });
     await putCanvas(env, channel, created, user);
-    return "Added the summary to this channel's canvas. I'll keep it up to date.";
+    return `Added the summary to this channel's canvas. I'll keep it up to date.${await lockCanvas(env, created, channel)}`;
   } catch (error) {
     if (!/channel_canvas_already_exists|free_team_canvas_tab_already_exists/.test(error.message)) {
       if (/team_tier_cannot_create_channel_canvases|canvas_disabled/.test(error.message)) {
@@ -121,7 +122,23 @@ export async function publishSummary(env, channel, user) {
   await writeCanvas(env, existing, markdown);
   await renameCanvas(env, existing, title);
   await putCanvas(env, channel, existing, user);
-  return "Added the summary to this channel's canvas. I'll keep it up to date.";
+  return `Added the summary to this channel's canvas. I'll keep it up to date.${await lockCanvas(env, existing, channel)}`;
+}
+
+// Makes the canvas read-only for the channel's members, as Slack's own
+// "Can view" does, so edits that would be overwritten aren't made. Cade
+// stays able to write it, as its owner. Slack may refuse, such as on a
+// free workspace or for a canvas someone else made; the summary works the
+// same either way, so that is only logged. Returns what to add to the
+// reply.
+async function lockCanvas(env, canvasId, channel) {
+  try {
+    await callSlack(env, "canvases.access.set", { canvas_id: canvasId, access_level: "read", channel_ids: [channel] });
+    return " Only I can edit it.";
+  } catch (error) {
+    console.warn("Could not make the summary read-only", { channel, error: error.message });
+    return "";
+  }
 }
 
 async function writeCanvas(env, canvasId, markdown) {
