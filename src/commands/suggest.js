@@ -33,7 +33,7 @@ const STATUS_PICK = "suggest:status";
 // `suggestions` in cade.config.json:
 //   hand-offs  a request to develop, review or test it: a picker for that role
 //   started    the work starting: In progress, and, for someone who isn't on
-//              the task, the developers picker
+//              the task, the owners picker
 //   progress   a reviewer approving, a tester passing it, or anyone on it
 //              saying it's finished: the next status (see progressOptions)
 //   details    with AI only: the priority and due date, but not an
@@ -45,7 +45,7 @@ const STATUS_PICK = "suggest:status";
 const ROLE_REQUESTS = {
   reviewer: phraseTest(["review*"]),
   tester: phraseTest(["test*", "qa", "verify*"]),
-  developer: phraseTest([
+  owner: phraseTest([
     "start(ed)? working",
     "start on (this|it)",
     "work(ing)? on",
@@ -224,21 +224,21 @@ export function suggestionsFor(env, message, task) {
   }
   const working = (STARTED(message) && !message.mentions.length) || (REPORTED(message) && message.mentions.length);
   if (!status && suggesting(env, "started", message.channel) && working && !isQuestion(message) && task.status !== "DONE") {
-    const { reviewer, tester, developer } = task.people;
+    const { reviewer, tester, owner } = task.people;
     // A reviewer or tester starting on their part isn't the work starting.
     const theirPart = !message.mentions.length && [...reviewer, ...tester].includes(message.user);
     if (!theirPart) {
       if (MOVES_FROM.IN_PROGRESS.includes(task.status)) status = "IN_PROGRESS";
-      // Someone saying they've started who isn't a developer may want to be one.
-      if (!message.mentions.length && !developer.includes(message.user)) {
-        roles.add("developer");
-        people.developer = [message.user];
+      // Someone saying they've started who isn't an owner may want to be one.
+      if (!message.mentions.length && !owner.includes(message.user)) {
+        roles.add("owner");
+        people.owner = [message.user];
       }
     }
   }
   // Asking someone to test it is the work moving to testing, unless it asks
   // for someone to develop it too; the author saying they'll test it isn't.
-  const testing = roles.has("tester") && !roles.has("developer") && !ownTesting;
+  const testing = roles.has("tester") && !roles.has("owner") && !ownTesting;
   if (!status && testing && MOVES_FROM.IN_TESTING.includes(task.status)) status = "IN_TESTING";
   return { roles: Object.keys(ROLES).filter((role) => roles.has(role)), people, status };
 }

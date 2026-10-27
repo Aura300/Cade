@@ -1,4 +1,5 @@
 import aiSuggest from "./ai-suggest.js";
+import archive from "./archive.js";
 import assign from "./assign.js";
 import remove from "./delete.js";
 import replace from "./replace.js";
@@ -14,7 +15,6 @@ import resync from "./resync.js";
 import standup from "./standup.js";
 import status from "./status.js";
 import suggest from "./suggest.js";
-import summary from "./summary.js";
 import syncup from "./syncup.js";
 import tasks from "./tasks.js";
 import track, { incident } from "./track.js";
@@ -23,10 +23,14 @@ import unassign from "./unassign.js";
 // To add a command, create a handler module and list it here. A handler is:
 //   {
 //     name, description,
-//     usage?: how to send it as an `@Cade name` message,
-//     slashUsage?: how to send it as `/cade name`,
-//     section: where help lists it: "start", "thread" or "work",
+//     usage?: how to send it as an `@Cade name` message, or a list of the
+//             ways, the first shown when it's sent in the wrong place,
+//     slashUsage?: how to send it as `/cade name`, or a list of the ways,
+//     section: where help lists its `@Cade` form: "message" for a message's
+//               thread, "task" for a task's thread; or "work" for those
+//               with only a `/cade` form, listed with the slash commands,
 //     aliases?: other names that run the same handler,
+//     admin?: true for tidying-up commands, which help lists apart,
 //     channel?: "tasks", or [] for any channel: the channels in
 //               CHANNEL_PAIRS it works in,
 //     slashChannel?: like `channel`, for `/cade name` when it differs,
@@ -44,7 +48,7 @@ import unassign from "./unassign.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, remove, replace, move, resync, tasks, standup, syncup, summary, brief, debrief];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, tasks, standup, syncup, brief, debrief];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>

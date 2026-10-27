@@ -87,7 +87,7 @@ export default {
   name: "move",
   description: "Move a message into a task's thread",
   usage: "@Cade move [message link]",
-  section: "thread",
+  section: "message",
   channel: "tasks",
   async run(command, { env }) {
     const inThread = command.threadTs && command.threadTs !== command.ts;

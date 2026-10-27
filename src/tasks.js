@@ -35,15 +35,15 @@ export const STATUSES = {
 };
 
 // Each task has a list of people per role; the keys are what people type in
-// `@Cade assign developer @person`.
+// `@Cade assign owner @person`. The owner does the work, whatever it is.
 export const ROLES = {
-  developer: "Developer",
+  owner: "Owner",
   reviewer: "Reviewer",
   tester: "Tester",
 };
 
 // The roles as a task's card shows them, by who works on it.
-const SHORT_ROLES = { developer: "Dev", reviewer: "Review", tester: "Test" };
+const SHORT_ROLES = { owner: "Owner", reviewer: "Review", tester: "Test" };
 
 export const NOT_A_TASK = "Hmm, I'm not tracking a task in this thread.";
 
@@ -90,10 +90,11 @@ export function prLines(task) {
   ].filter(Boolean);
 }
 
-// Short words for each role, besides its name: `@Cade assign dev @rex`.
-const ROLE_WORDS = { dev: "developer", review: "reviewer", rev: "reviewer", test: "tester", qa: "tester" };
+// Other words for each role, besides its name: `@Cade assign dev @rex`, as
+// owners were called developers before.
+const ROLE_WORDS = { dev: "owner", developer: "owner", review: "reviewer", rev: "reviewer", test: "tester", qa: "tester" };
 
-// Returns the first role named in `text` ("developers", "dev" and "qa" work
+// Returns the first role named in `text` ("owners", "dev" and "qa" work
 // too), or null.
 export function parseRole(text) {
   const words = text.toLowerCase().split(/\s+/).filter((word) => !word.startsWith("<@"));
@@ -109,18 +110,19 @@ export function noPeople() {
   return Object.fromEntries(Object.keys(ROLES).map((role) => [role, []]));
 }
 
-export function taskMessage(task) {
+export function taskMessage(task, { archivedBy } = {}) {
   // The title, then in small text its status, priority and due date, its
   // linked pull requests (when it has any) by whether they're approved, and
   // who works on it and who tracked it. All but the title sit in an
   // attachment, whose strip down the side has the priority's colour. Roles
-  // with no one are left out.
+  // with no one are left out. An archived task's card says who archived it
+  // in place of its status, and has no menu, as Cade no longer tracks it.
   const people = Object.entries(SHORT_ROLES)
     .filter(([role]) => task.people[role].length)
     .map(([role, label]) => `${label} ${mentions(task.people[role])}`)
     .join("  ·  ");
   const card = [
-    { type: "context", elements: [metaLine(STATUSES[task.status], task.priority, task.dueDate)] },
+    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.priority, task.dueDate)] },
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
     smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>`]),
   ];
@@ -129,21 +131,23 @@ export function taskMessage(task) {
   const label = task.incident ? "Incident  ·  " : "";
   return {
     text: `${task.priority} ${task.incident ? "incident" : "task"}: ${task.title}`,
-    blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`), accessory: taskMenu(task) }],
+    blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`), ...(!archivedBy && { accessory: taskMenu(task) }) }],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
 }
 
 // The ⋯ menu on a task's card, so people change it without typing a command
 // in its thread (see menu.js): Edit, one form for everything; Release, while
-// it has PRs not sent for approval; and Delete.
+// it has PRs not sent for approval; Refresh, to redraw the card; and
+// Archive, when it's no longer needed (see archive.js).
 export const TASK_MENU_ACTION = "task:menu";
 
 function taskMenu(task) {
   const choices = [
-    ["edit", "Edit…"],
-    task.prs?.length && unsentPrs(task).length && ["release", "Release…"],
-    ["delete", "Delete…"],
+    ["edit", "Edit"],
+    task.prs?.length && unsentPrs(task).length && ["release", "Release"],
+    ["refresh", "Refresh"],
+    ["archive", "Archive"],
   ].filter(Boolean);
   return {
     type: "overflow",
@@ -197,17 +201,18 @@ export async function saveTask(env, channel, ts, task) {
   await refreshSummary(env, channel);
 }
 
-// Rewrites the summary a change in `channel` touches (see summary.js). It
-// is imported when needed, as summary.js uses this module's exports when it
+// Rewrites the summary a change in `channel` touches (see summary.js); with
+// `create`, for a new task, making its canvas if it has none. It is
+// imported when needed, as summary.js uses this module's exports when it
 // loads.
-export async function refreshSummary(env, channel) {
+export async function refreshSummary(env, channel, options) {
   const summary = await import("./summary.js");
-  await summary.refreshSummary(env, channel);
+  await summary.refreshSummary(env, channel, options);
 }
 
 // Records the task's current state in the Google Sheet. The sheet is a
 // record, so failures are logged rather than failing the command.
-export async function syncTask(env, channel, ts, task, { deleted = false } = {}) {
+export async function syncTask(env, channel, ts, task, { deleted = false, archived = false } = {}) {
   const group = pairFor(env, channel);
   if (!sheetEnabled(env, group)) return;
   try {
@@ -224,10 +229,10 @@ export async function syncTask(env, channel, ts, task, { deleted = false } = {})
     await sendRow(env, group, {
       "Task ID": `${channel}:${ts}`,
       Title: task.title,
-      Status: deleted ? "Deleted" : statusName(task.status),
+      Status: deleted ? "Deleted" : archived ? "Archived" : statusName(task.status),
       Priority: task.priority,
       "Due date": task.dueDate,
-      Developer: await names(task.people.developer),
+      Owner: await names(task.people.owner),
       Reviewer: await names(task.people.reviewer),
       Tester: await names(task.people.tester),
       "Tracked by": await userNames(env, [task.createdBy]),

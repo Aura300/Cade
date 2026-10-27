@@ -37,7 +37,7 @@ const ALL_SENT = "All of this task's PRs are already with the client.";
 // PR pending, pending approval or approved. Approving
 // marks the release APPROVED. Not approving marks it NOT_APPROVED, kept but
 // no longer shown, so its PRs are pending again and can be sent again. Either
-// way the task's thread hears it, mentioning its developers. The task's
+// way the task's thread hears it, mentioning its owners. The task's
 // status doesn't change: the rest of the work goes on, and Client review
 // sends what's left (see status.js).
 export default {
@@ -45,7 +45,7 @@ export default {
   aliases: ["deliver"],
   description: "Send some of the task's PRs to the client to approve (in its thread)",
   usage: "@Cade release",
-  section: "thread",
+  section: "task",
   channel: "tasks",
   inThread: true,
   async run(command, { env }) {
@@ -220,7 +220,7 @@ async function send(env, origin, chosen, note, approver, user) {
 
 // Applies the approver's decision on a release, then replaces the request
 // and its buttons with the decision and tells the task's thread, mentioning
-// its developers.
+// its owners.
 async function review(payload, env, approved) {
   const { channel, ts, id, approver } = JSON.parse(payload.actions[0].value);
   if (await notTheApprover(env, payload, approver)) return;
@@ -263,7 +263,7 @@ async function review(payload, env, approved) {
 // Tells the task's thread the decision, as a new reply, since mentions in an
 // edited message notify no one.
 async function tellTask(env, channel, ts, task, payload, release, list, approved) {
-  const people = [...new Set([release.sentBy, ...task.people.developer])];
+  const people = [...new Set([release.sentBy, ...task.people.owner])];
   const text = approved
     ? `${mentions(people)}, good news! <@${payload.user.id}> approved ${list}.`
     : `${mentions(people)}, <@${payload.user.id}> didn't approve ${list}. Have a look at the thread for what needs to change, then send them again with \`@Cade release\`.`;

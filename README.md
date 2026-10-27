@@ -86,11 +86,7 @@ it, what it needs (a thread, a mention), an `order`, and what to do;
 | Order | Intent | In | Signals |
 | --- | --- | --- | --- |
 | 10 | `pr-link` | `pr.js` | a pull request link, in a task's thread |
-| 20, 30 | `hand-off:reviewer`, `hand-off:tester` | `assign.js` (`HANDOFFS`) | someone mentioned, asked to review or test |
-| 38 | `started:reported` | `assign.js` (`REPORTED`) | someone mentioned, said to have started |
-| 40 | `hand-off:developer` | `assign.js` (`HANDOFFS`) | someone mentioned, asked to work on it, or to take it over |
-| 45 | `started` | `assign.js` (`STARTED`) | the writer saying they, or the team, have started |
-| 46 | `progress` | `status.js` | "LGTM", "QA passed", "done", "merged" |
+| 20 | `work` | `suggest.js` | hand-offs ("@mia can you review this?"), the work starting ("on it"), progress ("LGTM", "QA passed", "done"), read by phrases or with AI |
 | 50 | `new-thread` | `move.js` | a message posted on its own in a dev channel, not in a thread |
 
 Each only asks the writer, privately, before changing anything, since a
@@ -133,7 +129,7 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `syncup`, `delete`, `summary`, `brief`, `debrief` |
+| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `syncup`, `delete`, `replace`, `resync` (and the summary canvas's resync), `brief`, `debrief` |
 | `src/db.js` | Reading and writing tasks in D1 |
 | `src/retry.js` | The cron's job: posting tasks Slack refused |
 | `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |

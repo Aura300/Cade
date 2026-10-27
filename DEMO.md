@@ -26,7 +26,7 @@ with the client; Cade doesn't need to be in it.
 
 **Seed beforehand** (so pickers and lists aren't empty):
 - `#acme-dev`: `/cade task` → **"Upgrade Node to 22 on staging"**, Medium,
-  Rex as developer (`@Cade assign developer @Rex`).
+  Rex as owner (`@Cade assign owner @Rex`).
 - `#acme-dev`: `/cade task` → **"Remove legacy coupon code"**, Low, nobody
   assigned (for standup `-unassigned`).
 - `#acme-dev`: a top-level message posted **before** the demo, then click
@@ -72,19 +72,19 @@ at those moments.
 
 ## Act 2 — The team picks it up · `#acme-dev` · ~2 min
 
-### 3. Hand it to a developer
+### 3. Hand it to its owner
 In the **Deposit payments** task thread, **You**:
 > @Rex please start working on this — first cut by Friday?
 
-- Cade privately offers to add Rex as developer → **Accept** → Rex is asked
+- Cade privately offers to add Rex as owner → **Accept** → Rex is asked
   in the thread to pick it up; the task stays 📝 To do.
 
-### 4. The developer says they've started
+### 4. The owner says they've started
 **Rex**:
 > Okay, started working on this
 
 - **Accept** → ▶️ In progress.
-- *Assigning never starts the work; the developer saying so does.*
+- *Assigning never starts the work; the owner saying so does.*
 
 ### 5. The team owns priority and due date
 **You**, in the task thread:
@@ -136,7 +136,7 @@ In the **Deposit payments** task thread, **You**:
   and PRs in one form.
 
 ### 11. Ship part of it early → partial release
-**Rex**: the card's ⋯ → **Release…** (or `@Cade release` in its thread)
+**Rex**: the card's ⋯ → **Release** (or `@Cade release` in its thread)
 
 - The form → tick #128 → note **"Deposit checkout flow (20% default)"**
   → **Who approves**: whoever handles the client, here **You**.
@@ -218,10 +218,12 @@ In the thread of the seeded *"Flaky test…"* message: `@Cade task` → **New
 task** → **Create**. `@Cade move` there again → *"This message was already
 moved: see it there."*
 
-### 20. Deleting safely
-In the **Log rotation** task thread: `@Cade delete` → **Cancel** stands out;
-**Delete task** asks again → confirm. Cade's messages go and the pin is
-removed.
+### 20. Archiving, and deleting safely
+- On the **Log rotation** card: ⋯ → **Archive** (or `@Cade archive` in its
+  thread). The card stays, unpinned, saying who archived it; the thread
+  hears who did; it leaves the lists and the summary.
+- *(Admin)* `/cade remove <link>` with the card's link → **Cancel** stands
+  out; **Delete task** asks again → confirm. Cade's messages go.
 
 ---
 
@@ -239,9 +241,9 @@ removed.
 > `/cade tasks -status=in-progress,in-testing -due<@tomorrow`
 
 ### 22. Standup
-- `/cade standup` in `#acme-dev` → **Next** through each developer, change a
+- `/cade standup` in `#acme-dev` → **Next** through each owner, change a
   status from the menu (it's posted in the task's thread).
-- `/cade standup -unassigned` → give *Remove legacy coupon code* a developer.
+- `/cade standup -unassigned` → give *Remove legacy coupon code* an owner.
 
 ### 23. The Google Sheet
 Switch tabs: every task with status, priority, due date, people, tracked /
@@ -277,7 +279,7 @@ completed times and task links, including the deleted one marked
 | Priority / due date, and the card's ⋯ → Edit | 5 |
 | Incident priority is fixed | 15 |
 | Pins follow open / done | 1, 14 |
-| `@Cade delete` with double confirm | 20 |
+| Archive from the card or `@Cade archive`; admin `/cade remove` with double confirm | 20 |
 | `/cade tasks` + filters | 21 |
 | `/cade standup`, `-unassigned` | 22 |
 | Google Sheet sync | 23 |

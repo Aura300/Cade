@@ -5,12 +5,13 @@ import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
 import { callSlack } from "./slack.js";
 import { PRIORITIES, STATUSES } from "./tasks.js";
 
-// A summary is a channel's canvas listing what is open there, most urgent
-// first, then what is closed (Done), most recently first, each in tables:
-// the group's tasks, incidents too, as `/cade tasks` lists them. `/cade
-// summary` puts it in the dev channel's canvas, making one if there is none,
-// and saves which it is; from then on the table is rewritten whenever a
-// task in its group changes. Channels without one are left alone.
+// A summary is a dev channel's canvas listing what is open there, most
+// urgent first, then what is closed (Done), most recently first, each in
+// tables: the group's tasks, incidents too, as `/cade tasks` lists them.
+// Every group has one: when a task is made, Cade puts it in the channel's
+// canvas, making one if there is none, and saves which it is; from then on
+// the table is rewritten whenever a task changes.
+// `/cade resync summary` rewrites it in full (see resync.js).
 
 // A canvas table holds at most 300 cells, header included, so longer
 // summaries continue in another table.
@@ -20,7 +21,7 @@ const MAX_CELLS = 300;
 // grow without end.
 const MAX_CLOSED = 50;
 
-const TASK_COLUMNS = ["Title", "Status", "Priority", "Due date", "Dev", "Reviewer", "Tester"];
+const TASK_COLUMNS = ["Title", "Status", "Priority", "Due date", "Owner", "Reviewer", "Tester"];
 
 // The canvas's title, which heads the summary.
 export function summaryTitle(env, channel) {
@@ -43,7 +44,7 @@ export async function summaryMarkdown(env, channel) {
     unbroken(STATUSES[task.status]),
     priority(task.priority),
     task.dueDate || "—",
-    people(task.people.developer),
+    people(task.people.owner),
     people(task.people.reviewer),
     people(task.people.tester),
   ];
@@ -66,34 +67,36 @@ function sections(entries, row) {
   return { open: open.map(row), closed: closed.map(row) };
 }
 
-// Rewrites the summary of the dev channel `channel`, if it has one.
-// A summary is a convenience, so failures are logged rather than failing
-// the command.
-export async function refreshSummary(env, channel) {
+// Rewrites the summary of `channel`'s group; with `create`, for a new task,
+// making its canvas if it has none. A summary is a convenience, so failures
+// are logged rather than failing the command.
+export async function refreshSummary(env, channel, { create = false } = {}) {
   const group = findPair(env, channel);
   if (!group) return;
   try {
-    const canvasId = await getCanvas(env, group.tasks);
-    if (canvasId) await writeCanvas(env, canvasId, await summaryMarkdown(env, group.tasks));
+    if (create || (await getCanvas(env, group.tasks))) await writeSummary(env, group.tasks);
   } catch (error) {
     console.warn("Could not update the summary", { channel: group.tasks, error: error.message });
   }
 }
 
-// For `/cade summary`: writes the channel's summary to its canvas, the one
-// Slack shows in the channel's header, making it if there is none. What the
-// canvas held is replaced, and it takes the summary's title. The canvas is
-// then made read-only for the channel, as Cade rewrites it on every change
-// anyway (see lockCanvas). Returns what happened, to tell whoever asked.
-export async function publishSummary(env, channel, user) {
+// Writes the dev channel `channel`'s summary to its canvas, the one Slack
+// shows in the channel's header, making it if there is none, or taking
+// over the canvas the channel has. A canvas it makes or takes over gets the
+// summary's title and is made read-only for the channel, as Cade rewrites
+// it on every change anyway (see lockCanvas); with `full`, as for `/cade
+// resync summary`, the one it keeps does too. `user` is who asked, if
+// anyone. Returns what happened, to tell them.
+export async function writeSummary(env, channel, { full = false, user = "" } = {}) {
   const title = summaryTitle(env, channel);
   const markdown = await summaryMarkdown(env, channel);
   const canvasId = await getCanvas(env, channel);
   if (canvasId) {
     try {
       await writeCanvas(env, canvasId, markdown);
+      if (!full) return "Updated the summary in this channel's canvas.";
       await renameCanvas(env, canvasId, title);
-      return `Updated the summary in this channel's canvas.${await lockCanvas(env, canvasId, channel)}`;
+      return `Resynced the summary in this channel's canvas.${await lockCanvas(env, canvasId, channel)}`;
     } catch (error) {
       // Deleted by hand: a new one is made below.
       if (!/canvas_not_found|canvas_deleted|file_not_found/.test(error.message)) throw error;
@@ -111,7 +114,7 @@ export async function publishSummary(env, channel, user) {
   } catch (error) {
     if (!/channel_canvas_already_exists|free_team_canvas_tab_already_exists/.test(error.message)) {
       if (/team_tier_cannot_create_channel_canvases|canvas_disabled/.test(error.message)) {
-        return "Sorry, this workspace can't have channel canvases, so I can't add the summary.";
+        return "Sorry, this workspace can't have channel canvases, so I can't keep the summary.";
       }
       throw error;
     }

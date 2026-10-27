@@ -1,7 +1,7 @@
 import { linked, oneMessage, request, toAsk, unlinked } from "../notify.js";
 import { userNames } from "../sheet.js";
 import { callSlack } from "../slack.js";
-import { loadTask, saveTask } from "../tasks.js";
+import { ROLES, loadTask, saveTask } from "../tasks.js";
 import { teamChanges } from "./assign.js";
 import { detailsChange } from "./details.js";
 import { statusChange } from "./status.js";
@@ -34,7 +34,9 @@ export async function applyChanges(env, { channel, ts }, changes, user, { from, 
   const task = await loadTask(env, channel, ts);
   if (!task) return false;
 
-  const people = Object.entries(changes.people ?? {}).map(([role, { add = [], remove = [] }]) => {
+  // Only the roles there are now: a suggestion posted before owners were
+  // called that names developers.
+  const people = Object.entries(changes.people ?? {}).filter(([role]) => ROLES[role]).map(([role, { add = [], remove = [] }]) => {
     const change = {
       role,
       added: add.filter((id) => !task.people[role].includes(id)),

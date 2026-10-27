@@ -1,7 +1,7 @@
 import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
 import { noLongerIfDue, oneMessage, unassigned } from "../notify.js";
 
-// `@Cade unassign developer @person [@person …]` in a task thread removes
+// `@Cade unassign owner @person [@person …]` in a task thread removes
 // people from that role; `@Cade unassign @person` removes them from every role.
 // The thread hears who removed whom, and on the next line tells them there's
 // no need to do it anymore, if they'd been asked to (see notify.js).
@@ -9,13 +9,13 @@ import { noLongerIfDue, oneMessage, unassigned } from "../notify.js";
 export default {
   name: "unassign",
   description: "Unassign people from a role, or from every role (in its thread)",
-  usage: "@Cade unassign dev @person",
-  section: "thread",
+  usage: "@Cade unassign owner @person",
+  section: "task",
   channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
-    if (!command.mentions.length) return "Who? Try `@Cade unassign dev @person`, or `@Cade unassign @person` for every role.";
+    if (!command.mentions.length) return "Who? Try `@Cade unassign owner @person`, or `@Cade unassign @person` for every role.";
 
     const task = await loadTask(env, command.channel, command.threadTs);
     if (!task) return NOT_A_TASK;

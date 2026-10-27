@@ -34,7 +34,7 @@ update (a new spreadsheet's empty first tab is removed then). A tab named
 after the group, as older versions made, is renamed Tasks, rows and all. Every
 task has one row, updated on every change:
 
-Title, Status, Priority, Due date, Developer, Reviewer, Tester, Tracked by,
+Title, Status, Priority, Due date, Owner, Reviewer, Tester, Tracked by,
 Tracked at, Completed at, Task link, Request link, Task ID
 
 Deleted tasks stay, with the status "Deleted". To see completed tasks,

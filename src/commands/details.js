@@ -11,7 +11,7 @@ export const priority = {
   name: "priority",
   description: "Change the task's priority (in its thread)",
   usage: "@Cade priority high",
-  section: "thread",
+  section: "task",
   channel: "tasks",
   inThread: true,
   async run(command, { env }) {
@@ -35,7 +35,7 @@ export const due = {
   name: "due",
   description: "Change the task's due date (in its thread)",
   usage: "@Cade due 31/12/2026",
-  section: "thread",
+  section: "task",
   channel: "tasks",
   inThread: true,
   async run(command, { env }) {

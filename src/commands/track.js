@@ -36,7 +36,7 @@ export default {
   description: "Track a task (`@Cade task` in a message's thread tracks that message)",
   usage: "@Cade task",
   slashUsage: "/cade task",
-  section: "start",
+  section: "message",
   channel: "tasks",
   run: (command, { env }) => fromThread(env, command, "task"),
   async slash(command, { env }) {
@@ -50,7 +50,7 @@ export const incident = {
   description: "Report an incident, always urgent and due immediately",
   usage: "@Cade incident",
   slashUsage: "/cade incident",
-  section: "start",
+  section: "message",
   channel: "tasks",
   run: (command, { env }) => fromThread(env, command, "incident"),
   async slash(command, { env }) {
@@ -215,7 +215,8 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
   });
   await setPinned(env, message.channel, message.ts, true);
   await syncTask(env, message.channel, message.ts, task);
-  await refreshSummary(env, message.channel);
+  // A group's summary canvas is made with its first new task.
+  await refreshSummary(env, message.channel, { create: true });
   if (origin.move) {
     const problem = await moveMessage(env, {
       from: origin.move,

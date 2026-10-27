@@ -4,7 +4,7 @@ import { STATUSES, prLink, unsentPrs } from "./tasks.js";
 // What Cade says in a task's thread when its people, pull requests or
 // status change, in one place so they read alike. Each change is one
 // message: the record of what changed and who changed it, "<@ann> assigned
-// <@rex> as developer.", then on the next line what it means for those it
+// <@rex> as owner.", then on the next line what it means for those it
 // names, "<@rex>, could you pick this up when you get a chance? Thanks!".
 // The record keeps a log of every change in the thread, and the record's
 // mention notifies them anyway, so the request comes with it, in the same
@@ -18,7 +18,7 @@ import { STATUSES, prLink, unsentPrs } from "./tasks.js";
 //
 // People are only asked when there's something for them to do now (see
 // onTheirPlate): reviewers when there are PRs to review, testers when the
-// task is In testing, developers until it's Done. Those removed are only
+// task is In testing, owners until it's Done. Those removed are only
 // told when they would have been asked.
 //
 // Every flow and the messages it posts are on the website's
@@ -72,7 +72,7 @@ export function movedTo(user, status) {
 
 // What `role` has to do on `task` now, as the PRs for reviewers, or null
 // when there's nothing: reviewers review the PRs not yet sent for approval,
-// testers test it once it's In testing, and developers work on it until
+// testers test it once it's In testing, and owners work on it until
 // it's Done.
 function onTheirPlate(task, role) {
   if (task.status === "DONE") return null;
@@ -101,7 +101,7 @@ export function noLongerIfDue(task, people, role, user, told) {
 
 // What each role is asked to do; reviewers are asked about pull requests.
 const ASKS = {
-  developer: () => "pick this up",
+  owner: () => "pick this up",
   reviewer: (prs) => `review ${prs.map(prLink).join(", ")}`,
   tester: () => "give this a test",
 };
@@ -114,13 +114,13 @@ export function request(people, role, prs = []) {
 // Tells people removed from a role, or from every role (`role` null), that
 // they no longer need to do it.
 export function noLonger(people, role) {
-  return `${mentions(people)}, there's no need to ${ASKED[role] ?? ASKED.developer} anymore. Thanks!`;
+  return `${mentions(people)}, there's no need to ${ASKED[role] ?? ASKED.owner} anymore. Thanks!`;
 }
 
 // What each role does, for questions about a hand-off and for telling people
 // they no longer need to.
 export const ASKED = {
-  developer: "work on this",
+  owner: "work on this",
   reviewer: "review this",
   tester: "test this",
 };

@@ -117,6 +117,12 @@ function mockSlack(t, { stored = [], ...responses } = {}) {
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
+    // Answers through a click's or command's response_url, unless a test
+    // records them itself (see recordResponses).
+    if (url === RESPONSE_URL) {
+      calls.push({ method: "respond", args: JSON.parse(init.body) });
+      return new Response("ok");
+    }
     if (url === GOOGLE_URL) {
       const body = JSON.parse(init.body);
       if (body.action === "sheet.row") {
@@ -180,7 +186,7 @@ const submission = (values, origin = { channel: "CDEV" }) => ({
 });
 
 // The task at CDEV/100.1 as stored. Each role lists its people's user IDs.
-const storedTask = ({ developers = [], reviewers = [], testers = [] } = {}) => ({
+const storedTask = ({ owners = [], reviewers = [], testers = [] } = {}) => ({
   channel: "CDEV",
   ts: "100.1",
   task: {
@@ -188,7 +194,7 @@ const storedTask = ({ developers = [], reviewers = [], testers = [] } = {}) => (
     priority: "High",
     status: "TODO",
     dueDate: "31/10/2026",
-    people: { developer: developers, reviewer: reviewers, tester: testers },
+    people: { owner: owners, reviewer: reviewers, tester: testers },
     prs: [],
     createdBy: "UCREATOR",
     completedAt: "",
@@ -212,6 +218,10 @@ const createdTask = {
     args.channel.endsWith("DEV") && !args.thread_ts ? { channel: args.channel, ts: "100.1" } : { ts: "300.1" },
   "chat.getPermalink": { permalink: "https://slack.example/p100" },
 };
+
+// The calls besides those keeping the group's summary canvas, which a new
+// task makes (see summary.js).
+const withoutSummary = (calls) => calls.filter((call) => !/^(auth\.test|conversations\.canvases\.|canvases\.)/.test(call.method));
 
 const threadEvent = (text, overrides = {}) =>
   JSON.stringify({
@@ -319,9 +329,9 @@ test("modal submission tells the creator when the task cannot be posted", async 
 
 test("@Cade assign adds people to a role on the root message", async (t) => {
   const calls = mockSlack(t, {
-    stored: [storedTask({ developers: ["UALICE"], testers: ["UTESS"] })],
+    stored: [storedTask({ owners: ["UALICE"], testers: ["UTESS"] })],
   });
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB> <@UALICE|alice>"));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB> <@UALICE|alice>"));
 
   assert.deepEqual(
     calls.map((call) => call.method),
@@ -331,16 +341,16 @@ test("@Cade assign adds people to a role on the root message", async (t) => {
   assert.equal(update.ts, "100.1");
   assert.equal(
     footerLines(update)[0],
-    "Dev <@UALICE>, <@UBOB>  ·  Test <@UTESS>",
+    "Owner <@UALICE>, <@UBOB>  ·  Test <@UTESS>",
   );
   const task = await savedTask();
-  assert.deepEqual(task.people, { developer: ["UALICE", "UBOB"], reviewer: [], tester: ["UTESS"] });
+  assert.deepEqual(task.people, { owner: ["UALICE", "UBOB"], reviewer: [], tester: ["UTESS"] });
   assert.equal(task.dueDate, "31/10/2026");
   assert.deepEqual(calls[1].args, {
     channel: "CDEV",
     thread_ts: "100.1",
     // The record, then on the next line what it asks of them.
-    text: "<@UACTOR> assigned <@UBOB>, <@UALICE> as developer.\n<@UBOB>, <@UALICE>, could you pick this up when you get a chance? Thanks!",
+    text: "<@UACTOR> assigned <@UBOB>, <@UALICE> as owner.\n<@UBOB>, <@UALICE>, could you pick this up when you get a chance? Thanks!",
   });
 });
 
@@ -351,7 +361,7 @@ test("@Cade assign works for each role, in any word order", async (t) => {
     // Not In testing yet, so nothing to ask the tester either.
     ["<@UBOT> assign tester <@UBOB>", "tester", "<@UACTOR> assigned <@UBOB> as tester."],
     ["<@UBOT> assign <@UBOB> as Tester", "tester", "<@UACTOR> assigned <@UBOB> as tester."],
-    ["<@UBOT> assign developers <@UBOB>", "developer", "<@UACTOR> assigned <@UBOB> as developer.\n<@UBOB>, could you pick this up when you get a chance? Thanks!"],
+    ["<@UBOT> assign owners <@UBOB>", "owner", "<@UACTOR> assigned <@UBOB> as owner.\n<@UBOB>, could you pick this up when you get a chance? Thanks!"],
   ]) {
     const calls = mockSlack(t, { stored: [storedTask()] });
     await send("/slack/events", threadEvent(text));
@@ -368,13 +378,13 @@ test("people are asked only when there's something for them to do now", async (t
   };
   const ask = (role) =>
     ({
-      developer: "<@UBOB>, could you pick this up when you get a chance? Thanks!",
+      owner: "<@UBOB>, could you pick this up when you get a chance? Thanks!",
       reviewer: `<@UBOB>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
       tester: "<@UBOB>, could you give this a test when you get a chance? Thanks!",
     })[role];
   for (const [role, root, asked] of [
-    ["developer", task("TODO"), true],
-    ["developer", task("DONE"), false],
+    ["owner", task("TODO"), true],
+    ["owner", task("DONE"), false],
     // Reviewers review the PRs not yet sent for approval.
     ["reviewer", task("IN_REVIEW", [PR]), true],
     ["reviewer", task("IN_REVIEW", [PR, MR], [{ prs: [MR], note: "Search", status: "PENDING_APPROVAL", sentBy: "UACTOR" }]), true],
@@ -394,15 +404,15 @@ test("people are asked only when there's something for them to do now", async (t
     const again = mockSlack(t, { stored: [root] });
     await send("/slack/events", threadEvent(`<@UBOT> unassign ${role} <@UBOB>`));
     const removed = `<@UACTOR> removed <@UBOB> as ${role}.`;
-    const note = `<@UBOB>, there's no need to ${{ developer: "work on", reviewer: "review", tester: "test" }[role]} this anymore. Thanks!`;
+    const note = `<@UBOB>, there's no need to ${{ owner: "work on", reviewer: "review", tester: "test" }[role]} this anymore. Thanks!`;
     assert.equal(again.at(-1).args.text, asked ? `${removed}\n${note}` : removed, label);
   }
 });
 
 test("@Cade assign takes short words for each role", async (t) => {
   for (const [text, role] of [
-    ["<@UBOT> assign dev <@UBOB>", "developer"],
-    ["<@UBOT> assign devs <@UBOB>", "developer"],
+    ["<@UBOT> assign owner <@UBOB>", "owner"],
+    ["<@UBOT> assign devs <@UBOB>", "owner"],
     ["<@UBOT> assign review <@UBOB>", "reviewer"],
     ["<@UBOT> assign test <@UBOB>", "tester"],
     ["<@UBOT> assign qa <@UBOB>", "tester"],
@@ -415,27 +425,27 @@ test("@Cade assign takes short words for each role", async (t) => {
 
 test("@Cade unassign with a role removes people from that role only", async (t) => {
   const calls = mockSlack(t, {
-    stored: [storedTask({ developers: ["UALICE", "UBOB"], reviewers: ["UALICE"] })],
+    stored: [storedTask({ owners: ["UALICE", "UBOB"], reviewers: ["UALICE"] })],
   });
-  await send("/slack/events", threadEvent("<@UBOT> unassign developer <@UALICE>"));
+  await send("/slack/events", threadEvent("<@UBOT> unassign owner <@UALICE>"));
   const { people } = await savedTask();
-  assert.deepEqual(people.developer, ["UBOB"]);
+  assert.deepEqual(people.owner, ["UBOB"]);
   assert.deepEqual(people.reviewer, ["UALICE"]);
   assert.equal(
     calls[1].args.text,
-    "<@UACTOR> removed <@UALICE> as developer.\n<@UALICE>, there's no need to work on this anymore. Thanks!",
+    "<@UACTOR> removed <@UALICE> as owner.\n<@UALICE>, there's no need to work on this anymore. Thanks!",
   );
 });
 
 test("@Cade unassign without a role removes people from every role", async (t) => {
   const calls = mockSlack(t, {
-    stored: [storedTask({ developers: ["UALICE", "UBOB"], reviewers: ["UALICE"], testers: ["UALICE"] })],
+    stored: [storedTask({ owners: ["UALICE", "UBOB"], reviewers: ["UALICE"], testers: ["UALICE"] })],
   });
   await send("/slack/events", threadEvent("<@UBOT> unassign <@UALICE>"));
-  assert.deepEqual((await savedTask()).people, { developer: ["UBOB"], reviewer: [], tester: [] });
+  assert.deepEqual((await savedTask()).people, { owner: ["UBOB"], reviewer: [], tester: [] });
   assert.equal(
     footerLines(calls[0].args)[0],
-    "Dev <@UBOB>",
+    "Owner <@UBOB>",
   );
   assert.equal(
     calls[1].args.text,
@@ -445,7 +455,7 @@ test("@Cade unassign without a role removes people from every role", async (t) =
 
 test("@Cade status updates the task's status", async (t) => {
   const calls = mockSlack(t, {
-    stored: [storedTask({ developers: ["UALICE"] })],
+    stored: [storedTask({ owners: ["UALICE"] })],
   });
   await send("/slack/events", threadEvent("<@UBOT> status in progress"));
 
@@ -455,7 +465,7 @@ test("@Cade status updates the task's status", async (t) => {
   );
   const update = calls[0].args;
   assert.deepEqual((await savedTask()).status, "IN_PROGRESS");
-  assert.deepEqual((await savedTask()).people.developer, ["UALICE"]);
+  assert.deepEqual((await savedTask()).people.owner, ["UALICE"]);
   assert.match(blockText(allBlocks(update)[1]), /^:arrow_forward: In progress  ·/);
   // A typed status gets a ✅ on the command, not a reply.
   assert.deepEqual(calls[1].args, { channel: "CDEV", timestamp: "100.5", name: "white_check_mark" });
@@ -497,7 +507,8 @@ test("a failed pin does not stop the task from being announced", async (t) => {
     "/slack/interactions",
     interaction(submission({ title: "Fix login", priority: "Low" })),
   );
-  assert.deepEqual(calls, ["chat.postMessage", "chat.getPermalink", "pins.add"]);
+  // Then the group's summary canvas is made (see summary.js).
+  assert.deepEqual(calls.slice(0, 3), ["chat.postMessage", "chat.getPermalink", "pins.add"]);
 });
 
 const withStatus = (status) => {
@@ -534,59 +545,24 @@ test("@Cade status accepts every status name", async (t) => {
   }
 });
 
-test("@Cade delete and @Cade remove ask for confirmation", async (t) => {
+test("@Cade delete and @Cade remove point to /cade remove", async (t) => {
   for (const name of ["delete", "remove"]) {
-    const calls = mockSlack(t, {
-      stored: [ownTask()],
-    });
+    const calls = mockSlack(t, { stored: [ownTask()] });
     await send("/slack/events", threadEvent(`<@UBOT> ${name}`));
-
-    assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
-    assert.equal(calls[0].args.thread_ts, "100.1");
-    const [cancel, button] = allBlocks(calls[0].args)[1].elements;
-    // Cancel is first and prominent; Delete is plain.
-    assert.equal(cancel.action_id, "delete:cancel");
-    assert.equal(cancel.style, "primary");
-    assert.equal(button.action_id, "delete:confirm");
-    assert.equal(button.style, undefined);
-    assert.ok(button.confirm);
-    assert.deepEqual(JSON.parse(button.value), {
-      kind: "task",
-      channel: "CDEV",
-      ts: "100.1",
-      requestedBy: "UACTOR",
-    });
+    assert.equal(calls.at(-1).args.text, "That one's a slash command: try `/cade remove <link>`.", name);
+    assert.ok(await savedTask(), name);
   }
 });
-
-const deleteRequest = JSON.stringify({ kind: "task", channel: "CDEV", ts: "100.1", requestedBy: "UACTOR" });
+const deleteRequest = JSON.stringify({ kind: "task", channel: "CDEV", ts: "100.1" });
 
 const deleteClick = (actionId, user) =>
   interaction({
     type: "block_actions",
     user: { id: user },
     message: { ts: "100.9" },
+    response_url: RESPONSE_URL,
     actions: [{ action_id: actionId, value: deleteRequest }],
   });
-
-test("only the requester can confirm or cancel a deletion", async (t) => {
-  for (const actionId of ["delete:confirm", "delete:cancel"]) {
-    const calls = mockSlack(t);
-    await send("/slack/interactions", deleteClick(actionId, "USOMEONE"));
-    assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
-    assert.equal(calls[0].args.user, "USOMEONE");
-    assert.equal(calls[0].args.thread_ts, "100.1");
-    assert.match(calls[0].args.text, /Only <@UACTOR> can confirm/);
-  }
-});
-
-test("cancelling a deletion removes the prompt", async (t) => {
-  const calls = mockSlack(t);
-  await send("/slack/interactions", deleteClick("delete:cancel", "UACTOR"));
-  assert.deepEqual(calls.map((call) => [call.method, call.args]), [
-    ["chat.delete", { channel: "CDEV", ts: "100.9" }],
-  ]);
-});
 
 test("confirming deletion removes Cade's replies and then the task", async (t) => {
   const calls = mockSlack(t, {
@@ -619,29 +595,19 @@ test("confirming deletion removes Cade's replies and then the task", async (t) =
   assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral"].includes(call.method)));
 });
 
-test("deleting the team's own task posts nothing outside its channel", async (t) => {
+test("deleting a task posts nothing, and only answers whoever asked", async (t) => {
   const calls = mockSlack(t, {
     stored: [ownTask()],
     "conversations.replies": { messages: [{ ts: "100.1", bot_id: "BCADE" }] },
   });
   await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"));
-  assert.deepEqual(calls.map((call) => call.method), [
-    "conversations.replies",
-    "chat.delete",
-  ]);
-});
-
-test("@Cade delete in a thread that is not a task says so", async (t) => {
-  const calls = mockSlack(t, {
-    stored: [],
-  });
-  await send("/slack/events", threadEvent("<@UBOT> delete"));
-  assert.equal(calls[0].args.text, "Hmm, I'm not tracking a task in this thread.");
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.delete", "respond"]);
+  assert.deepEqual(calls.at(-1).args, { response_type: "ephemeral", replace_original: true, text: "Done, it's gone." });
 });
 
 test("@Cade assign in a thread that is not a task says so", async (t) => {
   const calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   assert.deepEqual(
     calls.map((call) => call.method),
     ["chat.postMessage"],
@@ -651,8 +617,8 @@ test("@Cade assign in a thread that is not a task says so", async (t) => {
 
 test("commands outside the dev channels point to them", async (t) => {
   let calls = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "COTHER" }));
-  assert.equal(calls[0].args.text, "That one works with `@Cade assign dev @person` in a task thread in <#CDEV> or <#CTESTDEV>.");
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>", { channel: "COTHER" }));
+  assert.equal(calls[0].args.text, "That one works with `@Cade assign owner @person` in a task thread in <#CDEV> or <#CTESTDEV>.");
 
   calls = mockSlack(t);
   await send("/slack/events", threadEvent("<@UBOT> task", { channel: "COTHER" }));
@@ -675,16 +641,16 @@ test("thread commands work in the test tasks channel", async (t) => {
   const calls = mockSlack(t, {
     stored: [inChannel("CTESTDEV", storedTask())],
   });
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CTESTDEV" }));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>", { channel: "CTESTDEV" }));
   assert.equal(calls[0].args.channel, "CTESTDEV");
   assert.equal(calls[1].args.channel, "CTESTDEV");
-  assert.deepEqual((await savedTask("CTESTDEV")).people.developer, ["UBOB"]);
+  assert.deepEqual((await savedTask("CTESTDEV")).people.owner, ["UBOB"]);
 });
 
 test("a missing CHANNEL_PAIRS setting is reported", async (t) => {
   const calls = mockSlack(t);
   const pending = [];
-  const body = threadEvent("<@UBOT> assign developer <@UBOB>");
+  const body = threadEvent("<@UBOT> assign owner <@UBOB>");
   await worker.fetch(
     new Request("https://worker.example.net/slack/events", {
       method: "POST",
@@ -702,19 +668,19 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
   for (const text of ["<@UBOT> help", "<@UBOT>", "<@UBOT> hello"]) {
     const calls = mockSlack(t);
     await send("/slack/events", threadEvent(text));
-    // A greeting, three lines, one per section, then how to see it again.
-    const lines = calls[0].args.text.split("\n");
-    assert.deepEqual(
-      lines.map((line) => line.split(":*")[0]),
-      ["Here's what I can do:", "*Start", "*In a task thread", "*Your work", "Send `@Cade help` or `/cade help` any time to see this again."],
-    );
-    assert.equal(lines[1], "*Start:* `/cade task` · `@Cade task` · `/cade incident` · `@Cade incident`");
-    // Saying it comes first in a task thread; the commands follow.
-    assert.match(lines[2], /^\*In a task thread:\* Just talk to me: .* Or: `@Cade assign dev @person`/);
-    for (const usage of ["assign dev @person", "unassign dev @person", "status in review", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
-      assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
-    }
-    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade summary` · `/cade brief` · `/cade debrief`");
+    // The slash commands, the messages sent in a thread, the shortcuts, and
+    // the admin commands, each on its own.
+    assert.deepEqual(calls[0].args.text.split("\n"), [
+      "Here's what I can do:",
+      "*Slash commands*, at the top of a channel:",
+      "`/cade task` · `/cade incident` · `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade brief` · `/cade debrief`",
+      "*Messages*, sent in a thread:",
+      "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move [message link]`",
+      "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
+      "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
+      "*Admin commands*, for tidying up: `/cade remove <link>` · `/cade replace <link> <text>` · `/cade resync <link>` · `/cade resync summary`",
+      "Send `@Cade help` or `/cade help` any time to see this again.",
+    ]);
   }
 });
 
@@ -725,10 +691,10 @@ test("ignores messages that do not start with @Cade, bots, edits and retries", a
   await send("/slack/events", threadEvent("cade assign <@UBOB>"));
   await send("/slack/events", threadEvent("/cade assign <@UBOB>"));
   await send("/slack/events", threadEvent("hi <@UBOT> assign <@UBOB>"));
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { bot_id: "B1" }));
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { subtype: "message_changed" }));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>", { bot_id: "B1" }));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>", { subtype: "message_changed" }));
   await send("/slack/events", threadEvent("<@UOTHER> assign <@UBOB>"));
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"), {
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"), {
     "x-slack-retry-num": "1",
   });
   assert.equal(calls.length, 0);
@@ -792,7 +758,7 @@ test("a new task is added to the sheet", async (t) => {
     Status: "To do",
     Priority: "High",
     "Due date": "31/10/2026",
-    Developer: "Unassigned",
+    Owner: "Unassigned",
     Reviewer: "Unassigned",
     Tester: "Unassigned",
     "Tracked by": "Randil",
@@ -848,11 +814,11 @@ test("a group without a name is reported", async (t) => {
 test("assigning people updates the sheet with their names", async (t) => {
   const calls = mockSlack(t, {
     ...slackUsers,
-    stored: [storedTask({ developers: ["UALICE"] })],
+    stored: [storedTask({ owners: ["UALICE"] })],
   });
-  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   const row = sheetRow(calls);
-  assert.equal(row.Developer, "Alice, Bob");
+  assert.equal(row.Owner, "Alice, Bob");
   assert.equal(row.Tester, "Unassigned");
 });
 
@@ -1000,12 +966,7 @@ test("/cade task in the dev channel posts the task without an announcement", asy
     "/slack/interactions",
     interaction(submission({ title: "Fix login", priority: "Low" }, { channel: "CDEV" })),
   );
-  assert.deepEqual(calls.map((call) => call.method), [
-    "chat.postMessage",
-    "chat.getPermalink",
-    "pins.add",
-  ]);
-  assert.deepEqual((await savedTask()).source?.channel, undefined);
+  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "pins.add"]);
 });
 
 test("/cade help and unknown slash commands list the commands privately", async (t) => {
@@ -1038,7 +999,7 @@ test("Cade's messages never preview the messages they link to", async (t) => {
     interaction(submission({ title: "Fix login", priority: "High" })),
   );
   await send("/slack/events", threadEvent("<@UBOT> status in progress"));
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
 
   const posts = calls.filter((call) => ["chat.postMessage", "chat.update"].includes(call.method));
   assert.ok(posts.length >= 4);
@@ -1065,11 +1026,20 @@ test("@Cade priority and due change the task's priority and due date", async (t)
   }
 });
 
+test("owners were called developers before, and dev and developer still mean owner", async (t) => {
+  for (const word of ["owner", "owners", "dev", "developer", "developers"]) {
+    const calls = mockSlack(t, { stored: [storedTask()] });
+    await send("/slack/events", threadEvent(`<@UBOT> assign ${word} <@UBOB>`));
+    assert.deepEqual((await savedTask()).people.owner, ["UBOB"], word);
+    assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, "<@UACTOR> assigned <@UBOB> as owner.\n<@UBOB>, could you pick this up when you get a chance? Thanks!", word);
+  }
+});
+
 test("commands without what they need say what to send", async (t) => {
   for (const [text, reply] of [
-    ["<@UBOT> assign", "Who, and as what? Try `@Cade assign dev @person`, `@Cade assign review @person`, `@Cade assign test @person`."],
-    ["<@UBOT> assign <@UBOB>", "Who, and as what? Try `@Cade assign dev @person`, `@Cade assign review @person`, `@Cade assign test @person`."],
-    ["<@UBOT> unassign", "Who? Try `@Cade unassign dev @person`, or `@Cade unassign @person` for every role."],
+    ["<@UBOT> assign", "Who, and as what? Try `@Cade assign owner @person`, `@Cade assign review @person`, `@Cade assign test @person`."],
+    ["<@UBOT> assign <@UBOB>", "Who, and as what? Try `@Cade assign owner @person`, `@Cade assign review @person`, `@Cade assign test @person`."],
+    ["<@UBOT> unassign", "Who? Try `@Cade unassign owner @person`, or `@Cade unassign @person` for every role."],
     ["<@UBOT> status", "Which status? Try `@Cade status in review`: to do, in progress, in review, in testing, client review or done."],
     ["<@UBOT> status soon", "I don't know \"soon\" as a status. Try `@Cade status in review`: to do, in progress, in review, in testing, client review or done."],
     ["<@UBOT> priority", "Which priority? Try `@Cade priority high`: urgent, high, medium or low."],
@@ -1096,21 +1066,67 @@ const cardMenuClick = (choice) =>
     actions: [{ action_id: "task:menu", selected_option: { value: choice } }],
   });
 
-test("a task's card has a menu: Edit, Release while it has PRs not sent, and Delete", async (t) => {
+test("a task's card has a menu: Edit, Release while it has PRs not sent, Refresh and Archive", async (t) => {
   const menu = async (record) => {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent("<@UBOT> status in progress"));
     const { accessory } = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args.blocks[0];
     assert.equal(accessory.action_id, "task:menu");
-    return accessory.options.map((option) => option.value);
+    return accessory.options.map((option) => option.text.text);
   };
-  assert.deepEqual(await menu(ownTask()), ["edit", "delete"]);
+  assert.deepEqual(await menu(ownTask()), ["Edit", "Refresh", "Archive"]);
   const withPrs = ownTask();
   withPrs.task.prs = [PR, MR];
-  assert.deepEqual(await menu(withPrs), ["edit", "release", "delete"]);
+  assert.deepEqual(await menu(withPrs), ["Edit", "Release", "Refresh", "Archive"]);
   // Once every PR is sent, there's nothing to release.
   withPrs.task.releases = [{ prs: [PR, MR], note: "All of it", status: "PENDING_APPROVAL", sentBy: "UDEV" }];
-  assert.deepEqual(await menu(withPrs), ["edit", "delete"]);
+  assert.deepEqual(await menu(withPrs), ["Edit", "Refresh", "Archive"]);
+});
+
+test("@Cade archive and the card's Archive stop tracking the task, keeping its card and thread", async (t) => {
+  for (const archive of [
+    () => send("/slack/events", threadEvent("<@UBOT> archive")),
+    () => send("/slack/interactions", cardMenuClick("archive")),
+  ]) {
+    const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })] });
+    await archive();
+    // Cade no longer finds it, but nothing is deleted.
+    assert.equal(await savedTask(), null);
+    assert.ok(!calls.some((call) => call.method === "chat.delete"));
+    // The card says who archived it, and has no menu.
+    const card = calls.find((call) => call.method === "chat.update").args;
+    assert.equal(card.ts, "100.1");
+    assert.equal(card.blocks[0].accessory, undefined);
+    assert.match(blockText(allBlocks(card)[1]), /^:file_cabinet: Archived by <@UACTOR>  ·  High  ·  Due 31\/10\/2026$/);
+    assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.timestamp === "100.1"));
+    // The thread hears who did.
+    const post = calls.find((call) => call.method === "chat.postMessage").args;
+    assert.deepEqual([post.thread_ts, post.text], ["100.1", "<@UACTOR> archived this task."]);
+  }
+
+  // Its thread no longer has a task.
+  const calls = mockSlack(t);
+  await send("/slack/events", threadEvent("<@UBOT> archive"));
+  assert.match(calls[0].args.text, /not tracking a task in this thread/);
+});
+
+test("an archived task's Sheet row says Archived", async (t) => {
+  const record = storedTask();
+  record.task.link = "https://slack.example/p100";
+  const calls = mockSlack(t, { ...slackUsers, stored: [record] });
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> archive"));
+  assert.equal(sheetRow(calls).Status, "Archived");
+  assert.equal(sheetRow(calls)["Task link"], "https://slack.example/p100");
+});
+
+test("Refresh on a task's card redraws it quietly", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })] });
+  await send("/slack/interactions", cardMenuClick("refresh"));
+  const card = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(card.ts, "100.1");
+  assert.equal(footerLines(card)[0], "Owner <@UREX>");
+  // Nothing is posted, so no one is notified.
+  assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral", "views.open"].includes(call.method)));
 });
 
 test("choosing from a task card's menu opens its form, and an old card's choices open Edit", async (t) => {
@@ -1120,7 +1136,7 @@ test("choosing from a task card's menu opens its form, and an old card's choices
     ["status", "task:edit"],
     ["more", "task:edit"],
   ]) {
-    const record = ownTask({ developers: ["UREX"] });
+    const record = ownTask({ owners: ["UREX"] });
     record.task.prs = ["https://github.com/acme/web/pull/9"];
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/interactions", cardMenuClick(choice));
@@ -1135,34 +1151,6 @@ test("a task card's Send PRs for approval with nothing to send says so privately
   await send("/slack/interactions", cardMenuClick("release"));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
   assert.match(calls[0].args.text, /aren't any PRs/);
-});
-
-// The More panel's buttons for the task at CDEV/100.1, after choosing More.
-async function morePanel(t, record) {
-  const calls = mockSlack(t, { stored: [record] });
-  await send("/slack/interactions", cardMenuClick("delete"));
-  const { view } = calls.find((call) => call.method === "views.open").args;
-  assert.equal(view.callback_id, "task:more");
-  return view.blocks[1].elements;
-}
-
-const panelClick = (button) =>
-  interaction({
-    type: "block_actions",
-    trigger_id: "T2",
-    user: { id: "UACTOR" },
-    view: { id: "V1" },
-    actions: [{ action_id: button.action_id, value: button.value }],
-  });
-
-test("the Delete panel removes the task, and says so on the panel", async (t) => {
-  const [remove] = await morePanel(t, ownTask());
-  const calls = mockSlack(t, { stored: [ownTask()], "conversations.replies": { messages: [] } });
-  await send("/slack/interactions", panelClick(remove));
-  assert.equal(await savedTask(), null);
-  assert.ok(calls.some((call) => call.method === "chat.delete" && call.args.ts === "100.1"));
-  const panel = calls.filter((call) => call.method === "views.update").at(-1).args;
-  assert.match(blockText(panel.view.blocks[0]), /^Done, the task/);
 });
 
 test("a task card's menu on a task that's gone says so privately", async (t) => {
@@ -1320,8 +1308,8 @@ test("only the chosen approver can approve or reject", async (t) => {
 });
 
 // A stored task at `ts`, with `fields` changed.
-const historyTask = (ts, { developers = [], reviewers = [], testers = [], ...fields }) => {
-  const record = storedTask({ developers, reviewers, testers });
+const historyTask = (ts, { owners = [], reviewers = [], testers = [], ...fields }) => {
+  const record = storedTask({ owners, reviewers, testers });
   record.ts = ts;
   Object.assign(record.task, fields);
   return record;
@@ -1332,7 +1320,7 @@ const incidentHistoryTask = (ts, fields) => historyTask(ts, { priority: "Urgent"
 
 // What `/cade tasks` says it takes, after saying what was wrong.
 const TASKS_USAGE =
-  "Try `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+  "Try `/cade tasks` for your open tasks, with any of: `owned`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no owner; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
 // A response_url's answer: like the API, it refuses a message whose blocks
 // reuse an action_id, with an OK status and { ok: false }.
@@ -1376,16 +1364,16 @@ async function runTasksCommand(text, channel, environment = env) {
 test("/cade tasks in a group's channel shows its open tasks by role, only to you", async (t) => {
   const { now, calls, later } = await tasksCommand(t, "tasks", "CDEV", ({
     CDEV: [
-      historyTask("100.1", { title: "Low task", priority: "Low", developers: ["UACTOR"] }),
-      historyTask("100.2", { title: "High task", priority: "High", dueDate: "05/11/2026", developers: ["UACTOR", "UBOB"] }),
-      historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", developers: ["UACTOR"] }),
-      historyTask("100.4", { title: "Done task", status: "DONE", developers: ["UACTOR"] }),
-      historyTask("100.5", { title: "Not mine", developers: ["UBOB"] }),
+      historyTask("100.1", { title: "Low task", priority: "Low", owners: ["UACTOR"] }),
+      historyTask("100.2", { title: "High task", priority: "High", dueDate: "05/11/2026", owners: ["UACTOR", "UBOB"] }),
+      historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", owners: ["UACTOR"] }),
+      historyTask("100.4", { title: "Done task", status: "DONE", owners: ["UACTOR"] }),
+      historyTask("100.5", { title: "Not mine", owners: ["UBOB"] }),
       historyTask("100.6", { title: "Review me", reviewers: ["UACTOR"], status: "IN_REVIEW" }),
-      incidentHistoryTask("100.8", { title: "Checkout is down", developers: ["UACTOR"] }),
+      incidentHistoryTask("100.8", { title: "Checkout is down", owners: ["UACTOR"] }),
     ],
     // Another group's task is left out.
-    CTESTDEV: [historyTask("100.9", { title: "Test task", developers: ["UACTOR"] })],
+    CTESTDEV: [historyTask("100.9", { title: "Test task", owners: ["UACTOR"] })],
   }), env);
 
   // Slack is answered at once; the list follows, only to you.
@@ -1404,7 +1392,7 @@ test("/cade tasks in a group's channel shows its open tasks by role, only to you
   assert.equal(
     developing.text.text,
     [
-      "*Developing (4)*",
+      "*Owned (4)*",
       `• *Incident:* <${thread("CDEV", "100.8")}|Checkout is down>  ·  :memo: To do  ·  :red_circle: Urgent  ·  Due Immediate`,
       `• <${thread("CDEV", "100.3")}|High, sooner>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 01/11/2026`,
       `• <${thread("CDEV", "100.2")}|High task>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 05/11/2026`,
@@ -1420,7 +1408,7 @@ test("/cade tasks in a group's channel shows its open tasks by role, only to you
 
 test("/cade tasks outside every group shows each group in turn", async (t) => {
   const { later } = await tasksCommand(t, "tasks", "CRANDOM", ({
-    CDEV: [historyTask("100.1", { developers: ["UACTOR"] })],
+    CDEV: [historyTask("100.1", { owners: ["UACTOR"] })],
     CTESTDEV: [historyTask("100.2", { testers: ["UACTOR"] }), historyTask("100.3", { testers: ["UACTOR"] })],
   }));
   assert.equal(later.text, "You have 1 open acme task. You have 2 open test tasks.");
@@ -1433,14 +1421,14 @@ test("/cade tasks outside every group shows each group in turn", async (t) => {
 test("/cade tasks with a role shows only that role", async (t) => {
   const pins = ({
     CDEV: [
-      historyTask("100.1", { title: "Build it", developers: ["UACTOR"] }),
+      historyTask("100.1", { title: "Build it", owners: ["UACTOR"] }),
       historyTask("100.2", { title: "Review it", reviewers: ["UACTOR"] }),
-      historyTask("100.3", { title: "Both", developers: ["UACTOR"], testers: ["UACTOR"] }),
+      historyTask("100.3", { title: "Both", owners: ["UACTOR"], testers: ["UACTOR"] }),
     ],
   });
   for (const [word, heading, text, lines] of [
-    ["development", "Developing", "You have 2 open acme developing tasks.", 2],
-    ["dev", "Developing", "You have 2 open acme developing tasks.", 2],
+    ["development", "Owned", "You have 2 open acme owned tasks.", 2],
+    ["dev", "Owned", "You have 2 open acme owned tasks.", 2],
     ["Review", "Reviewing", "You have 1 open acme reviewing task.", 1],
     ["testing", "Testing", "You have 1 open acme testing task.", 1],
     ["test", "Testing", "You have 1 open acme testing task.", 1],
@@ -1457,7 +1445,7 @@ test("/cade tasks with a role shows only that role", async (t) => {
 
 test("/cade tasks with a role and no such tasks says so", async (t) => {
   const { later } = await tasksCommand(t, "tasks review", "CDEV", ({
-    CDEV: [historyTask("100.1", { developers: ["UACTOR"] })],
+    CDEV: [historyTask("100.1", { owners: ["UACTOR"] })],
   }));
   assert.equal(later.text, "You have no open acme reviewing tasks.");
   assert.equal(later.blocks[0].text.text, "Your acme tasks: Reviewing");
@@ -1477,7 +1465,7 @@ test("/cade tasks with anything else says what it takes", async (t) => {
 });
 test("someone with no open tasks in the group is told so", async (t) => {
   const { later } = await tasksCommand(t, "tasks", "CDEV", ({
-    CDEV: [historyTask("100.1", { developers: ["UBOB"] })],
+    CDEV: [historyTask("100.1", { owners: ["UBOB"] })],
   }));
   assert.equal(later.text, "You have no open acme tasks.");
   assert.equal(later.blocks[1].text.text, "You have no open tasks.");
@@ -1485,7 +1473,7 @@ test("someone with no open tasks in the group is told so", async (t) => {
 
 test("/cade tasks leaves out deleted tasks", async (t) => {
   const { later } = await tasksCommand(t, "tasks", "CDEV", {
-    CDEV: [historyTask("100.1", { developers: ["UACTOR"] }), historyTask("100.2", { developers: ["UACTOR"] })],
+    CDEV: [historyTask("100.1", { owners: ["UACTOR"] }), historyTask("100.2", { owners: ["UACTOR"] })],
   });
   assert.equal(later.text, "You have 2 open acme tasks.");
 
@@ -2010,23 +1998,23 @@ test("@Cade assign tester never changes the status", async (t) => {
 test("a task started before the click is not moved again", async (t) => {
   const calls = mockSlack(t, { stored: [withStatus("IN_REVIEW")] });
   recordResponses(t);
-  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("developer", ["UREX"], "IN_PROGRESS")));
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("owner", ["UREX"], "IN_PROGRESS")));
   assert.deepEqual((await savedTask()).status, "IN_REVIEW");
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
 });
 
-test("@Cade assign developer never changes the status", async (t) => {
+test("@Cade assign owner never changes the status", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UREX>"));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UREX>"));
   assert.deepEqual((await savedTask()).status, "TODO");
 });
 
 test("saying you've started asks nothing when there's nothing to change, or it isn't a task thread", async (t) => {
   for (const [text, root, overrides] of [
-    // A developer on a task that's under way.
+    // A owner on a task that's under way.
     ["started working on this", (() => {
       const root = withStatus("IN_PROGRESS");
-      root.task.people.developer = ["UACTOR"];
+      root.task.people.owner = ["UACTOR"];
       return root;
     })(), {}],
     // Anyone, on a task that's Done.
@@ -2093,19 +2081,20 @@ test("Client review on a task with no PRs shows no PRs line", async (t) => {
 });
 
 test("a task whose deletion failed after it was marked deleted can be removed again", async (t) => {
+  const ts = "1700000000.000100";
   const calls = mockSlack(t, {
-    stored: [withStatus("TODO")],
+    stored: [{ ...withStatus("TODO"), ts }],
     "conversations.replies": (args) => ({ messages: [{ ts: args.ts, bot_id: "BCADE" }] }),
   });
   await seeded;
-  await markTaskDeleted(env, "CDEV", "100.1");
-  await send("/slack/events", threadEvent("<@UBOT> remove"));
-  assert.match(calls.at(-1).args.text, /should I delete the task \*Fix login\*\?/);
+  await markTaskDeleted(env, "CDEV", ts);
+  const ask = (await runTasksCommand(`remove <${messageLink("CDEV", ts)}>`, "CDEV")).later;
+  assert.match(ask.text, /should I delete the task \*Fix login\*\?/);
 
-  await send("/slack/interactions", deleteClick("delete:confirm", "UACTOR"));
+  await answerPrivately(t, ask, "delete:confirm");
   assert.deepEqual(
     calls.filter((call) => call.method === "chat.delete").map((call) => call.args.ts),
-    ["100.1"],
+    [ts],
   );
 });
 
@@ -2140,7 +2129,7 @@ test("the ready to review message doesn't link to the team's task", async (t) =>
 test("assigning from the task's own thread still doesn't ask them again", async (t) => {
   const calls = mockSlack(t, { stored: [withStatus("IN_REVIEW")] });
   recordResponses(t);
-  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("developer", ["UREX"])));
+  await send("/slack/interactions", clickAssign("assign:suggest", assignValue("owner", ["UREX"])));
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
 });
 
@@ -2150,7 +2139,7 @@ test("@Cade unassign of someone not assigned changes nothing", async (t) => {
     ["<@UBOT> unassign tester <@UALICE>", "Looks like they aren't assigned to this task as tester."],
     ["<@UBOT> unassign <@UREX> <@UBOB>", "Looks like none of them are assigned to this task."],
   ]) {
-    const calls = mockSlack(t, { stored: [storedTask({ developers: ["UALICE"] })] });
+    const calls = mockSlack(t, { stored: [storedTask({ owners: ["UALICE"] })] });
     await send("/slack/events", threadEvent(text));
     assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"], text);
     assert.equal(calls[0].args.text, reply);
@@ -2177,11 +2166,11 @@ test("assign-style words without a mention are left alone", async (t) => {
 test("CHANNEL_PAIRS can be a JSON string, as the Cloudflare dashboard stores it", async (t) => {
   const calls = mockSlack(t);
   const asJson = { ...env, CHANNEL_PAIRS: JSON.stringify(env.CHANNEL_PAIRS) };
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "COTHER" }), {}, asJson);
-  assert.equal(calls[0].args.text, "That one works with `@Cade assign dev @person` in a task thread in <#CDEV> or <#CTESTDEV>.");
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>", { channel: "COTHER" }), {}, asJson);
+  assert.equal(calls[0].args.text, "That one works with `@Cade assign owner @person` in a task thread in <#CDEV> or <#CTESTDEV>.");
 
   const broken = mockSlack(t);
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"), {}, { ...env, CHANNEL_PAIRS: "[{" });
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"), {}, { ...env, CHANNEL_PAIRS: "[{" });
   assert.match(broken[0].args.text, /something went wrong/);
 });
 
@@ -2255,7 +2244,7 @@ test("npm run config checks the suggestions setting", async () => {
 
 test("suggestions can be turned off, all or some, and a kind turned off doesn't hand the message to the next", async (t) => {
   const record = () => {
-    const task = ownTask({ developers: ["UDEV1"] });
+    const task = ownTask({ owners: ["UDEV1"] });
     task.task.status = "IN_PROGRESS";
     return task;
   };
@@ -2411,7 +2400,7 @@ test("messages about work already in hand suggest nothing", async (t) => {
   // UDEV1 and UDEV2 develop it, UMIA reviews and UTOM tests, and it's In
   // progress: none of these needs a question.
   const task = () => {
-    const record = ownTask({ developers: ["UDEV1", "UDEV2"], reviewers: ["UMIA"], testers: ["UTOM"] });
+    const record = ownTask({ owners: ["UDEV1", "UDEV2"], reviewers: ["UMIA"], testers: ["UTOM"] });
     record.task.status = "IN_PROGRESS";
     return record;
   };
@@ -2504,8 +2493,8 @@ test("npm run slack:create asks for both tokens hidden", async () => {
 // D1 is the source of truth; root messages and the Sheet are rendered from it.
 
 test("each change is stored, and the root message is rendered from the stored task", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ developers: ["UALICE"] })] });
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  const calls = mockSlack(t, { stored: [storedTask({ owners: ["UALICE"] })] });
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   await send("/slack/events", threadEvent("<@UBOT> assign tester <@UTESS>"));
 
   // Slack is only written to: nothing is read back from it.
@@ -2515,17 +2504,17 @@ test("each change is stored, and the root message is rendered from the stored ta
     "chat.update",
     "chat.postMessage",
   ]);
-  assert.deepEqual((await savedTask()).people, { developer: ["UALICE", "UBOB"], reviewer: [], tester: ["UTESS"] });
+  assert.deepEqual((await savedTask()).people, { owner: ["UALICE", "UBOB"], reviewer: [], tester: ["UTESS"] });
   assert.equal(
     footerLines(calls[2].args)[0],
-    "Dev <@UALICE>, <@UBOB>  ·  Test <@UTESS>",
+    "Owner <@UALICE>, <@UBOB>  ·  Test <@UTESS>",
   );
 });
 
 test("a thread with no stored task isn't one", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   // The task is in CDEV; the same ts in another channel is a different message.
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CTESTDEV" }));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>", { channel: "CTESTDEV" }));
   assert.match(calls.at(-1).args.text, /not tracking a task in this thread/);
 });
 
@@ -2539,7 +2528,7 @@ test("a deleted task is kept in the database and no longer loads", async (t) => 
   assert.ok(await DB.prepare("SELECT 1 FROM tasks WHERE deleted_at IS NOT NULL").first());
 
   calls.length = 0;
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage"]);
   assert.match(calls[0].args.text, /not tracking a task in this thread/);
 });
@@ -2548,7 +2537,7 @@ test("the sheet uses the task's stored link instead of looking it up", async (t)
   const record = storedTask();
   record.task.link = "https://slack.example/stored";
   const calls = mockSlack(t, { ...slackUsers, stored: [record] });
-  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   assert.ok(!calls.some((call) => call.method === "chat.getPermalink"));
   assert.equal(sheetRow(calls)["Task link"], "https://slack.example/stored");
 });
@@ -2582,7 +2571,7 @@ test("the cron posts a task Slack refused, and finishes tracking it", async (t) 
   await age();
   await runCron();
 
-  assert.deepEqual(calls.map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "pins.add"]);
+  assert.deepEqual(withoutSummary(calls).map((call) => call.method), ["chat.postMessage", "chat.getPermalink", "pins.add"]);
   assert.equal(calls[0].args.channel, "CDEV");
   const task = await savedTask();
   assert.equal(task.title, "Fix login");
@@ -2632,22 +2621,22 @@ const dueIn = (days) => {
 test("/cade tasks @person shows their tasks, headed with their name", async (t) => {
   const { calls, later } = await tasksCommand(t, "tasks <@UBOB|bob>", "CDEV", {
     CDEV: [
-      historyTask("100.1", { title: "Bob's", developers: ["UBOB"] }),
-      historyTask("100.2", { title: "Mine", developers: ["UACTOR"] }),
+      historyTask("100.1", { title: "Bob's", owners: ["UBOB"] }),
+      historyTask("100.2", { title: "Mine", owners: ["UACTOR"] }),
       historyTask("100.3", { title: "Both", reviewers: ["UBOB", "UACTOR"] }),
     ],
   });
   assert.deepEqual(calls.map((call) => call.method).sort(), ["auth.test", "users.info"]);
   assert.equal(later.text, "<@UBOB> has 2 open acme tasks.");
   assert.equal(later.blocks[0].text.text, "Bob's acme tasks");
-  assert.match(later.blocks[1].text.text, /^\*Developing \(1\)\*\n• <[^|]+\|Bob's>/);
+  assert.match(later.blocks[1].text.text, /^\*Owned \(1\)\*\n• <[^|]+\|Bob's>/);
   assert.match(later.blocks[2].text.text, /^\*Reviewing \(1\)\*\n• <[^|]+\|Both>/);
 
   // Naming yourself is the same as naming no one.
-  const mine = await tasksCommand(t, "tasks <@UACTOR>", "CDEV", { CDEV: [historyTask("100.1", { developers: ["UACTOR"] })] });
+  const mine = await tasksCommand(t, "tasks <@UACTOR>", "CDEV", { CDEV: [historyTask("100.1", { owners: ["UACTOR"] })] });
   assert.equal(mine.later.text, "You have 1 open acme task.");
 
-  const none = await tasksCommand(t, "tasks review <@UBOB>", "CDEV", { CDEV: [historyTask("100.1", { developers: ["UBOB"] })] });
+  const none = await tasksCommand(t, "tasks review <@UBOB>", "CDEV", { CDEV: [historyTask("100.1", { owners: ["UBOB"] })] });
   assert.equal(none.later.text, "<@UBOB> has no open acme reviewing tasks.");
   assert.equal(none.later.blocks[1].text.text, "<@UBOB> has no open tasks.");
 });
@@ -2656,8 +2645,8 @@ test("/cade tasks -all shows everyone's tasks by status, with who works on them"
   const { later } = await tasksCommand(t, "tasks -all", "CDEV", {
     CDEV: [
       historyTask("100.1", { title: "Unassigned" }),
-      historyTask("100.2", { title: "Shared", developers: ["UALICE"], testers: ["UBOB", "UALICE"], status: "IN_TESTING" }),
-      historyTask("100.3", { title: "Finished", developers: ["UALICE"], status: "DONE" }),
+      historyTask("100.2", { title: "Shared", owners: ["UALICE"], testers: ["UBOB", "UALICE"], status: "IN_TESTING" }),
+      historyTask("100.3", { title: "Finished", owners: ["UALICE"], status: "DONE" }),
     ],
   });
   assert.equal(later.text, "There are 2 open acme tasks.");
@@ -2675,9 +2664,9 @@ test("/cade tasks -all shows everyone's tasks by status, with who works on them"
 test("/cade tasks -status shows only those statuses, Done included when named", async (t) => {
   const stored = {
     CDEV: [
-      historyTask("100.1", { title: "Started", developers: ["UACTOR"], status: "IN_PROGRESS" }),
-      historyTask("100.2", { title: "Waiting", developers: ["UACTOR"] }),
-      historyTask("100.3", { title: "Finished", developers: ["UACTOR"], status: "DONE" }),
+      historyTask("100.1", { title: "Started", owners: ["UACTOR"], status: "IN_PROGRESS" }),
+      historyTask("100.2", { title: "Waiting", owners: ["UACTOR"] }),
+      historyTask("100.3", { title: "Finished", owners: ["UACTOR"], status: "DONE" }),
     ],
   };
   const progress = await tasksCommand(t, "tasks -status=in-progress", "CDEV", stored);
@@ -2697,12 +2686,12 @@ test("/cade tasks -status shows only those statuses, Done included when named", 
 test("/cade tasks -due compares due dates with today, tomorrow or a date", async (t) => {
   const stored = {
     CDEV: [
-      historyTask("100.1", { title: "Late", developers: ["UACTOR"], dueDate: dueIn(-1) }),
-      historyTask("100.2", { title: "Today", developers: ["UACTOR"], dueDate: dueIn(0) }),
-      historyTask("100.3", { title: "Tomorrow", developers: ["UACTOR"], dueDate: dueIn(1) }),
-      historyTask("100.4", { title: "Someday", developers: ["UACTOR"], dueDate: "" }),
+      historyTask("100.1", { title: "Late", owners: ["UACTOR"], dueDate: dueIn(-1) }),
+      historyTask("100.2", { title: "Today", owners: ["UACTOR"], dueDate: dueIn(0) }),
+      historyTask("100.3", { title: "Tomorrow", owners: ["UACTOR"], dueDate: dueIn(1) }),
+      historyTask("100.4", { title: "Someday", owners: ["UACTOR"], dueDate: "" }),
       // Immediate counts as today.
-      historyTask("100.5", { title: "Down", developers: ["UACTOR"], dueDate: "Immediate" }),
+      historyTask("100.5", { title: "Down", owners: ["UACTOR"], dueDate: "Immediate" }),
     ],
   };
   const titles = (later) =>
@@ -2728,14 +2717,14 @@ test("/cade tasks -due compares due dates with today, tomorrow or a date", async
 test("/cade tasks options combine, in any order", async (t) => {
   const { later } = await tasksCommand(t, "tasks -due&lt;@today <@UBOB> dev -status=in-progress", "CDEV", {
     CDEV: [
-      historyTask("100.1", { title: "Match", developers: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(-2) }),
-      historyTask("100.2", { title: "Not late", developers: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(2) }),
+      historyTask("100.1", { title: "Match", owners: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(-2) }),
+      historyTask("100.2", { title: "Not late", owners: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(2) }),
       historyTask("100.3", { title: "Reviewing", reviewers: ["UBOB"], status: "IN_PROGRESS", dueDate: dueIn(-2) }),
-      historyTask("100.4", { title: "To do", developers: ["UBOB"], dueDate: dueIn(-2) }),
+      historyTask("100.4", { title: "To do", owners: ["UBOB"], dueDate: dueIn(-2) }),
     ],
   });
-  assert.equal(later.text, "<@UBOB> has 1 acme developing task: In progress  ·  Due before today.");
-  assert.equal(later.blocks[0].text.text, "Bob's acme tasks: Developing");
+  assert.equal(later.text, "<@UBOB> has 1 acme owned task: In progress  ·  Due before today.");
+  assert.equal(later.blocks[0].text.text, "Bob's acme tasks: Owned");
   assert.match(later.blocks[2].text.text, /\|Match>/);
 });
 
@@ -2765,7 +2754,7 @@ test("today is in the configured time zone", () => {
   assert.equal(todayIn({ TIMEZONE: "Asia/Colombo" }, lateEvening), "2026-10-25");
 });
 
-// /cade standup: the group's open tasks, one developer at a time, privately.
+// /cade standup: the group's open tasks, one owner at a time, privately.
 
 // A click on a standup message's button or menu, `action` as Slack sends it.
 const standupClick = (action) =>
@@ -2793,16 +2782,16 @@ async function clickButton(t, message, label) {
 
 const standupTasks = () => ({
   CDEV: [
-    historyTask("100.1", { title: "Bob's low", priority: "Low", developers: ["UBOB"] }),
-    historyTask("100.2", { title: "Bob's urgent", priority: "Urgent", developers: ["UBOB"], status: "IN_PROGRESS" }),
-    historyTask("100.3", { title: "Alice's", developers: ["UALICE"] }),
-    historyTask("100.4", { title: "Mine", developers: ["UACTOR"], status: "IN_REVIEW" }),
+    historyTask("100.1", { title: "Bob's low", priority: "Low", owners: ["UBOB"] }),
+    historyTask("100.2", { title: "Bob's urgent", priority: "Urgent", owners: ["UBOB"], status: "IN_PROGRESS" }),
+    historyTask("100.3", { title: "Alice's", owners: ["UALICE"] }),
+    historyTask("100.4", { title: "Mine", owners: ["UACTOR"], status: "IN_REVIEW" }),
     historyTask("100.5", { title: "Nobody's", testers: ["UALICE"] }),
-    historyTask("100.6", { title: "Done already", developers: ["UALICE"], status: "DONE" }),
+    historyTask("100.6", { title: "Done already", owners: ["UALICE"], status: "DONE" }),
   ],
 });
 
-test("/cade standup starts with whoever runs it, then everyone by name, then tasks with no developer", async (t) => {
+test("/cade standup starts with whoever runs it, then everyone by name, then tasks with no owner", async (t) => {
   const { now, later } = await tasksCommand(t, "standup", "CDEV", standupTasks());
   assert.equal(now, "");
   assert.equal(later.response_type, "ephemeral");
@@ -2831,8 +2820,8 @@ test("/cade standup starts with whoever runs it, then everyone by name, then tas
     ["standup:status:0", "standup:status:1"],
   );
 
-  const nobody = await clickButton(t, bob, "Next: No developer ▶");
-  assert.equal(nobody.blocks[0].text.text, "*Standup: no developer yet*  ·  4 of 4");
+  const nobody = await clickButton(t, bob, "Next: No owner ▶");
+  assert.equal(nobody.blocks[0].text.text, "*Standup: no owner yet*  ·  4 of 4");
   const [unassigned] = nobody.blocks.filter((block) => block.accessory);
   assert.match(unassigned.text.text, /\|Nobody's>/);
   assert.equal(unassigned.accessory.type, "users_select");
@@ -2861,12 +2850,12 @@ test("a standup's status menu sets the status and tells the task's thread", asyn
   assert.equal(sent.at(-1).blocks.find((block) => block.accessory).accessory.initial_option.value, "IN_TESTING");
 });
 
-test("/cade standup -unassigned goes through tasks with no developer, one at a time, to assign them", async (t) => {
+test("/cade standup -unassigned goes through tasks with no owner, one at a time, to assign them", async (t) => {
   const { calls, later } = await tasksCommand(t, "standup -unassigned", "CDEV", {
     CDEV: [
       historyTask("100.1", { title: "Low", priority: "Low" }),
       historyTask("100.2", { title: "Urgent", priority: "Urgent" }),
-      historyTask("100.3", { title: "Taken", developers: ["UBOB"] }),
+      historyTask("100.3", { title: "Taken", owners: ["UBOB"] }),
     ],
   });
   assert.equal(later.blocks[0].text.text, "*Unassigned acme tasks*  ·  1 of 2");
@@ -2880,12 +2869,12 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
     "/slack/interactions",
     standupClick({ action_id: first.accessory.action_id, block_id: first.block_id, selected_user: "UALICE" }),
   );
-  assert.deepEqual((await savedTask("CDEV", "100.2")).people.developer, ["UALICE"]);
+  assert.deepEqual((await savedTask("CDEV", "100.2")).people.owner, ["UALICE"]);
   const post = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(post.thread_ts, "100.2");
   assert.equal(
     post.text,
-    "<@UACTOR> assigned <@UALICE> as developer.\n<@UALICE>, could you pick this up when you get a chance? Thanks!",
+    "<@UACTOR> assigned <@UALICE> as owner.\n<@UALICE>, could you pick this up when you get a chance? Thanks!",
   );
   // Assigned, it leaves the walk: the next one takes its place.
   const next = sent.at(-1);
@@ -2898,7 +2887,7 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
     "/slack/interactions",
     standupClick({ action_id: last.accessory.action_id, block_id: last.block_id, selected_user: "UBOB" }),
   );
-  assert.equal(sent.at(-1).text, "Every open acme task has a developer. Nice!");
+  assert.equal(sent.at(-1).text, "Every open acme task has an owner. Nice!");
 });
 
 test("End and Finish remove the standup", async (t) => {
@@ -2916,19 +2905,19 @@ test("/cade standup says so when there's nothing to go through, and takes only -
   const wrong = await tasksCommand(t, "standup everyone", "CDEV", {});
   assert.equal(
     JSON.parse(wrong.now).text,
-    'I don\'t know "everyone" as an option. Send `/cade standup` to go through everyone\'s tasks, or `/cade standup -unassigned` for those with no developer.',
+    'I don\'t know "everyone" as an option. Send `/cade standup` to go through everyone\'s tasks, or `/cade standup -unassigned` for those with no owner.',
   );
   // It's the team's, so it runs in its channels.
   const outside = await tasksCommand(t, "standup", "COTHER", {});
   assert.equal(JSON.parse(outside.now).text, "That one works with `/cade standup` in <#CDEV> or <#CTESTDEV>.");
 });
 
-test("/cade tasks -unassigned lists open tasks with no developer", async (t) => {
+test("/cade tasks -unassigned lists open tasks with no owner", async (t) => {
   const { later } = await tasksCommand(t, "tasks -unassigned", "CDEV", standupTasks());
   assert.equal(later.text, "There is 1 open acme unassigned task.");
   assert.equal(later.blocks[0].text.text, "Unassigned acme tasks");
   assert.match(later.blocks[1].text.text, /^\*To do \(1\)\*\n• <[^|]+\|Nobody's>.*<@UALICE>$/);
-  assert.equal(parseTaskFilters("-unassigned <@UBOB>").error.split(" Try ")[0], "`-unassigned` shows tasks with no developer, so it can't take a role or a person.");
+  assert.equal(parseTaskFilters("-unassigned <@UBOB>").error.split(" Try ")[0], "`-unassigned` shows tasks with no owner, so it can't take a role or a person.");
   assert.equal(parseTaskFilters("-all -unassigned").error.split(" Try ")[0], "Use `-all` or `-unassigned`, not both.");
 });
 
@@ -2940,7 +2929,7 @@ const releaseThreads = (prs, releases = [], status = "IN_PROGRESS") => {
   const task = withStatus(status);
   task.task.prs = prs;
   task.task.releases = releases;
-  task.task.people.developer = ["UDEV"];
+  task.task.people.owner = ["UDEV"];
   return { stored: [task] };
 };
 
@@ -3672,7 +3661,7 @@ test("an incident's priority and due date can't be changed, and its Edit form le
   const calls = mockSlack(t, { stored: [incidentTask()] });
   await send("/slack/interactions", cardMenuClick("edit"));
   const form = calls[0].args.view;
-  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["developer", "reviewer", "tester", "status", "context", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id ?? block.type), ["owner", "reviewer", "tester", "status", "context", "prs"]);
   assert.match(blockText(form.blocks[4]), /Incidents are always :red_circle: Urgent and due Immediate/);
 });
 
@@ -3717,18 +3706,18 @@ test("asking for a role suggests adding whoever the request names, not someone o
 });
 
 test("one message can ask for several roles, each for whoever it names", async (t) => {
-  const calls = mockSlack(t, { stored: [taskWith("TODO", { developers: ["UREX"] })] });
+  const calls = mockSlack(t, { stored: [taskWith("TODO", { owners: ["UREX"] })] });
   await send("/slack/events", threadReply("<@UREX> please pick this up, <@UMIA> can you review it and <@UTOM> test it"));
   // UREX develops it already; developing it as well as testing it means the
   // work hasn't reached testing.
   assert.deepEqual(suggestedChanges(ephemeral(calls)), { people: { reviewer: add("UMIA"), tester: add("UTOM") } });
 });
 
-test("asking someone to implement it while the author tests it suggests them as developer, and the author as tester", async (t) => {
+test("asking someone to implement it while the author tests it suggests them as owner, and the author as tester", async (t) => {
   const calls = mockSlack(t, { stored: [taskWith("TODO")] });
   await send("/slack/events", threadReply("<@UUDARA> can you implement this feature while i will try about ways to test this"));
-  assert.deepEqual(suggestedChanges(ephemeral(calls)), { people: { developer: add("UUDARA"), tester: add("UACTOR") } });
-  assert.equal(ephemeral(calls).blocks[1].text.text, "*Developers:* <@UUDARA> (Add)\n*Testers:* <@UACTOR> (Add)");
+  assert.deepEqual(suggestedChanges(ephemeral(calls)), { people: { owner: add("UUDARA"), tester: add("UACTOR") } });
+  assert.equal(ephemeral(calls).blocks[1].text.text, "*Owners:* <@UUDARA> (Add)\n*Testers:* <@UACTOR> (Add)");
 
   // The author testing it, beside a review asked of someone else, doesn't
   // move it to In testing.
@@ -3744,10 +3733,10 @@ test("asking only for testing also suggests In testing", async (t) => {
   assert.deepEqual(suggestedChanges(ephemeral(calls)), { status: "IN_TESTING" });
 });
 
-test("the work starting suggests In progress, and adding as a developer someone not on the task", async (t) => {
+test("the work starting suggests In progress, and adding as an owner someone not on the task", async (t) => {
   for (const [text, people, changes] of [
-    ["on it", { developers: ["UACTOR"] }, { status: "IN_PROGRESS" }],
-    ["okay, started working on this", {}, { people: { developer: add("UACTOR") }, status: "IN_PROGRESS" }],
+    ["on it", { owners: ["UACTOR"] }, { status: "IN_PROGRESS" }],
+    ["okay, started working on this", {}, { people: { owner: add("UACTOR") }, status: "IN_PROGRESS" }],
     ["<@UREX> has started working on this", {}, { status: "IN_PROGRESS" }],
   ]) {
     const calls = mockSlack(t, { stored: [taskWith("TODO", people)] });
@@ -3760,7 +3749,7 @@ test("progress in words suggests the next status", async (t) => {
   for (const [text, record, user, status] of [
     ["lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", "IN_TESTING"],
     ["qa passed", taskWith("IN_TESTING", { testers: ["UACTOR"] }), "UACTOR", "DONE"],
-    ["merged and deployed", taskWith("IN_PROGRESS", { developers: ["UACTOR"] }), "UACTOR", "DONE"],
+    ["merged and deployed", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), "UACTOR", "DONE"],
   ]) {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadReply(text, { user }));
@@ -3796,21 +3785,21 @@ test("Accept applies the suggestion and tells the thread who changed what", asyn
 
 test("someone who assigns or removes themselves is named as themselves, and isn't asked anything", async (t) => {
   for (const [text, record, reply] of [
-    ["<@UBOT> assign dev <@UACTOR>", storedTask(), "<@UACTOR> assigned themselves as developer."],
+    ["<@UBOT> assign owner <@UACTOR>", storedTask(), "<@UACTOR> assigned themselves as owner."],
     [
-      "<@UBOT> assign dev <@UACTOR> <@UBOB>",
+      "<@UBOT> assign owner <@UACTOR> <@UBOB>",
       storedTask(),
-      "<@UACTOR> assigned themselves and <@UBOB> as developer.\n<@UBOB>, could you pick this up when you get a chance? Thanks!",
+      "<@UACTOR> assigned themselves and <@UBOB> as owner.\n<@UBOB>, could you pick this up when you get a chance? Thanks!",
     ],
-    ["<@UBOT> unassign dev <@UACTOR>", storedTask({ developers: ["UACTOR"] }), "<@UACTOR> removed themselves as developer."],
-    ["<@UBOT> unassign <@UACTOR>", storedTask({ developers: ["UACTOR"] }), "<@UACTOR> removed themselves from this task."],
+    ["<@UBOT> unassign owner <@UACTOR>", storedTask({ owners: ["UACTOR"] }), "<@UACTOR> removed themselves as owner."],
+    ["<@UBOT> unassign <@UACTOR>", storedTask({ owners: ["UACTOR"] }), "<@UACTOR> removed themselves from this task."],
   ]) {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadEvent(text));
     assert.equal(calls.find((call) => call.method === "chat.postMessage").args.text, reply, text);
   }
 
-  // Accepting "started working on this" makes the writer a developer, and
+  // Accepting "started working on this" makes the writer an owner, and
   // asks no one.
   let calls = mockSlack(t, { stored: [taskWith("TODO")] });
   await send("/slack/events", threadReply("okay, started working on this"));
@@ -3819,7 +3808,7 @@ test("someone who assigns or removes themselves is named as themselves, and isn'
   recordResponses(t);
   await send("/slack/interactions", answerSuggestion(question));
   const post = calls.filter((call) => call.method === "chat.postMessage").at(-1).args;
-  assert.equal(post.text, "<@UACTOR> assigned themselves as developer.\n<@UACTOR> set the status to :arrow_forward: In progress.");
+  assert.equal(post.text, "<@UACTOR> assigned themselves as owner.\n<@UACTOR> set the status to :arrow_forward: In progress.");
 
   // A tester who moves it to In testing isn't asked to test it.
   calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { testers: ["UACTOR", "UTOM"] })] });
@@ -3839,19 +3828,19 @@ test("Edit… on a suggestion by phrases opens the task's Edit form, filled in w
 });
 
 test("Accept leaves a suggested status alone once the task has moved, and Reject changes nothing", async (t) => {
-  let calls = mockSlack(t, { stored: [taskWith("TODO", { developers: ["UACTOR"] })] });
+  let calls = mockSlack(t, { stored: [taskWith("TODO", { owners: ["UACTOR"] })] });
   await send("/slack/events", threadReply("on it"));
   const question = ephemeral(calls);
 
   // Someone moved it to In review meanwhile.
-  calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { developers: ["UACTOR"] })] });
+  calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { owners: ["UACTOR"] })] });
   let sent = recordResponses(t);
   await send("/slack/interactions", answerSuggestion(question));
   assert.equal((await savedTask()).status, "IN_REVIEW");
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 
-  calls = mockSlack(t, { stored: [taskWith("TODO", { developers: ["UACTOR"] })] });
+  calls = mockSlack(t, { stored: [taskWith("TODO", { owners: ["UACTOR"] })] });
   sent = recordResponses(t);
   await send("/slack/interactions", answerSuggestion(question, 2));
   assert.deepEqual(calls, []);
@@ -3863,7 +3852,7 @@ test("suggestions follow the kinds turned on", async (t) => {
     ['["hand-offs"]', "lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", null],
     ['["progress"]', "lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", { status: "IN_TESTING" }],
     ['["progress"]', "<@UMIA> can you review this?", taskWith("IN_PROGRESS"), "UACTOR", null],
-    ['["hand-offs"]', "on it", taskWith("TODO", { developers: ["UACTOR"] }), "UACTOR", null],
+    ['["hand-offs"]', "on it", taskWith("TODO", { owners: ["UACTOR"] }), "UACTOR", null],
     // Asked for testing with progress off: the role, and the status with it.
     ['["hand-offs"]', "<@UTOM> please test it", taskWith("IN_PROGRESS"), "UACTOR", { people: { tester: add("UTOM") }, status: "IN_TESTING" }],
   ]) {
@@ -3877,25 +3866,25 @@ test("suggestions follow the kinds turned on", async (t) => {
 test("progress in words asks nothing for questions, doubts, people off the task or a task that's waiting", async (t) => {
   for (const [text, record, overrides] of [
     // Questions and doubts.
-    ["is it done?", taskWith("IN_PROGRESS", { developers: ["UACTOR"] }), {}],
-    ["not done yet", taskWith("IN_PROGRESS", { developers: ["UACTOR"] }), {}],
-    ["almost finished", taskWith("IN_PROGRESS", { developers: ["UACTOR"] }), {}],
-    ["I'll merge once it's approved", taskWith("IN_PROGRESS", { developers: ["UACTOR"] }), {}],
-    ["isn't merged", taskWith("IN_PROGRESS", { developers: ["UACTOR"] }), {}],
+    ["is it done?", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
+    ["not done yet", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
+    ["almost finished", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
+    ["I'll merge once it's approved", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
+    ["isn't merged", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), {}],
     // Someone who isn't on the task.
-    ["done", taskWith("IN_PROGRESS", { developers: ["UREX"] }), {}],
+    ["done", taskWith("IN_PROGRESS", { owners: ["UREX"] }), {}],
     // A reviewer approving a task that isn't in review.
     ["LGTM", taskWith("IN_PROGRESS", { reviewers: ["UACTOR"] }), {}],
     // A tester passing a task that isn't in testing.
     ["QA passed", taskWith("IN_REVIEW", { testers: ["UACTOR"] }), {}],
-    // A developer "approving" in testing isn't the tester.
-    ["looks good", taskWith("IN_TESTING", { developers: ["UACTOR"] }), {}],
+    // A owner "approving" in testing isn't the tester.
+    ["looks good", taskWith("IN_TESTING", { owners: ["UACTOR"] }), {}],
     // The client decides, or it's done.
-    ["done", taskWith("CLIENT_REVIEW", { developers: ["UACTOR"] }), {}],
-    ["done", taskWith("DONE", { developers: ["UACTOR"] }), {}],
+    ["done", taskWith("CLIENT_REVIEW", { owners: ["UACTOR"] }), {}],
+    ["done", taskWith("DONE", { owners: ["UACTOR"] }), {}],
     // Not a task thread.
     ["done", null, {}],
-    ["done", taskWith("IN_PROGRESS", { developers: ["UACTOR"] }), { channel: "COTHER" }],
+    ["done", taskWith("IN_PROGRESS", { owners: ["UACTOR"] }), { channel: "COTHER" }],
   ]) {
     const calls = mockSlack(t, { stored: record ? [record] : [] });
     await send("/slack/events", threadReply(text, overrides));
@@ -3909,12 +3898,12 @@ test("progressOptions reads the task, the writer and their words", async () => {
   const says = (text) => ({ text });
   assert.deepEqual(progressOptions(task("IN_REVIEW", { reviewers: ["U1"] }), "U1", says("lgtm")), ["IN_TESTING"]);
   assert.deepEqual(progressOptions(task("IN_TESTING", { testers: ["U1"] }), "U1", says("lgtm")), ["DONE"]);
-  assert.deepEqual(progressOptions(task("IN_PROGRESS", { developers: ["U1"] }), "U1", says("lgtm")), []);
-  assert.deepEqual(progressOptions(task("DONE", { developers: ["U1"] }), "U1", says("done")), []);
+  assert.deepEqual(progressOptions(task("IN_PROGRESS", { owners: ["U1"] }), "U1", says("lgtm")), []);
+  assert.deepEqual(progressOptions(task("DONE", { owners: ["U1"] }), "U1", says("done")), []);
 });
 
 test("a question about starting isn't taken as having started", async (t) => {
-  const calls = mockSlack(t, { stored: [taskWith("TODO", { developers: ["UACTOR"] })] });
+  const calls = mockSlack(t, { stored: [taskWith("TODO", { owners: ["UACTOR"] })] });
   await send("/slack/events", threadReply("should I start working on this?"));
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
 });
@@ -4073,7 +4062,7 @@ const syncupClick = (message, actionId) => {
 test("/cade syncup goes through the open tasks one at a time, most urgent first, each linking to its thread", async (t) => {
   const stored = {
     CDEV: [
-      historyTask("100.1", { title: "Low task", priority: "Low", developers: ["UALICE"] }),
+      historyTask("100.1", { title: "Low task", priority: "Low", owners: ["UALICE"] }),
       historyTask("100.2", { title: "High task", priority: "High", reviewers: ["UBOB"], prs: [PR] }),
       historyTask("100.3", { title: "Done task", status: "DONE" }),
       incidentHistoryTask("100.8", { title: "Checkout is down" }),
@@ -4137,7 +4126,7 @@ test("/cade syncup stays within the tasks still open, and says when there are no
 });
 
 test("a standup step with more tasks than fit says how many more", async (t) => {
-  const many = Array.from({ length: 23 }, (_, i) => historyTask(`100.${i + 10}`, { title: `Task ${i}`, developers: ["UALICE"] }));
+  const many = Array.from({ length: 23 }, (_, i) => historyTask(`100.${i + 10}`, { title: `Task ${i}`, owners: ["UALICE"] }));
   const { later } = await tasksCommand(t, "standup", "CDEV", { CDEV: many });
   assert.equal(later.blocks.at(-2).elements[0].text, "_…and 3 more, after these._");
 });
@@ -4172,17 +4161,17 @@ const canvasResponses = {
   "conversations.canvases.create": { canvas_id: "F0CANVAS" },
 };
 
-test("/cade summary in the dev channel puts the group's open tasks in its canvas, most urgent first", async (t) => {
+test("/cade resync summary puts the group's open tasks in the dev channel's canvas, most urgent first", async (t) => {
   const calls = mockSlack(t, canvasResponses);
   for (const [channel, record] of [
-    ["CDEV", historyTask("100.1", { title: "Low task", priority: "Low", developers: ["UALICE"] })],
+    ["CDEV", historyTask("100.1", { title: "Low task", priority: "Low", owners: ["UALICE"] })],
     ["CDEV", historyTask("100.2", { title: "High | [later]", priority: "High", dueDate: "05/11/2026", reviewers: ["UBOB"] })],
     ["CDEV", historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", status: "IN_PROGRESS" })],
     ["CDEV", historyTask("100.4", { title: "Done task", status: "DONE", completedAt: "2026-10-10T09:00:00.000Z" })],
-    ["CDEV", historyTask("100.5", { title: "Done later", status: "DONE", completedAt: "2026-10-20T09:00:00.000Z", developers: ["UBOB"] })],
+    ["CDEV", historyTask("100.5", { title: "Done later", status: "DONE", completedAt: "2026-10-20T09:00:00.000Z", owners: ["UBOB"] })],
     ["CDEV", incidentHistoryTask("100.8", { title: "Checkout is down", testers: ["UALICE", "UBOB"] })],
   ]) await putTask(env, channel, record.ts, record.task);
-  const { now, later } = await runTasksCommand("summary", "CDEV", env);
+  const { now, later } = await runTasksCommand("resync summary", "CDEV", env);
 
   assert.equal(now, "");
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date. Only I can edit it.");
@@ -4197,7 +4186,7 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   assert.match(markdown, /\n\n---\n\n## Closed\n\nThe last 2 done, most recently first\.\n\n/);
   // Without a Google Sheet, there's nothing to link to.
   assert.ok(!markdown.includes("Google Sheet"));
-  assert.ok(markdown.includes("| Title | Status | Priority | Due date | Dev | Reviewer | Tester |"));
+  assert.ok(markdown.includes("| Title | Status | Priority | Due date | Owner | Reviewer | Tester |"));
   const thread = (channel, ts) =>
     `(https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
   assert.deepEqual(summaryRows(markdown), [
@@ -4212,10 +4201,10 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
     `| [Done task]${thread("CDEV", "100.4")} | :white_check_mark:~Done | :large_orange_circle:~High | 31/10/2026 | — | — | — |`,
   ]);
 
-  // Sent again, the same canvas is rewritten.
+  // Sent again, the same canvas is rewritten, with its title.
   calls.length = 0;
-  const again = await runTasksCommand("summary", "CDEV", env);
-  assert.equal(again.later.text, "Updated the summary in this channel's canvas. Only I can edit it.");
+  const again = await runTasksCommand("resync summary", "CDEV", env);
+  assert.equal(again.later.text, "Resynced the summary in this channel's canvas. Only I can edit it.");
   const edits = calls.filter((call) => call.method === "canvases.edit");
   assert.deepEqual(edits.map((call) => call.args.canvas_id), ["F0CANVAS", "F0CANVAS"]);
   assert.deepEqual(edits.map((call) => JSON.parse(call.args.changes)[0].operation), ["replace", "rename"]);
@@ -4223,7 +4212,7 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   assert.ok(!calls.some((call) => call.method === "conversations.canvases.create"));
 });
 
-test("/cade summary uses the canvas the channel already has", async (t) => {
+test("the summary uses the canvas the channel already has", async (t) => {
   const calls = mockSlack(t, {
     "auth.test": { url: "https://acme.slack.com/" },
     "conversations.info": { channel: { id: "CDEV", properties: { canvas: { file_id: "F0THEIRS" } } } },
@@ -4238,7 +4227,7 @@ test("/cade summary uses the canvas the channel already has", async (t) => {
         ? (await fakeFetch(url, init), Response.json({ ok: false, error: "no_permission" }))
         : fakeFetch(url, init);
 
-  const { later } = await runTasksCommand("summary", "CDEV");
+  const { later } = await runTasksCommand("resync summary", "CDEV");
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
   const [edit, rename] = calls.filter((call) => call.method === "canvases.edit");
   assert.equal(edit.args.canvas_id, "F0THEIRS");
@@ -4249,33 +4238,40 @@ test("/cade summary uses the canvas the channel already has", async (t) => {
 
   // Saved, so it is used from now on.
   calls.length = 0;
-  await runTasksCommand("summary", "CDEV");
+  await runTasksCommand("resync summary", "CDEV");
   assert.equal(calls.find((call) => call.method === "canvases.edit").args.canvas_id, "F0THEIRS");
   assert.ok(!calls.some((call) => call.method === "conversations.canvases.create"));
 });
 
-test("/cade summary only works in a group's dev channel", async (t) => {
+test("/cade resync summary only works in a group's dev channel", async (t) => {
   const calls = mockSlack(t, canvasResponses);
-  const { now } = await runTasksCommand("summary", "CRANDOM");
-  assert.match(now, /summary/);
+  const { now } = await runTasksCommand("resync summary", "CRANDOM");
+  assert.equal(JSON.parse(now).text, "Send `/cade resync summary` in a group's dev channel, for its summary.");
   assert.ok(!calls.some((call) => /canvas/.test(call.method)));
 });
 
 test("a task change rewrites the summaries of its group that have one", async (t) => {
   const calls = mockSlack(t, { ...canvasResponses, stored: [storedTask()] });
-  await runTasksCommand("summary", "CDEV");
+  await runTasksCommand("resync summary", "CDEV");
   calls.length = 0;
 
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   const edit = calls.find((call) => call.method === "canvases.edit");
   assert.equal(edit.args.canvas_id, "F0CANVAS");
   assert.match(summaryRows(canvasMarkdown(edit))[0], /^\| \[Fix login\]\(https:[^)]+\) \| :memo:~To~do \| :large_orange_circle:~High \| 31\/10\/2026 \| !\[\]\(@UBOB\) \|/);
 });
 
-test("a task change touches no canvas until /cade summary has made one", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask()] });
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+test("a new task makes its group's summary canvas; other changes only rewrite one there is", async (t) => {
+  let calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
   assert.ok(!calls.some((call) => /canvas|auth\.test/.test(call.method)));
+
+  calls = mockSlack(t, { ...createdTask, ...canvasResponses });
+  await send("/slack/interactions", interaction(submission({ title: "Fix login", priority: "High" })));
+  const create = calls.find((call) => call.method === "conversations.canvases.create").args;
+  assert.equal(create.channel_id, "CDEV");
+  assert.match(canvasMarkdown({ args: create }), /\[Fix login\]/);
+  assert.deepEqual(calls.find((call) => call.method === "canvases.access.set").args, { canvas_id: "F0CANVAS", access_level: "read", channel_ids: '["CDEV"]' });
 });
 
 test("a long summary continues in another table, as a canvas table holds 300 cells", async (t) => {
@@ -4284,7 +4280,7 @@ test("a long summary continues in another table, as a canvas table holds 300 cel
     const record = historyTask(`100.${String(i).padStart(2, "0")}`, { title: `Task ${i}` });
     await putTask(env, "CDEV", record.ts, record.task);
   }
-  await runTasksCommand("summary", "CDEV");
+  await runTasksCommand("resync summary", "CDEV");
   const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   const tables = markdown.split("\n\n").filter((part) => part.startsWith("| Title"));
   assert.deepEqual(tables.map((part) => part.split("\n").length - 2), [41, 4]);
@@ -4300,7 +4296,7 @@ test("a summary's Closed section keeps the last 50 done", async (t) => {
     });
     await putTask(env, "CDEV", record.ts, record.task);
   }
-  await runTasksCommand("summary", "CDEV");
+  await runTasksCommand("resync summary", "CDEV");
   const markdown = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   const closed = summaryRows(markdown, "Closed");
   assert.equal(closed.length, 50);
@@ -4327,9 +4323,9 @@ const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
 //   100.5  "Old work", done long ago
 async function storeExecWork() {
   for (const record of [
-    historyTask("100.1", { title: "Export reports", status: "DONE", completedAt: daysAgo(2), developers: ["UALICE"] }),
-    historyTask("100.8", { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", incident: true, developers: ["UBOB"] }),
-    historyTask("100.3", { title: "Upgrade Node", priority: "Medium", status: "IN_REVIEW", developers: ["UALICE"] }),
+    historyTask("100.1", { title: "Export reports", status: "DONE", completedAt: daysAgo(2), owners: ["UALICE"] }),
+    historyTask("100.8", { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", incident: true, owners: ["UBOB"] }),
+    historyTask("100.3", { title: "Upgrade Node", priority: "Medium", status: "IN_REVIEW", owners: ["UALICE"] }),
     historyTask("100.5", { title: "Old work", status: "DONE", completedAt: daysAgo(30) }),
   ]) {
     await putTask(env, "CDEV", record.ts, record.task);
@@ -4653,7 +4649,7 @@ async function answerPrivately(t, question, actionId, environment = env) {
 
 // The task at CDEV/100.1 with `prs` linked.
 const ownReleaseTask = (prs, releases = []) => {
-  const record = ownTask({ developers: ["UDEV"] });
+  const record = ownTask({ owners: ["UDEV"] });
   Object.assign(record.task, { prs, releases });
   return { stored: [record] };
 };
@@ -4691,7 +4687,7 @@ test("PRs are sent for approval in the task's own thread", async (t) => {
   assert.match(ask.blocks[1].text.text, /^<@UPM>, could you take a look and approve them/);
   assert.equal(JSON.parse(ask.blocks[2].elements[0].value).approver, "UPM");
 
-  // The approver decides there, and the developers hear it.
+  // The approver decides there, and the owners hear it.
   for (const [action, status, said] of [
     ["release:approve", "APPROVED", `<@UDEV>, good news! <@UPM> approved <${PR}|cade/42>.`],
     ["release:reject", "NOT_APPROVED", `<@UDEV>, <@UPM> didn't approve <${PR}|cade/42>. Have a look at the thread for what needs to change, then send them again with \`@Cade release\`.`],
@@ -4712,7 +4708,7 @@ test("PRs are sent for approval in the task's own thread", async (t) => {
 });
 
 test("Client review asks the approver in the task's own thread", async (t) => {
-  const record = ownTask({ developers: ["UDEV"] });
+  const record = ownTask({ owners: ["UDEV"] });
   record.task.status = "IN_TESTING";
   record.task.prs = [PR];
   let calls = await clientReview(t, { stored: [record] }, { approver: "UPM" });
@@ -4781,12 +4777,16 @@ test("/cade remove <link> asks privately, then removes what the link points at",
       ...responses,
     });
 
-  // The task's root: deleted as `@Cade delete` would, asked privately.
+  // The task's root: its card and Cade's replies, asked privately.
   let calls = removing();
   let { now, later } = await runTasksCommand("remove <https://acme.slack.com/archives/CDEV/p1700000000000100>", "COTHER");
   assert.equal(now, "");
   assert.match(later.text, /^<@UACTOR>, should I delete the task \*Fix login\*\?/);
-  assert.equal(JSON.parse(later.blocks[1].elements[1].value).private, true);
+  const [cancel, button] = later.blocks[1].elements;
+  // Cancel is first and prominent; Delete is plain, and asks again.
+  assert.deepEqual([cancel.action_id, cancel.style], ["delete:cancel", "primary"]);
+  assert.deepEqual([button.action_id, button.style, Boolean(button.confirm)], ["delete:confirm", undefined, true]);
+  assert.deepEqual(JSON.parse(button.value), { kind: "task", channel: "CDEV", ts });
   let responses = await answerPrivately(t, later, "delete:confirm");
   assert.equal(await savedTask("CDEV", ts), null);
   assert.deepEqual(responses, [{ response_type: "ephemeral", replace_original: true, text: "Done, it's gone." }]);
@@ -5141,7 +5141,7 @@ test("the dev channel's summary links the group's Google Sheet", async (t) => {
   const calls = mockSlack(t, canvasResponses);
   await putTask(env, "CDEV", "100.1", historyTask("100.1", { title: "Low task", priority: "Low" }).task);
   const withSheet = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS) };
-  await runTasksCommand("summary", "CDEV", withSheet);
+  await runTasksCommand("resync summary", "CDEV", withSheet);
   const dev = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   assert.match(
     dev,
@@ -5168,7 +5168,7 @@ function aiEnv(answer) {
 
 // What the model read, with nothing changed but `fields`.
 const aiRead = (fields = {}) => ({
-  developer: { add: [], remove: [] },
+  owner: { add: [], remove: [] },
   reviewer: { add: [], remove: [] },
   tester: { add: [], remove: [] },
   status: "",
@@ -5191,12 +5191,12 @@ const aiClick = (button, extra = {}) =>
 
 test("AI's changes are checked against the message and the task", async () => {
   const { checkChanges } = await import("../src/ai.js");
-  const task = { status: "IN_PROGRESS", priority: "High", dueDate: "31/10/2026", people: { developer: ["UBOB"], reviewer: [], tester: [] } };
+  const task = { status: "IN_PROGRESS", priority: "High", dueDate: "31/10/2026", people: { owner: ["UBOB"], reviewer: [], tester: [] } };
   const message = { user: "UACTOR", mentions: ["UREX", "UMIA"] };
-  const allowed = { roles: ["developer", "reviewer", "tester"], status: true, details: true };
+  const allowed = { roles: ["owner", "reviewer", "tester"], status: true, details: true };
   const raw = aiRead({
-    // UZED wasn't mentioned, and UBOB is a developer already.
-    developer: { add: ["UREX", "UZED", "UBOB"], remove: ["UMIA"] },
+    // UZED wasn't mentioned, and UBOB is an owner already.
+    owner: { add: ["UREX", "UZED", "UBOB"], remove: ["UMIA"] },
     reviewer: { add: ["UMIA", "UMIA"], remove: [] },
     tester: { add: [], remove: ["UTOM"] },
     status: "IN_REVIEW",
@@ -5204,7 +5204,7 @@ test("AI's changes are checked against the message and the task", async () => {
     dueDate: "2026-02-30",
   });
   assert.deepEqual(checkChanges(raw, { task, message, allowed }), {
-    people: { developer: { add: ["UREX"], remove: [] }, reviewer: { add: ["UMIA"], remove: [] } },
+    people: { owner: { add: ["UREX"], remove: [] }, reviewer: { add: ["UMIA"], remove: [] } },
     status: "IN_REVIEW",
   });
   assert.deepEqual(checkChanges(aiRead({ priority: "Urgent", dueDate: "2026-11-06" }), { task, message, allowed }), {
@@ -5214,7 +5214,7 @@ test("AI's changes are checked against the message and the task", async () => {
   assert.deepEqual(checkChanges(aiRead({ dueDate: "clear" }), { task, message, allowed }), { dueDate: "" });
   // What isn't allowed is dropped; with nothing left, nothing changes.
   const narrow = { roles: ["reviewer"], status: false, details: false, author: false };
-  assert.equal(checkChanges(aiRead({ developer: { add: ["UREX"], remove: [] }, status: "DONE" }), { task, message, allowed: narrow }), null);
+  assert.equal(checkChanges(aiRead({ owner: { add: ["UREX"], remove: [] }, status: "DONE" }), { task, message, allowed: narrow }), null);
   // The author is added only when allowed.
   assert.deepEqual(
     checkChanges(aiRead({ reviewer: { add: ["UACTOR", "UREX"], remove: [] } }), { task, message, allowed: narrow }),
@@ -5226,14 +5226,14 @@ test("AI's changes are checked against the message and the task", async () => {
 test("with AI on, a message is read for every change and confirmed privately", async (t) => {
   const { environment, asked } = aiEnv(
     aiRead({
-      developer: { add: ["UREX"], remove: ["UBOB"] },
+      owner: { add: ["UREX"], remove: ["UBOB"] },
       reviewer: { add: ["UMIA"], remove: [] },
       status: "IN_PROGRESS",
       priority: "Urgent",
       dueDate: "2026-10-30",
     }),
   );
-  const calls = mockSlack(t, { ...slackUsers, stored: [ownTask({ developers: ["UBOB"] })] });
+  const calls = mockSlack(t, { ...slackUsers, stored: [ownTask({ owners: ["UBOB"] })] });
   calls.responses = recordResponses(t);
   const text = "<@UREX> can you take this over from <@UBOB>? <@UMIA> please review. Need it by Friday, it's blocking the release";
   await send("/slack/events", threadEvent(text), {}, environment);
@@ -5250,7 +5250,7 @@ test("with AI on, a message is read for every change and confirmed privately", a
   assert.equal(
     question.blocks[1].text.text,
     [
-      "*Developers:* <@UREX> (Add) · <@UBOB> (Remove)",
+      "*Owners:* <@UREX> (Add) · <@UBOB> (Remove)",
       "*Reviewers:* <@UMIA> (Add)",
       "*Status:* :memo: To do → :arrow_forward: In progress",
       "*Priority:* :large_orange_circle: High → :red_circle: Urgent",
@@ -5265,15 +5265,15 @@ test("with AI on, a message is read for every change and confirmed privately", a
   // again, and asked nothing.
   await send("/slack/interactions", aiClick(confirm), {}, environment);
   const saved = await savedTask();
-  assert.deepEqual(saved.people, { developer: ["UREX"], reviewer: ["UMIA"], tester: [] });
+  assert.deepEqual(saved.people, { owner: ["UREX"], reviewer: ["UMIA"], tester: [] });
   assert.deepEqual([saved.status, saved.priority, saved.dueDate], ["IN_PROGRESS", "Urgent", "30/10/2026"]);
   const posts = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1");
   assert.equal(posts.length, 1);
   assert.equal(
     posts[0].args.text,
     [
-      "<@UACTOR> assigned Rex as developer.",
-      "<@UACTOR> removed Bob as developer.",
+      "<@UACTOR> assigned Rex as owner.",
+      "<@UACTOR> removed Bob as owner.",
       "<@UACTOR> assigned Mia as reviewer.",
       "<@UACTOR> set the priority to :red_circle: Urgent.",
       "<@UACTOR> set the due date to 30/10/2026.",
@@ -5294,7 +5294,7 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
   const form = calls.at(-1).args.view;
   assert.equal(calls.at(-1).method, "views.open");
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["developer", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
   assert.deepEqual(form.blocks[2].element.initial_users, ["UTOM", "UTESS"]);
   assert.equal(form.blocks[3].element.initial_option.value, "IN_TESTING");
   assert.equal(form.blocks[5].element.initial_date, "2026-10-31");
@@ -5310,7 +5310,7 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
         private_metadata: form.private_metadata,
         state: {
           values: {
-            developer: { value: { selected_users: [] } },
+            owner: { value: { selected_users: [] } },
             reviewer: { value: { selected_users: [] } },
             tester: { value: { selected_users: ["UTESS"] } },
             status: { value: { selected_option: { value: "IN_TESTING" } } },
@@ -5439,20 +5439,20 @@ test("npm run config checks each group's suggestions and ai, and npm run group k
 });
 
 test("the card's Edit opens one form with everything, and saving it applies what changed as one message", async (t) => {
-  const record = ownTask({ developers: ["UREX"], reviewers: ["UMIA"] });
+  const record = ownTask({ owners: ["UREX"], reviewers: ["UMIA"] });
   const calls = mockSlack(t, { stored: [record] });
   await send("/slack/interactions", cardMenuClick("edit"));
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
   const form = calls[0].args.view;
   assert.equal(form.callback_id, "task:edit");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["developer", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["owner", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
   assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
   assert.equal(form.blocks[3].element.initial_option.value, "TODO");
 
   // A PR linked with the status left alone moves the task to In review, and
   // the reviewer is asked; a tester is added too.
   const values = {
-    developer: { value: { selected_users: ["UREX"] } },
+    owner: { value: { selected_users: ["UREX"] } },
     reviewer: { value: { selected_users: ["UMIA"] } },
     tester: { value: { selected_users: ["UTESS"] } },
     status: { value: { selected_option: { value: "TODO" } } },
@@ -5474,15 +5474,6 @@ test("the card's Edit opens one form with everything, and saving it applies what
   // A link that isn't a PR is refused in the form.
   const refused = await submit({ ...values, prs: { value: { value: "not a link" } } });
   assert.match(JSON.stringify(await refused.json()), /doesn't look like a pull request link/);
-});
-
-test("the card's Delete opens a panel with only Delete", async (t) => {
-  const calls = mockSlack(t, { stored: [ownTask()] });
-  await send("/slack/interactions", cardMenuClick("delete"));
-  const own = calls[0].args.view;
-  assert.equal(own.title.text, "Delete");
-  assert.deepEqual(own.blocks[1].elements.map((button) => button.action_id), ["task:more:delete"]);
-  assert.equal(own.blocks.length, 2);
 });
 
 test("AI only adds the author to a role when their message speaks of themselves", async (t) => {

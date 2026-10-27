@@ -18,15 +18,15 @@ const STATUS_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:stat
 const ASSIGN_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:assign:${i}`);
 
 // `/cade standup` in a group's tasks channel goes through the
-// group's open tasks with whoever runs it, one developer at a time: you
-// first, then everyone else by name, then the tasks with no developer. Each
-// developer's step lists their tasks, most urgent first, each with a status
-// menu that works as `@Cade status` does; the tasks with no developer each
+// group's open tasks with whoever runs it, one owner at a time: you
+// first, then everyone else by name, then the tasks with no owner. Each
+// owner's step lists their tasks, most urgent first, each with a status
+// menu that works as `@Cade status` does; the tasks with no owner each
 // have a menu to pick one, which assigns them as `@Cade assign` does.
 // Changes are posted in each task's thread, for the team to see.
 //
-// `/cade standup -unassigned` goes through just the tasks with no developer,
-// one at a time, to pick each one's developer.
+// `/cade standup -unassigned` goes through just the tasks with no owner,
+// one at a time, to pick each one's owner.
 //
 // Only whoever runs it sees it, so they can share their screen. Each step is
 // read afresh from the database, so it shows changes made meanwhile. Its
@@ -35,7 +35,7 @@ const ASSIGN_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:assi
 export default {
   name: "standup",
   description:
-    "Go through the open tasks one developer at a time, only to you (`-unassigned` to give tasks a developer)",
+    "Go through the open tasks one owner at a time, only to you (`-unassigned` to give tasks an owner)",
   slashUsage: "/cade standup",
   section: "work",
   slashChannel: "tasks",
@@ -43,7 +43,7 @@ export default {
     const option = command.text.trim();
     const unassigned = /^(?:--?|[—–])unassigned$/i.test(option);
     if (option && !unassigned) {
-      return `I don't know "${escapeSlack(option)}" as an option. Send \`/cade standup\` to go through everyone's tasks, or \`/cade standup -unassigned\` for those with no developer.`;
+      return `I don't know "${escapeSlack(option)}" as an option. Send \`/cade standup\` to go through everyone's tasks, or \`/cade standup -unassigned\` for those with no owner.`;
     }
     const group = findPair(context.env, command.channel);
     const walk = { m: unassigned ? "unassigned" : "people", g: group.name, l: command.user, i: 0 };
@@ -73,7 +73,7 @@ export default {
       ASSIGN_ACTIONS.map((id) => [
         id,
         async (payload, context) => {
-          context.waitUntil(assignDeveloper(payload, context.env));
+          context.waitUntil(assignOwner(payload, context.env));
         },
       ]),
     ),
@@ -94,45 +94,45 @@ async function changeStatus(payload, env) {
   await show(payload, env, walk);
 }
 
-// A task's developer menu: assigns them, tells the task's thread and asks
+// A task's owner menu: assigns them, tells the task's thread and asks
 // them to start, and shows the step again, where the task no longer is.
-async function assignDeveloper(payload, env) {
+async function assignOwner(payload, env) {
   const action = payload.actions[0];
   const { c: channel, t: ts, ...walk } = JSON.parse(action.block_id);
-  const developer = action.selected_user;
+  const owner = action.selected_user;
   const task = await loadTask(env, channel, ts);
-  if (task && developer && !task.people.developer.includes(developer)) {
-    task.people.developer = [...task.people.developer, developer];
+  if (task && owner && !task.people.owner.includes(owner)) {
+    task.people.owner = [...task.people.owner, owner];
     await saveTask(env, channel, ts, task);
     const user = payload.user.id;
     // Picking yourself needs no request.
-    const asked = developer !== user && request([developer], "developer");
-    const text = [assigned(user, [developer], "developer"), asked].filter(Boolean).join("\n");
+    const asked = owner !== user && request([owner], "owner");
+    const text = [assigned(user, [owner], "owner"), asked].filter(Boolean).join("\n");
     await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
   }
   await show(payload, env, walk);
 }
 
 // The walk's steps, read afresh: for a standup, { person, name, entries } per
-// developer, whoever runs it first, then { entries } for the tasks with no
-// developer; for -unassigned, { entries } with one task each.
+// owner, whoever runs it first, then { entries } for the tasks with no
+// owner; for -unassigned, { entries } with one task each.
 async function steps(env, walk, url) {
   const group = channelPairs(env).find((pair) => pair.name === walk.g);
   const tasks = group ? await groupTasks(env, group, OPEN, url) : [];
-  const unassigned = tasks.filter((entry) => !entry.task.people.developer.length).sort(byUrgency);
+  const unassigned = tasks.filter((entry) => !entry.task.people.owner.length).sort(byUrgency);
   if (walk.m === "unassigned") return unassigned.map((entry) => ({ entries: [entry] }));
 
-  const developers = [...new Set(tasks.flatMap((entry) => entry.task.people.developer))];
+  const owners = [...new Set(tasks.flatMap((entry) => entry.task.people.owner))];
   const names = Object.fromEntries(
-    await Promise.all(developers.map(async (id) => [id, await userNames(env, [id])])),
+    await Promise.all(owners.map(async (id) => [id, await userNames(env, [id])])),
   );
   // Whoever runs it goes first.
   const order = (id) => (id === walk.l ? 0 : 1);
-  developers.sort((a, b) => order(a) - order(b) || names[a].localeCompare(names[b]));
-  const people = developers.map((person) => ({
+  owners.sort((a, b) => order(a) - order(b) || names[a].localeCompare(names[b]));
+  const people = owners.map((person) => ({
     person,
     name: names[person],
-    entries: tasks.filter((entry) => entry.task.people.developer.includes(person)).sort(byUrgency),
+    entries: tasks.filter((entry) => entry.task.people.owner.includes(person)).sort(byUrgency),
   }));
   return unassigned.length ? [...people, { entries: unassigned }] : people;
 }
@@ -145,7 +145,7 @@ async function render(env, walk) {
   const all = await steps(env, walk, url);
   if (walk.i >= all.length) {
     const text = walk.m === "unassigned"
-      ? `Every open ${walk.g} task has a developer. Nice!`
+      ? `Every open ${walk.g} task has an owner. Nice!`
       : all.length ? "That's everyone. Thanks, all!" : `No one has open ${walk.g} tasks right now.`;
     return { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
   }
@@ -154,7 +154,7 @@ async function render(env, walk) {
   const of = `${walk.i + 1} of ${all.length}`;
   let title;
   if (step.person) title = `*Standup: <@${step.person}>*  ·  ${of}`;
-  else if (walk.m === "people") title = `*Standup: no developer yet*  ·  ${of}`;
+  else if (walk.m === "people") title = `*Standup: no owner yet*  ·  ${of}`;
   else title = `*Unassigned ${walk.g} tasks*  ·  ${of}`;
   const count = step.entries.length === 1 ? "1 open task" : `${step.entries.length} open tasks`;
   const blocks = [
@@ -174,7 +174,7 @@ async function render(env, walk) {
       : {
           type: "users_select",
           action_id: ASSIGN_ACTIONS[place],
-          placeholder: plainText("Pick a developer"),
+          placeholder: plainText("Pick an owner"),
         };
     blocks.push({ type: "section", block_id, text: mrkdwn(line(entry)), accessory });
   });
@@ -194,7 +194,7 @@ async function render(env, walk) {
   if (walk.i > 0) buttons.push(go(BACK_ACTION, walk.i - 1, "◀ Back"));
   const next = all[walk.i + 1];
   if (next) {
-    const label = walk.m === "unassigned" ? "Skip" : `Next: ${next.name ?? "No developer"}`;
+    const label = walk.m === "unassigned" ? "Skip" : `Next: ${next.name ?? "No owner"}`;
     buttons.push(go(NEXT_ACTION, walk.i + 1, `${label} ▶`.slice(0, 75), "primary"));
   }
   buttons.push({

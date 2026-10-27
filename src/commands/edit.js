@@ -5,7 +5,7 @@ import { statusOption } from "./status.js";
 
 const EDIT_VIEW = "task:edit";
 
-// The Edit form: everything on a task in one place, its developers,
+// The Edit form: everything on a task in one place, its owners,
 // reviewers and testers, status, priority and due date, and pull requests.
 // An incident's priority and due date never change, so its form leaves them
 // out. The task card's ⋯ → Edit opens it as the task stands (see menu.js),

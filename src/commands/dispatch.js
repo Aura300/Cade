@@ -8,9 +8,9 @@ export async function dispatch(command, context) {
   if (!handler) return usage();
   const scope = { channel: handler.channel, inThread: handler.inThread };
   if (!handler.run) {
-    return `That one's a slash command: try \`${handler.slashUsage}\`${channelHint(slashScope(handler), context.env, command.channel)}.`;
+    return `That one's a slash command: try \`${[handler.slashUsage].flat()[0]}\`${channelHint(slashScope(handler), context.env, command.channel)}.`;
   }
-  return runHandler(handler, handler.run, handler.usage, scope, command, context);
+  return runHandler(handler, handler.run, [handler.usage].flat()[0], scope, command, context);
 }
 
 // Runs a `/cade name` slash command and returns the reply to show privately
@@ -19,8 +19,8 @@ export async function dispatch(command, context) {
 export async function dispatchSlash(command, context) {
   const handler = commands[command.name];
   if (!handler) return usage();
-  if (!handler.slash) return `For that one, send \`${handler.usage}\`${handler.inThread ? " in a task thread" : ""}.`;
-  return runHandler(handler, handler.slash, handler.slashUsage, slashScope(handler), command, context);
+  if (!handler.slash) return `For that one, send \`${[handler.usage].flat()[0]}\`${handler.inThread ? " in a task thread" : ""}.`;
+  return runHandler(handler, handler.slash, [handler.slashUsage].flat()[0], slashScope(handler), command, context);
 }
 
 // Slash commands are never in a thread, and can work in other channels than
@@ -76,29 +76,25 @@ function channelHint(scope, env, from) {
   return channels.length ? ` in ${channels.map((id) => `<#${id}>`).join(" or ")}` : "";
 }
 
-// Help is three lines, one per section, listing each command's forms. In a
-// task thread, saying it in your own words comes first: Cade offers to
-// assign people or link PRs from what you write, and the commands are there
-// for anything else.
-const SECTIONS = [
-  ["start", "Start"],
-  ["thread", "In a task thread"],
-  ["work", "Your work"],
-];
-
+// Help lists the commands by how they're sent: the slash commands, at the
+// top of a channel; the `@Cade` messages, sent in a message's thread or a
+// task's; the message shortcuts; and the admin commands, for tidying up.
 function usage() {
-  const handlers = [...new Set(Object.values(commands))];
-  const lines = SECTIONS.map(([section, title]) => {
-    const forms = handlers
-      .filter((handler) => handler.section === section)
-      .flatMap(({ slashUsage, usage }) => [slashUsage, usage].filter(Boolean))
-      .map((form) => `\`${form}\``)
-      .join(" · ");
-    const words =
-      section === "thread"
-        ? "Just talk to me: write \"@person please look into this\" or paste a PR link, and I'll offer to assign or link it. Or: "
-        : "";
-    return `*${title}:* ${words}${forms}`;
-  });
-  return `Here's what I can do:\n${lines.join("\n")}\nSend \`@Cade help\` or \`/cade help\` any time to see this again.`;
+  const all = [...new Set(Object.values(commands))];
+  const handlers = all.filter((handler) => !handler.admin);
+  const slash = handlers.filter((handler) => handler.slashUsage).flatMap((handler) => handler.slashUsage);
+  const messages = (section) => handlers.filter((handler) => handler.section === section && handler.usage).flatMap((handler) => handler.usage);
+  const admin = all.filter((handler) => handler.admin).flatMap((handler) => handler.slashUsage);
+  const list = (forms) => forms.map((form) => `\`${form}\``).join(" · ");
+  return [
+    "Here's what I can do:",
+    "*Slash commands*, at the top of a channel:",
+    list(slash),
+    "*Messages*, sent in a thread:",
+    `• In a message's thread: ${list(messages("message"))}`,
+    `• In a task's thread: ${list(messages("task"))}`,
+    "*On any message*: ⋯ → More actions → New task, New incident or Move to existing.",
+    `*Admin commands*, for tidying up: ${list(admin)}`,
+    "Send `@Cade help` or `/cade help` any time to see this again.",
+  ].join("\n");
 }

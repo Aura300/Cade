@@ -87,6 +87,8 @@ export async function putTask(env, channel, ts, task) {
   await upsert(env, "tasks", channel, ts, taskToRow(task));
 }
 
+// Stops tracking the task: deleted, or archived (see archive.js), whose
+// messages stay.
 export async function markTaskDeleted(env, channel, ts) {
   await env.DB.prepare(
     "UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP WHERE channel = ? AND ts = ?",
@@ -370,7 +372,9 @@ function taskToRow(task) {
     priority: task.priority,
     status: task.status,
     due_date: task.dueDate ?? "",
-    developers: JSON.stringify(task.people.developer),
+    // The owners are kept in the developers column, from before the role
+    // was renamed.
+    developers: JSON.stringify(task.people.owner),
     reviewers: JSON.stringify(task.people.reviewer),
     testers: JSON.stringify(task.people.tester),
     prs: JSON.stringify(task.prs ?? []),
@@ -388,7 +392,7 @@ function taskFromRow(row) {
     status: row.status,
     dueDate: row.due_date,
     people: {
-      developer: JSON.parse(row.developers),
+      owner: JSON.parse(row.developers),
       reviewer: JSON.parse(row.reviewers),
       tester: JSON.parse(row.testers),
     },

@@ -37,8 +37,8 @@ const HOW = "Try `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 export default {
   name: "pr",
   description: "Link or unlink pull requests (in a task thread)",
-  usage: "@Cade pr add <link>",
-  section: "thread",
+  usage: ["@Cade pr add <link>", "@Cade pr remove <link>"],
+  section: "task",
   channel: "tasks",
   inThread: true,
   async run(command, { env }) {

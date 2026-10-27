@@ -53,22 +53,22 @@ const PEOPLE = {
 const SCHEMA = {
   type: "object",
   properties: {
-    developer: PEOPLE,
+    owner: PEOPLE,
     reviewer: PEOPLE,
     tester: PEOPLE,
     status: { type: "string", enum: ["", ...Object.keys(STATUSES)] },
     priority: { type: "string", enum: ["", ...Object.keys(PRIORITIES)] },
     dueDate: { type: "string", description: "YYYY-MM-DD, \"clear\" to remove it, or \"\"" },
   },
-  required: ["developer", "reviewer", "tester", "status", "priority", "dueDate"],
+  required: ["owner", "reviewer", "tester", "status", "priority", "dueDate"],
 };
 
-const INSTRUCTIONS = `You read one Slack message posted in the thread of a software task, and say what it asks to change on the task. Reply with JSON only.
+const INSTRUCTIONS = `You read one Slack message posted in the thread of a task, usually a software one, and say what it asks to change on the task. Reply with JSON only.
 
 People are Slack user IDs such as U0123ABC. In the message, <@U0123ABC> mentions that person. "author" wrote the message.
 
 Roles:
-- developer: builds, implements or fixes it ("can you implement this", "pick this up", "take this over").
+- owner: does the work, whatever it is: builds, implements or fixes it, or takes it on ("can you implement this", "pick this up", "take this over", "can you handle this").
 - reviewer: reviews the code or pull request ("can you review").
 - tester: tests it or does QA ("can you test", "QA this", "verify").
 Add a person to a role only when the message asks that person to do that work, or the author says they will do it themselves ("I'll test it", "while I test this", "on it"). "remove" lists who should stop ("take over from @bob" removes @bob). Use only IDs from "mentioned", "author" or the task's people, and don't add someone who already has the role.
@@ -80,7 +80,7 @@ Priorities: ${Object.keys(PRIORITIES).join(", ")}. Set one only when the message
 dueDate: when the message sets a deadline, as YYYY-MM-DD; for a weekday ("by Friday") or "tomorrow", take the date from "comingDays". "clear" if it says there's no deadline anymore.
 
 Examples (author UA):
-- "<@UB> can you implement this while I test it" → developer add UB, tester add UA.
+- "<@UB> can you implement this while I test it" → owner add UB, tester add UA.
 - "lgtm" from a reviewer, task IN_REVIEW → status IN_TESTING, no one added.
 - "urgent, client needs it by Friday" → priority Urgent, dueDate that Friday, no one added.
 - "will start on this tomorrow" → nothing.

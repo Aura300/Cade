@@ -6,7 +6,7 @@ import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
 
 // What each role is doing, as the list's headings.
 const DOING = {
-  developer: "Developing",
+  owner: "Owned",
   reviewer: "Reviewing",
   tester: "Testing",
 };
@@ -16,7 +16,7 @@ const MAX_LISTED = 15;
 
 // The words `/cade tasks <role>` takes for each role.
 const ROLE_WORDS = {
-  developer: ["development", "developing", "developer", "dev"],
+  owner: ["owned", "owner", "owning", "development", "developing", "developer", "dev"],
   reviewer: ["review", "reviewing", "reviewer"],
   tester: ["testing", "test", "tester"],
 };
@@ -25,17 +25,17 @@ const ROLE_WORDS = {
 export const OPEN = Object.keys(STATUSES).filter((status) => status !== "DONE");
 
 const USAGE =
-  "Try `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
+  "Try `/cade tasks` for your open tasks, with any of: `owned`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no owner; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
 // `/cade tasks` in any channel lists the open tasks you are assigned to, by
 // group (channel pair): each group's dev channel's.
-// They are grouped by your role (developing, reviewing, testing), incidents
+// They are grouped by your role (owned, reviewing, testing), incidents
 // first, then by priority and due date, each linking to its thread. Done
 // tasks are left out. It takes, in any order (see parseTaskFilters):
-//   development, review, testing   only that role
+//   owned, review, testing         only that role
 //   @person                        their tasks instead of yours
 //   -all                           everyone's tasks, by status
-//   -unassigned                    tasks with no developer, by status
+//   -unassigned                    tasks with no owner, by status
 //   -status=in-progress,…          only those statuses (Done too, if named)
 //   -due=…, -due<…, -due>=…        by due date: a date, @today, @tomorrow,
 //                                  or none
@@ -123,7 +123,7 @@ export function parseTaskFilters(text) {
     return fail("`-all` shows everyone's tasks, so it can't take a role or a person.");
   }
   if (filters.unassigned && (role || filters.user)) {
-    return fail("`-unassigned` shows tasks with no developer, so it can't take a role or a person.");
+    return fail("`-unassigned` shows tasks with no owner, so it can't take a role or a person.");
   }
   if (role) filters.roles = [role];
   return filters;
@@ -186,7 +186,7 @@ async function taskList(env, filters, group, url) {
     due(entry.task.dueDate),
   );
   if (filters.unassigned) {
-    const unassigned = found.filter((entry) => !entry.task.people.developer.length);
+    const unassigned = found.filter((entry) => !entry.task.people.owner.length);
     return everyonesList(filters, group, unassigned, `Unassigned ${group.name} tasks`);
   }
   return filters.all ? everyonesList(filters, group, found) : personsList(filters, group, found);

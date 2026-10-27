@@ -65,7 +65,7 @@ export default {
   name: "status",
   description: "Update the task's status (in its thread)",
   usage: "@Cade status in review",
-  section: "thread",
+  section: "task",
   channel: "tasks",
   inThread: true,
   async run(command, { env }) {
@@ -105,11 +105,11 @@ export default {
 //     tracked it) saying it's finished: Done.
 // A task in Client review waits for the client, and a Done one is done.
 export function progressOptions(task, user, message) {
-  const { developer, reviewer, tester } = task.people;
+  const { owner, reviewer, tester } = task.people;
   if (task.status === "IN_REVIEW" && reviewer.includes(user) && APPROVED(message)) return ["IN_TESTING"];
   const finishing =
     (task.status === "IN_TESTING" && tester.includes(user) && (PASSED(message) || APPROVED(message))) ||
-    ([...developer, ...reviewer, ...tester, task.createdBy].includes(user) && FINISHED(message));
+    ([...owner, ...reviewer, ...tester, task.createdBy].includes(user) && FINISHED(message));
   if (!finishing || ["CLIENT_REVIEW", "DONE"].includes(task.status)) return [];
   return ["DONE"];
 }

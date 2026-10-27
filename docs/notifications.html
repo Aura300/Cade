@@ -40,7 +40,7 @@
     <div class="kinds">
       <div class="box">
         <h3>First, the change log</h3>
-        <p>A line per change, who made it and what it was: “@ann assigned @rex, @bob as developer.” The thread keeps a log of every change. Someone changing their own part reads as “@rex assigned themselves as developer.”, and isn't asked or told anything, since they made the change. When a change comes from a suggestion, the people its message mentioned were notified by it already: they're named rather than mentioned (“@ann assigned Tom as tester.”), and not asked again.</p>
+        <p>A line per change, who made it and what it was: “@ann assigned @rex, @bob as owner.” The thread keeps a log of every change. Someone changing their own part reads as “@rex assigned themselves as owner.”, and isn't asked or told anything, since they made the change. When a change comes from a suggestion, the people its message mentioned were notified by it already: they're named rather than mentioned (“@ann assigned Tom as tester.”), and not asked again.</p>
       </div>
       <div class="box">
         <h3>Then, what it means for them</h3>
@@ -51,7 +51,7 @@
     <ul class="rules">
       <li><b>Reviewers</b> are asked when a PR is linked, or when they're assigned and there are pending PRs (not yet sent for approval). They're asked about those PRs.</li>
       <li><b>Testers</b> are asked when the task moves to In testing, or when they're assigned and it's In testing already.</li>
-      <li><b>Developers</b> are asked when they're assigned, unless the task is Done.</li>
+      <li><b>Owners</b> are asked when they're assigned, unless the task is Done.</li>
       <li><b>Those removed</b> are told there's no need anymore only if they'd have been asked.</li>
     </ul>
     <ul class="toc">
@@ -67,13 +67,13 @@
 <section id="assign">
   <div class="wrap">
     <div class="eyebrow">Assigning people</div>
-    <h2>Developers, reviewers and testers</h2>
+    <h2>Owners, reviewers and testers</h2>
     <div class="entries">
 
       <article class="entry">
-        <h3><code>@Cade assign dev @rex</code></h3>
+        <h3><code>@Cade assign owner @rex</code></h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex as developer.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @rex as owner.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
         </dl>
         <p>A reviewer is asked about the pending PRs: “@mia, could you review web/12 when you get a chance? Thanks!” A tester is asked to “give this a test” once the task is In testing.</p>
       </article>
@@ -89,7 +89,7 @@
       <article class="entry">
         <h3>Task card ⋯ → Edit, or a role's button</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex, @bob as developer.<br>@ann assigned @mia as reviewer.<br>@ann removed @tom as tester.<br><span class="note">@rex, @bob, could you pick this up when you get a chance? Thanks!</span><br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @rex, @bob as owner.<br>@ann assigned @mia as reviewer.<br>@ann removed @tom as tester.<br><span class="note">@rex, @bob, could you pick this up when you get a chance? Thanks!</span><br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
         </dl>
         <p>However many people, roles and fields you change, it's one message: a line per change, then what it means for them. Here @tom isn't told, as the task wasn't In testing.</p>
       </article>
@@ -104,26 +104,18 @@
       </article>
 
       <article class="entry">
-        <h3><code>/cade standup -unassigned</code>, picking a developer</h3>
+        <h3><code>/cade standup -unassigned</code>, picking an owner</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex as developer.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann assigned @rex as owner.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
         </dl>
       </article>
 
       <article class="entry">
-        <h3><code>@Cade unassign dev @rex</code></h3>
+        <h3><code>@Cade unassign owner @rex</code></h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann removed @rex as developer. <span class="if-note">without a role: from this task</span><br><span class="note">@rex, there's no need to work on this anymore. Thanks!</span></dd>
+          <dt>Thread</dt><dd>@ann removed @rex as owner. <span class="if-note">without a role: from this task</span><br><span class="note">@rex, there's no need to work on this anymore. Thanks!</span></dd>
         </dl>
         <p>Only if they'd have been asked: removing a tester before In testing just records it.</p>
-      </article>
-
-      <article class="entry">
-        <h3>Track and assign <span class="where">Older buttons</span></h3>
-        <dl class="flow">
-          <dt>Thread</dt><dd><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span><br>Or, for work already started: <span class="note">@rex, you're down as developer on this, and it's In progress.</span></dd>
-        </dl>
-        <p>Cade no longer offers these buttons, but ones posted before still work.</p>
       </article>
 
     </div>

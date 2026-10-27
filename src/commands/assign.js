@@ -1,7 +1,7 @@
 import { assigned, noLongerIfDue, oneMessage, requestIfDue, unassigned } from "../notify.js";
 import { NOT_A_TASK, loadTask, parseRole, saveTask } from "../tasks.js";
 
-// `@Cade assign developer @person [@person …]` in a task thread adds people
+// `@Cade assign owner @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way, and short words
 // do too: `dev`, `review`, `test` or `qa`. The thread hears who assigned
 // whom, and on the next line asks them to do their part. Without a role and
@@ -17,9 +17,9 @@ import { NOT_A_TASK, loadTask, parseRole, saveTask } from "../tasks.js";
 // suggest.js).
 export default {
   name: "assign",
-  description: "Assign a developer, reviewer or tester (in its thread)",
-  usage: "@Cade assign dev @person",
-  section: "thread",
+  description: "Assign an owner, reviewer or tester (in its thread)",
+  usage: "@Cade assign owner @person",
+  section: "task",
   channel: "tasks",
   inThread: true,
   async run(command, { env }) {
@@ -35,7 +35,7 @@ export default {
   },
 };
 
-const ASSIGN_USAGE = `Who, and as what? Try ${["dev", "review", "test"].map((name) => `\`@Cade assign ${name} @person\``).join(", ")}.`;
+const ASSIGN_USAGE = `Who, and as what? Try ${["owner", "review", "test"].map((name) => `\`@Cade assign ${name} @person\``).join(", ")}.`;
 
 // The thread's record of `user` changing who's on the task, as { log,
 // notes } for oneMessage: the change log, a line per role for who was

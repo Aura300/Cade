@@ -12,7 +12,7 @@ const HEADERS = [
   "Status",
   "Priority",
   "Due date",
-  "Developer",
+  "Owner",
   "Reviewer",
   "Tester",
   "Tracked by",
