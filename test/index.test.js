@@ -1110,6 +1110,27 @@ test("@Cade archive and the card's Archive stop tracking the task, keeping its c
   assert.match(calls[0].args.text, /not tracking a task in this thread/);
 });
 
+test("the summary lists archived tasks in their own section, until they're deleted", async (t) => {
+  const ts = "1700000000.000100";
+  const calls = mockSlack(t, {
+    ...canvasResponses,
+    stored: [{ ...ownTask(), ts }, historyTask("100.2", { title: "Still open" })],
+    "conversations.replies": { messages: [] },
+  });
+  await runTasksCommand("resync summary", "CDEV");
+  await send("/slack/events", threadEvent("<@UBOT> archive", { thread_ts: ts }));
+  const archived = canvasMarkdown(calls.filter((call) => call.method === "canvases.edit").at(-1));
+  assert.deepEqual(summaryRows(archived).map((row) => row.match(/\[([^\]]+)\]/)[1]), ["Still open"]);
+  assert.match(archived, /\n## Archived\n\nThe last 1 archived, most recently first\.\n\n/);
+  assert.match(summaryRows(archived, "Archived")[0], /^\| \[Fix login\]/);
+
+  // Deleted with /cade remove, it leaves the summary altogether.
+  const { later } = await runTasksCommand(`remove <${messageLink("CDEV", ts)}>`, "CDEV");
+  await answerPrivately(t, later, "delete:confirm");
+  const deleted = canvasMarkdown(calls.filter((call) => call.method === "canvases.edit").at(-1));
+  assert.match(deleted, /\n## Archived\n\nNo archived tasks\.$/);
+});
+
 test("an archived task's Sheet row says Archived", async (t) => {
   const record = storedTask();
   record.task.link = "https://slack.example/p100";
@@ -4145,9 +4166,11 @@ const canvasMarkdown = (call) =>
 
 // The table rows of a summary's Open or Closed section, without their
 // header and divider.
+// The rows of a summary's `section`: Open, Closed or Archived.
 const summaryRows = (markdown, section = "Open") =>
   markdown
-    .split("\n## Closed\n")[section === "Open" ? 0 : 1]
+    .split("\n## ")
+    .find((part) => part.startsWith(`${section}\n`))
     .split("\n")
     .filter((line) => line.startsWith("| ") && !/^\| (Title|---) /.test(line))
     .map(unbroken);

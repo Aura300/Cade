@@ -1,12 +1,12 @@
-import { markTaskDeleted } from "../db.js";
+import { markTaskArchived } from "../db.js";
 import { callSlack } from "../slack.js";
 import { NOT_A_TASK, loadTask, refreshSummary, setPinned, syncTask, taskMessage } from "../tasks.js";
 
 // `@Cade archive` in a task's thread, or Archive on its card's ⋯ menu,
-// puts away a task that's no longer needed. Cade stops tracking it, as it
-// does a deleted task, so it leaves `/cade tasks`, standups, syncups, the
-// summary and briefs, and commands in its thread no longer find it; but
-// nothing is deleted. Its card stays, unpinned, saying who archived it, with
+// puts away a task that's no longer needed. Cade stops tracking it, so it
+// leaves `/cade tasks`, standups, syncups and briefs, and commands in its
+// thread no longer find it; but nothing is deleted, and the summary lists
+// it under Archived. Its card stays, unpinned, saying who archived it, with
 // no menu; its thread stays and hears who archived it; and its Sheet row
 // says Archived. `/cade remove <link>` can still delete it.
 export default {
@@ -26,7 +26,7 @@ export default {
 export async function archiveTask(env, channel, ts, user) {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
-  await markTaskDeleted(env, channel, ts);
+  await markTaskArchived(env, channel, ts, user);
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task, { archivedBy: user }) });
   await setPinned(env, channel, ts, false);
   await syncTask(env, channel, ts, task, { archived: true });

@@ -14,7 +14,7 @@ export const POST_ATTEMPTS = 5;
 // it was deleted. It comes with its releases, which its message shows.
 export async function getTask(env, channel, ts) {
   const row = await env.DB.prepare(
-    "SELECT * FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL",
+    "SELECT * FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL AND archived_at IS NULL",
   )
     .bind(channel, ts)
     .first();
@@ -46,7 +46,7 @@ async function releasesOf(env, taskId) {
 export async function insertRelease(env, channel, ts, release) {
   const { id } = await env.DB.prepare(
     `INSERT INTO releases (task_id, prs, note, status, sent_by, decided_by)
-     SELECT id, ?, ?, ?, ?, ? FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL
+     SELECT id, ?, ?, ?, ?, ? FROM tasks WHERE channel = ? AND ts = ? AND deleted_at IS NULL AND archived_at IS NULL
      RETURNING id`,
   )
     .bind(JSON.stringify(release.prs), release.note, release.status, release.sentBy, release.decidedBy ?? null, channel, ts)
@@ -87,8 +87,6 @@ export async function putTask(env, channel, ts, task) {
   await upsert(env, "tasks", channel, ts, taskToRow(task));
 }
 
-// Stops tracking the task: deleted, or archived (see archive.js), whose
-// messages stay.
 export async function markTaskDeleted(env, channel, ts) {
   await env.DB.prepare(
     "UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP WHERE channel = ? AND ts = ?",
@@ -97,8 +95,32 @@ export async function markTaskDeleted(env, channel, ts) {
     .run();
 }
 
-// Returns the task whose root message is `ts`, deleted or not, with
-// `deleted` saying which, or null if there is none. A deleted task's
+// Stops tracking the task, keeping it for the summary's Archived section
+// (see archive.js).
+export async function markTaskArchived(env, channel, ts, user) {
+  await env.DB.prepare(
+    "UPDATE tasks SET archived_at = CURRENT_TIMESTAMP, archived_by = ? WHERE channel = ? AND ts = ?",
+  )
+    .bind(user, channel, ts)
+    .run();
+}
+
+// The archived tasks in `channel` that weren't deleted since, as { ts,
+// task, archivedAt, archivedBy }, most recently archived first: at most
+// `limit`.
+export async function archivedTasks(env, channel, limit) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM tasks
+     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND archived_at IS NOT NULL
+     ORDER BY archived_at DESC, id DESC LIMIT ?`,
+  )
+    .bind(channel, limit)
+    .all();
+  return results.map((row) => ({ ts: row.ts, task: taskFromRow(row), archivedAt: row.archived_at, archivedBy: row.archived_by }));
+}
+
+// Returns the task whose root message is `ts`, deleted, archived or not,
+// with `deleted` saying whether it was deleted, or null if there is none. A deleted task's
 // messages may still be in Slack, if deleting them failed.
 export async function getTaskIncludingDeleted(env, channel, ts) {
   const row = await env.DB.prepare("SELECT * FROM tasks WHERE channel = ? AND ts = ?")
@@ -112,7 +134,7 @@ export async function getTaskIncludingDeleted(env, channel, ts) {
 export async function tasksWithStatus(env, channel, statuses) {
   const { results } = await env.DB.prepare(
     `SELECT * FROM tasks
-     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL
+     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND archived_at IS NULL
        AND status IN (${statuses.map(() => "?").join(", ")})
      ORDER BY ts`,
   )

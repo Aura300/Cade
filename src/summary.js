@@ -1,13 +1,13 @@
 import { findPair } from "./channels.js";
-import { deleteCanvas, getCanvas, putCanvas } from "./db.js";
-import { byUrgency, groupTasks } from "./commands/tasks.js";
+import { archivedTasks, deleteCanvas, getCanvas, putCanvas } from "./db.js";
+import { byUrgency, groupTasks, threadLink } from "./commands/tasks.js";
 import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
 import { callSlack } from "./slack.js";
 import { PRIORITIES, STATUSES } from "./tasks.js";
 
 // A summary is a dev channel's canvas listing what is open there, most
-// urgent first, then what is closed (Done), most recently first, each in
-// tables: the group's tasks, incidents too, as `/cade tasks` lists them.
+// urgent first, then what is closed (Done), most recently first, then what
+// was archived (see archive.js), most recently first, each in tables: the group's tasks, incidents too, as `/cade tasks` lists them.
 // Every group has one: when a task is made, Cade puts it in the channel's
 // canvas, making one if there is none, and saves which it is; from then on
 // the table is rewritten whenever a task changes.
@@ -17,7 +17,7 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 // summaries continue in another table.
 const MAX_CELLS = 300;
 
-// The Closed section lists only the most recently closed, so it doesn't
+// The Closed and Archived sections list only the most recent, so they don't
 // grow without end.
 const MAX_CLOSED = 50;
 
@@ -53,7 +53,12 @@ export async function summaryMarkdown(env, channel) {
   const sheet = sheetEnabled(env, group)
     ? ` [All tasks in the Google Sheet](https://docs.google.com/spreadsheets/d/${sheetId(group.sheet)}/edit).`
     : "";
-  return document(`${updated}${sheet}`, TASK_COLUMNS, sections(tasks, row), "tasks");
+  const archived = (await archivedTasks(env, group.tasks, MAX_CLOSED)).map(({ ts, task }) => ({
+    task,
+    incident: task.incident,
+    link: threadLink(url, group.tasks, ts),
+  }));
+  return document(`${updated}${sheet}`, TASK_COLUMNS, { ...sections(tasks, row), archived: archived.map(row) }, "tasks");
 }
 
 // The rows of the open entries, most urgent first, and of the last
@@ -158,9 +163,10 @@ async function renameCanvas(env, canvasId, title) {
   });
 }
 
-// When it was updated, then an Open and a Closed section, each with its
-// rows in as many tables as they need. `noun` names what they list.
-function document(updated, columns, { open, closed }, noun) {
+// When it was updated, then an Open, a Closed and an Archived section, each
+// with its rows in as many tables as they need. `noun` names what they
+// list.
+function document(updated, columns, { open, closed, archived }, noun) {
   return [
     updated,
     "## Open",
@@ -170,6 +176,10 @@ function document(updated, columns, { open, closed }, noun) {
     "## Closed",
     closed.length ? `The last ${closed.length} done, most recently first.` : `No closed ${noun} yet.`,
     ...tables(columns, closed),
+    "---",
+    "## Archived",
+    archived.length ? `The last ${archived.length} archived, most recently first.` : `No archived ${noun}.`,
+    ...tables(columns, archived),
   ].join("\n\n");
 }
 
