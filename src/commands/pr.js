@@ -1,9 +1,8 @@
 import { roleOf } from "../channels.js";
 import { intent } from "../intents.js";
-import { assigned, linked as linkedText, movedTo, oneMessage, request, unlinked as unlinkedText } from "../notify.js";
-import { CLOSE_ALL, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { assigned, linked as linkedText, movedTo, request, unlinked as unlinkedText } from "../notify.js";
+import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
-import { teamChanges } from "./assign.js";
 
 const REVIEWERS_ACTION = "pr:reviewers";
 const SUGGEST_LINK_ACTION = "pr:suggest-link";
@@ -15,7 +14,6 @@ const SUGGEST_SKIP_ACTION = "pr:suggest-skip";
 // choice is read when Link is pressed.
 const SUGGEST_REVIEWERS_ACTION = "pr:suggest-reviewers";
 const SUGGEST_REVIEWERS_BLOCK = "pr:suggest-reviewers";
-const PRS_VIEW = "pr:form";
 
 // Slack sends links as <https://…> or <https://…|label>; pasted text may also
 // hold bare addresses.
@@ -85,7 +83,6 @@ export default {
       handle: (message, { env }) => suggestPullRequests(message, env),
     }),
   ],
-  views: { [PRS_VIEW]: savePullRequests },
   actions: {
     [REVIEWERS_ACTION]: async (payload, context) => {
       context.waitUntil(chooseReviewers(payload, context.env));
@@ -285,102 +282,6 @@ async function acceptSuggestion(payload, env) {
   }
   // An ephemeral message can only be changed through its response_url.
   await respondLater(payload.response_url, { delete_original: true });
-}
-
-// The task card menu's Link PRs form (see menu.js): the task's PRs, a link
-// per line, to add or remove, and its reviewers, so linking the first PR
-// needn't ask who reviews it in the thread.
-export function pullRequestForm({ channel, ts }, task) {
-  return {
-    type: "modal",
-    callback_id: PRS_VIEW,
-    private_metadata: JSON.stringify({ channel, ts }),
-    title: plainText("Link PRs"),
-    submit: plainText("Save"),
-    close: plainText("Cancel"),
-    blocks: [
-      {
-        type: "input",
-        block_id: "prs",
-        // Saving with none unlinks them all.
-        optional: true,
-        label: plainText("Pull requests, one link per line"),
-        element: {
-          type: "plain_text_input",
-          action_id: "value",
-          multiline: true,
-          placeholder: plainText("https://github.com/acme/web/pull/12"),
-          initial_value: task.prs.join("\n") || undefined,
-        },
-      },
-      {
-        type: "input",
-        block_id: "reviewer",
-        optional: true,
-        label: plainText("Reviewers"),
-        element: {
-          type: "multi_users_select",
-          action_id: "value",
-          placeholder: plainText("Choose reviewers"),
-          ...(task.people.reviewer.length && { initial_users: task.people.reviewer }),
-        },
-      },
-    ],
-  };
-}
-
-// Links and unlinks the PRs as the form now lists them, as `@Cade pr add`
-// and `remove` would, and sets the reviewers as the Assign people form
-// would; then tells the thread who changed what. Reviewers already on the
-// task are asked to review the new PRs, and new ones every pending PR.
-// Saving it unchanged posts nothing.
-function savePullRequests(payload, context) {
-  const { channel, ts } = JSON.parse(payload.view.private_metadata);
-  const { values } = payload.view.state;
-  const lines = (values.prs.value.value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
-  const urls = lines.map((line) => parsePullRequest(line.replace(/^<|[|>].*$/g, ""))?.url);
-  const wrong = lines.find((line, i) => !urls[i]);
-  if (wrong) {
-    return { response_action: "errors", errors: { prs: `That doesn't look like a pull request link: ${wrong}`.slice(0, 150) } };
-  }
-  const chosen = values.reviewer.value.selected_users ?? [];
-  const user = payload.user.id;
-  context.waitUntil(
-    (async () => {
-      const { env } = context;
-      const task = await loadTask(env, channel, ts);
-      if (!task) {
-        await callSlack(env, "chat.postEphemeral", { channel, user, text: NOT_A_TASK });
-        return;
-      }
-      const wanted = [...new Set(urls)];
-      const added = wanted.filter((url) => !task.prs.includes(url));
-      const removed = task.prs.filter((url) => !wanted.includes(url));
-      const reviewers = {
-        role: "reviewer",
-        added: chosen.filter((id) => !task.people.reviewer.includes(id)),
-        removed: task.people.reviewer.filter((id) => !chosen.includes(id)),
-      };
-      if (!added.length && !removed.length && !reviewers.added.length && !reviewers.removed.length) return;
-
-      const kept = task.people.reviewer.filter((id) => chosen.includes(id));
-      task.people.reviewer = chosen;
-      task.prs = [...task.prs.filter((url) => !removed.includes(url)), ...added];
-      const moved = added.length > 0 && BEFORE_REVIEW.includes(task.status);
-      if (moved) task.status = "IN_REVIEW";
-      await saveTask(env, channel, ts, task);
-
-      const prs = { log: [], notes: [] };
-      if (added.length) prs.log.push(linkedText(user, added, moved));
-      if (removed.length) prs.log.push(unlinkedText(user, removed));
-      if (added.length && kept.length) prs.notes.push(request(kept, "reviewer", added));
-      const said = oneMessage(prs, teamChanges(user, task, [reviewers]));
-      // Still no one to review the new PRs: the thread asks who should.
-      const reply = added.length && !chosen.length ? reviewerPicker(said, added) : { text: said };
-      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reply });
-    })(),
-  );
-  return CLOSE_ALL;
 }
 
 // Asks who should review the pull requests, after `lead` (what happened, if

@@ -1,13 +1,11 @@
 import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
 import { noLongerIfDue, oneMessage, unassigned } from "../notify.js";
-import { roleButtons } from "./assign.js";
 
 // `@Cade unassign developer @person [@person …]` in a task thread removes
 // people from that role; `@Cade unassign @person` removes them from every role.
 // The thread hears who removed whom, and on the next line tells them there's
 // no need to do it anymore, if they'd been asked to (see notify.js).
-// Without anyone mentioned it offers the same role buttons and form as
-// `@Cade assign`.
+// Without anyone mentioned it says what to send.
 export default {
   name: "unassign",
   description: "Unassign people from a role, or from every role (in its thread)",
@@ -17,7 +15,7 @@ export default {
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);
-    if (!command.mentions.length) return roleButtons(role ? [role] : Object.keys(ROLES));
+    if (!command.mentions.length) return "Who? Try `@Cade unassign dev @person`, or `@Cade unassign @person` for every role.";
 
     const task = await loadTask(env, command.channel, command.threadTs);
     if (!task) return NOT_A_TASK;

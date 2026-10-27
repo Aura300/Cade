@@ -70,9 +70,9 @@ function taskOption(task) {
 // The message shortcuts work on any message, anywhere: a dev channel, any
 // other channel, a DM. New task and New incident open the task or
 // incident form, named from the message's first line; Move to existing
-// opens a form to pick an open task. Outside a dev channel, each form asks
-// for the project too, and Move to existing then lists that project's open
-// tasks. The message is copied as above, so it can be read in the task's
+// opens a form to pick an open task. Outside a dev channel, with more than
+// one group, each form asks for the project too, and Move to existing then
+// lists that project's open tasks. The message is copied as above, so it can be read in the task's
 // thread even by people who can't see where it was written; the link back
 // to it, and the note and reaction under it, work only where they can.
 // Adding 🎫 or 🔀 to a message in a dev channel (see DEFAULT_REACTIONS) does
@@ -209,13 +209,21 @@ async function tell(env, payload, text) {
   else await callSlack(env, "chat.postEphemeral", { channel: payload.channel.id, user: payload.user.id, text });
 }
 
-// New task and New incident: their form, named from the message's
-// first line, for the dev channel it was chosen in, or asking for the
-// project.
+// The dev channel a shortcut's form is for, so it needn't ask for the
+// project: the one it was chosen in, or the only group's; undefined when
+// there's a choice to make.
+function knownProject(env, channel) {
+  if (roleOf(env, channel) === "tasks") return channel;
+  const groups = channelPairs(env);
+  return groups.length === 1 ? groups[0].tasks : undefined;
+}
+
+// New task and New incident: their form, named from the message's first
+// line, for the known project, or asking for it.
 async function openStartForm(payload, env, view) {
   const from = await shortcutMessage(payload, env);
   if (!from) return;
-  const channel = roleOf(env, from.channel) === "tasks" ? from.channel : undefined;
+  const channel = knownProject(env, from.channel);
   await callSlack(env, "views.open", {
     trigger_id: payload.trigger_id,
     view: view(env, { channel, move: from, title: firstLine(from.text) }),
@@ -223,21 +231,19 @@ async function openStartForm(payload, env, view) {
 }
 
 // Move to existing: a form to choose the open task the message goes to, in
-// the dev channel it was chosen in, or in the project chosen on it.
+// the known project, or in the project chosen on it.
 async function openMoveForm(payload, env) {
   const from = await shortcutMessage(payload, env);
   if (!from) return;
-  const inDev = roleOf(env, from.channel) === "tasks";
-  const meta = { from, responseUrl: payload.response_url, ...(inDev && { channel: from.channel }) };
-  if (inDev && !(await openTasks(env, from.channel)).length) return tell(env, payload, NO_OPEN);
-  const groups = channelPairs(env);
-  const project = inDev ? from.channel : groups.length === 1 ? groups[0].tasks : undefined;
-  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: await moveForm(env, meta, project) });
+  const channel = knownProject(env, from.channel);
+  const meta = { from, responseUrl: payload.response_url, ...(channel && { channel }) };
+  if (channel && !(await openTasks(env, channel)).length) return tell(env, payload, NO_OPEN);
+  await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view: await moveForm(env, meta, channel) });
 }
 
 // Move's form for the project whose dev channel is `project`, if one is
-// chosen: the project picker, unless it was opened in a dev channel, then
-// its open tasks.
+// chosen: the project picker, unless the project is known already
+// (`meta.channel`), then its open tasks.
 async function moveForm(env, meta, project) {
   const open = project ? await openTasks(env, project) : [];
   const tasks = open.length

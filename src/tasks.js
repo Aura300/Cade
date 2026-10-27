@@ -129,20 +129,22 @@ export function taskMessage(task) {
   const label = task.incident ? "Incident  ·  " : "";
   return {
     text: `${task.priority} ${task.incident ? "incident" : "task"}: ${task.title}`,
-    blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`), accessory: taskMenu() }],
+    blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`), accessory: taskMenu(task) }],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
 }
 
 // The ⋯ menu on a task's card, so people change it without typing a command
-// in its thread (see menu.js): Edit, one form for everything, and Delete.
+// in its thread (see menu.js): Edit, one form for everything; Release, while
+// it has PRs not sent for approval; and Delete.
 export const TASK_MENU_ACTION = "task:menu";
 
-function taskMenu() {
+function taskMenu(task) {
   const choices = [
     ["edit", "Edit…"],
+    task.prs?.length && unsentPrs(task).length && ["release", "Release…"],
     ["delete", "Delete…"],
-  ];
+  ].filter(Boolean);
   return {
     type: "overflow",
     action_id: TASK_MENU_ACTION,

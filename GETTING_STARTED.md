@@ -232,7 +232,8 @@ setting each one's priority and due date, and incidents with `/cade
 incident`, always urgent and due immediately. Messages from anywhere else,
 a client's shared channel or a DM included, become tasks or incidents, or
 move into one, with the message shortcuts (⋯ → **More actions**); outside
-the dev channel they ask which project, as groups are called there.
+the dev channel, with more than one group, they ask which project, as
+groups are called there.
 
 `npm run group` takes you through it. It asks questions, so run it in a
 terminal window of your own, in this folder:
@@ -269,7 +270,7 @@ run config` works too (see [Settings](#settings)).
 2. In the dev channel: `/cade task` → a form; submitting posts the task.
 3. In the task's thread: `@Cade status in progress` → ✅ on your message.
 4. On any message, in a DM too: ⋯ → **More actions** → **New task** →
-   the task form, with a **Project** picker outside the dev channel;
+   the task form, with a **Project** picker if you have more than one group;
    submitting posts the task and copies the message into its thread.
 
 **If nothing answers:** run `npx wrangler tail` and try again.

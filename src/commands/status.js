@@ -1,6 +1,6 @@
 import { isQuestion, phraseTest } from "../intents.js";
 import { oneMessage, request, statusChanged } from "../notify.js";
-import { CLOSE_ALL, acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.js";
+import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
   NOT_A_TASK,
   STATUSES,
@@ -14,24 +14,24 @@ import {
   unsentPrs,
 } from "../tasks.js";
 
-const SELECT_ACTION = "status:select";
 const APPROVE_ACTION = "status:approve";
 const REJECT_ACTION = "status:reject";
 const ASK_ACTION = "status:ask";
 const REVIEW_VIEW = "status:review";
-const STATUS_VIEW = "status:form";
 
-// `@Cade status` in a task thread replies with a menu of statuses; picking one
-// updates the task and replaces the menu with a confirmation. A status can
-// also be given directly, as `@Cade status IN_PROGRESS` or `@Cade status in
-// progress`; then Cade just reacts ✅ to the message. Moving a task to DONE
-// unpins it from the channel; moving it out of DONE pins it again.
+// `@Cade status in progress` (or `IN_PROGRESS`, `in-progress`, `wip`) in a
+// task thread sets the task's status, and Cade reacts ✅ to the message.
+// Without a status it says which there are. Moving a task to DONE unpins it
+// from the channel; moving it out of DONE pins it again.
 //
 // Done can be set directly. Client review is an optional step for work the
 // client should check first: whoever moves a task there picks who approves
 // it, and Cade asks them in the task's thread, with Approve and Not approve
 // buttons that only they can click. Approve moves the task to Done; Not
 // approve moves it back to In progress.
+
+const STATUS_USAGE = "Try `@Cade status in review`: to do, in progress, in review, in testing, client review or done.";
+
 // The words that say how the work is going (see soundsLikeProgress): a
 // reviewer approving, a tester passing it, or anyone on the task finishing it.
 // See intents.js for how phrases match.
@@ -64,7 +64,7 @@ export function soundsLikeProgress(message) {
 export default {
   name: "status",
   description: "Update the task's status (in its thread)",
-  usage: "@Cade status",
+  usage: "@Cade status in review",
   section: "thread",
   channel: "tasks",
   inThread: true,
@@ -75,10 +75,8 @@ export default {
     const input = command.text.trim();
     const status = parseStatus(input);
     if (!status) {
-      const prompt = input
-        ? `I don't know "${escapeSlack(input)}" as a status. Which one did you mean?`
-        : "What's the new status?";
-      return statusPicker(prompt, task.status);
+      const asked = input ? `I don't know "${escapeSlack(input)}" as a status.` : "Which status?";
+      return `${asked} ${STATUS_USAGE}`;
     }
 
     const previous = task.status;
@@ -89,9 +87,6 @@ export default {
     return acknowledge(testersAsked(task, previous) ?? undefined);
   },
   actions: {
-    [SELECT_ACTION]: async (payload, context) => {
-      context.waitUntil(selectStatus(payload, context.env));
-    },
     [APPROVE_ACTION]: async (payload, context) => {
       context.waitUntil(review(payload, context.env, true));
     },
@@ -100,7 +95,7 @@ export default {
     },
     [ASK_ACTION]: (payload, { env }) => openApproverForm(payload, env),
   },
-  views: { [REVIEW_VIEW]: submitApprover, [STATUS_VIEW]: submitStatus },
+  views: { [REVIEW_VIEW]: submitApprover },
 };
 
 // The statuses a message about how the work is going could move a task in
@@ -117,57 +112,6 @@ export function progressOptions(task, user, message) {
     ([...developer, ...reviewer, ...tester, task.createdBy].includes(user) && FINISHED(message));
   if (!finishing || ["CLIENT_REVIEW", "DONE"].includes(task.status)) return [];
   return ["DONE"];
-}
-
-// Moves the task for `user` and tells its thread who did.
-async function moveAndTell(env, channel, ts, status, user) {
-  const text = await setStatus(env, channel, ts, status, user);
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(text) });
-}
-
-// The task card menu's Change status form (see menu.js).
-export function statusForm({ channel, ts }, task) {
-  return {
-    type: "modal",
-    callback_id: STATUS_VIEW,
-    private_metadata: JSON.stringify({ channel, ts }),
-    title: plainText("Change status"),
-    submit: plainText("Save"),
-    close: plainText("Cancel"),
-    blocks: [
-      {
-        type: "input",
-        block_id: "status",
-        label: plainText(`Status of ${task.title}`.slice(0, 2000)),
-        element: {
-          type: "static_select",
-          action_id: "value",
-          options: Object.keys(STATUSES).map(statusOption),
-          initial_option: statusOption(task.status),
-        },
-      },
-    ],
-  };
-}
-
-// Saving the form moves the task as the status menu would, and tells its
-// thread who did. Saving it unchanged posts nothing.
-function submitStatus(payload, context) {
-  const { channel, ts } = JSON.parse(payload.view.private_metadata);
-  const status = payload.view.state.values.status.value.selected_option.value;
-  const user = payload.user.id;
-  context.waitUntil(
-    (async () => {
-      const { env } = context;
-      const task = await loadTask(env, channel, ts);
-      if (!task) {
-        await callSlack(env, "chat.postEphemeral", { channel, user, text: NOT_A_TASK });
-        return;
-      }
-      if (task.status !== status) await moveAndTell(env, channel, ts, status, user);
-    })(),
-  );
-  return CLOSE_ALL;
 }
 
 // Short names people type for each status, besides its own name ("in
@@ -194,50 +138,9 @@ export function statusOption(status) {
   return { text: { ...plainText(STATUSES[status]), emoji: true }, value: status };
 }
 
-function statusPicker(prompt, current) {
-  const option = statusOption;
-  return {
-    text: prompt,
-    blocks: [
-      {
-        type: "section",
-        text: mrkdwn(prompt),
-        accessory: {
-          type: "static_select",
-          action_id: SELECT_ACTION,
-          placeholder: plainText("Select a status"),
-          options: Object.keys(STATUSES).map(option),
-          initial_option: option(current),
-        },
-      },
-    ],
-  };
-}
-
-// The picker is a reply in the task's thread, so the thread identifies the
-// task. It becomes what happened; but an edited message notifies no one, so
-// when the testers are asked, it goes and the thread gets a new reply.
-async function selectStatus(payload, env) {
-  const channel = payload.channel.id;
-  const ts = payload.message.thread_ts;
-  const status = payload.actions[0].selected_option.value;
-  const change = await statusChange(env, channel, ts, status, payload.user.id);
-  const reply = change ? oneMessage(change) : NOT_A_TASK;
-  if (change?.notes.length) {
-    await callSlack(env, "chat.delete", { channel, ts: payload.message.ts });
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(reply) });
-    return;
-  }
-  await callSlack(env, "chat.update", {
-    channel,
-    ts: payload.message.ts,
-    ...asMessage(reply),
-  });
-}
-
-// Sets the task's status as the picker does, for `user`, and returns what
-// the thread then hears, as one message (see statusChange). Null if it isn't
-// a task. Shared with `/cade standup`.
+// Sets the task's status for `user`, and returns what the thread then
+// hears, as one message (see statusChange). Null if it isn't a task. For
+// `/cade standup`.
 export async function setStatus(env, channel, ts, status, user) {
   const change = await statusChange(env, channel, ts, status, user);
   return change && oneMessage(change);

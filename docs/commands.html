@@ -90,7 +90,7 @@
         <ul>
           <li><b>New task</b> and <b>New incident</b> open their form, named from the message's first line.</li>
           <li><b>Move to existing</b> opens a form to pick an open task or incident.</li>
-          <li>In a dev channel the forms are for its project. Anywhere else they ask for the <b>Project</b> first, and Move to existing then lists that project's open tasks.</li>
+          <li>In a dev channel, or when there's only one group, the forms are for that project. Otherwise they ask for the <b>Project</b> first, and Move to existing then lists that project's open tasks.</li>
           <li>The message is copied into the task's thread, credited to whoever wrote it, so everyone on the task can read it, even if they can't see where it was written. The link back to it, and Cade's note and 📤 under it, work only where they can.</li>
         </ul>
       </article>
@@ -103,13 +103,13 @@
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
     <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel. The ⋯ menu on a task's card has two choices. <b>Edit</b> opens one form with everything: developers, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out). <b>Delete</b> deletes the task. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
+    <p class="lede">These work in a task's thread in the dev channel. Each command takes everything it needs in one go; without it, Cade says what to send. The ⋯ menu on a task's card has <b>Edit</b>, one form with everything: developers, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out); <b>Release</b>, while it has PRs not sent yet, the same form as <code>@Cade release</code>; and <b>Delete</b>. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
     <div class="entries">
 
       <article class="entry">
         <h3><code>@Cade assign dev @person</code></h3>
         <div class="tags"><span class="where">Dev channel</span></div>
-        <p>Adds people to a role: <code>developer</code> (or <code>dev</code>), <code>reviewer</code> (or <code>review</code>) or <code>tester</code> (or <code>test</code>, <code>qa</code>), several at once if you like. Cade notes who assigned whom, and on the next line asks them to start (see <a href="notifications.html">notifications</a>). Without anyone mentioned, <code>@Cade assign</code> asks you privately, with a button that opens one form with every role, filled in with who's on it now, to add or remove people.</p>
+        <p>Adds people to a role: <code>developer</code> (or <code>dev</code>), <code>reviewer</code> (or <code>review</code>) or <code>tester</code> (or <code>test</code>, <code>qa</code>), several at once if you like. Cade notes who assigned whom, and on the next line asks them to start (see <a href="notifications.html">notifications</a>). To change several roles at once, use the card's ⋯ → <b>Edit</b>.</p>
         <ul>
           <li>Reviewers can be added before there's a PR. They're asked to review once one is linked.</li>
         </ul>
@@ -119,13 +119,13 @@
       <article class="entry">
         <h3><code>@Cade unassign dev @person</code></h3>
         <div class="tags"><span class="where">Dev channel</span></div>
-        <p>Removes people from a role. Cade notes who removed whom, and on the next line tells them there's no need to do it anymore (see <a href="notifications.html">notifications</a>). <code>@Cade unassign @person</code> removes them from every role. The same short words work. Without anyone mentioned it shows a button per role, each opening a form with that role's people.</p>
+        <p>Removes people from a role. Cade notes who removed whom, and on the next line tells them there's no need to do it anymore (see <a href="notifications.html">notifications</a>). <code>@Cade unassign @person</code> removes them from every role. The same short words work.</p>
       </article>
 
       <article class="entry">
-        <h3><code>@Cade status</code> <code>@Cade status in review</code></h3>
+        <h3><code>@Cade status in review</code></h3>
         <div class="tags"><span class="where">Dev channel</span></div>
-        <p>Without a status, shows a menu. With one, Cade sets it and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
+        <p>Cade sets the status and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
         <ul>
           <li>Done unpins the task; moving it out of Done pins it again.</li>
           <li>Client review shows whoever set it a private <b>Ask for approval</b> button (set it again to get it back): pick who approves, the client or whoever handles them. Cade asks them in the task's thread to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress). Only they can click.</li>
@@ -163,13 +163,13 @@
       <article class="entry">
         <h3><code>@Cade priority high</code></h3>
         <div class="tags"><span class="where">Task thread</span></div>
-        <p>One of <code>urgent</code>, <code>high</code>, <code>medium</code> or <code>low</code>. With a value Cade reacts ✅; without one it shows a menu. The card's colour strip follows the priority.</p>
+        <p>One of <code>urgent</code>, <code>high</code>, <code>medium</code> or <code>low</code>. Cade sets it and reacts ✅. The card's colour strip follows the priority.</p>
       </article>
 
       <article class="entry">
         <h3><code>@Cade due 31/12/2026</code></h3>
         <div class="tags"><span class="where">Task thread</span></div>
-        <p>A date as <code>DD/MM/YYYY</code> (also with <code>.</code> or <code>-</code>, or as <code>YYYY-MM-DD</code>), or <code>none</code> to clear it. Without a value Cade shows a date picker.</p>
+        <p>A date as <code>DD/MM/YYYY</code> (also with <code>.</code> or <code>-</code>, or as <code>YYYY-MM-DD</code>), or <code>none</code> to clear it. Cade sets it and reacts ✅.</p>
       </article>
 
     </div>
@@ -193,7 +193,7 @@
         <div class="tags"><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
         <p>Moves a message into the right thread. Cade privately shows the channel's open tasks and incidents to pick from.</p>
         <ul>
-          <li><b>Without typing, from anywhere:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to existing</b> opens a form with the same choices, and nothing is posted until it moves. Outside a dev channel it asks for the project first. See <a href="#start">message shortcuts</a>.</li>
+          <li><b>Without typing, from anywhere:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to existing</b> opens a form with the same choices, and nothing is posted until it moves. Outside a dev channel, with more than one group, it asks for the project first. See <a href="#start">message shortcuts</a>.</li>
           <li><b>With an emoji, in one click:</b> add 🎫 <code>:ticket:</code> to a message in the dev channel to track it, or 🔀 <code>:twisted_rightwards_arrows:</code> to move it. Cade answers only you: a <b>New task</b> button, or the move picker. Add them to Slack's one-click reactions (Preferences → Messages &amp; media) and they sit in the bar you see when hovering over a message. Choose other emoji with <code>reactions</code> in <code>cade.config.json</code>.</li>
           <li><b>With a link:</b> paste the link to a task's or incident's message (Copy link on it, or on any reply in its thread) and Cade moves the message there straight away, with a ✅ on your command. Handy for bringing old threads in from before Cade, one after another: start with the oldest, so they land in order.</li>
           <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>

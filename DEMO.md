@@ -33,7 +33,7 @@ with the client; Cade doesn't need to be in it.
   **Not now** on Cade's prompt (used for `@Cade task` in Act 5):
   > Flaky test: `booking.spec.ts` times out on CI about 1 run in 5.
 - A second group (say `test`) in `CHANNEL_PAIRS`, so the **Project** picker
-  has a choice.
+  shows; with one group, the shortcuts skip it.
 - Google Sheet open in a browser tab, if set up.
 
 **Do a full dry run.** Private (ephemeral) messages and forms are only
@@ -126,32 +126,27 @@ In the **Deposit payments** task thread, **You**:
 
 - **Accept** → Mia is the tester, Tom isn't.
 
-### 10. Explicit assign / unassign / role picker
+### 10. Explicit assign / unassign, and Edit
 **You**:
 > `@Cade assign reviewer @Rex`
 
 > `@Cade unassign reviewer @Rex`
 
-> `@Cade assign`
-
-- The last one shows a button that opens one form with every role.
+- The card's ⋯ → **Edit** has every role, the status, priority, due date
+  and PRs in one form.
 
 ### 11. Ship part of it early → partial release
-**Rex**:
-> `@Cade release`
+**Rex**: the card's ⋯ → **Release…** (or `@Cade release` in its thread)
 
-- **Choose PRs** → tick #128 → note **"Deposit checkout flow (20% default)"**
+- The form → tick #128 → note **"Deposit checkout flow (20% default)"**
   → **Who approves**: whoever handles the client, here **You**.
 - **Show:** the task thread gets it with **Approve / Not approve**, which
   only You can click. After checking with Sarah, **Not approve** → Rex
   fixes it and sends again with `@Cade deliver` → **Approve**. The card
   shows #128 approved.
 
-### 12. Status: menu and typed
+### 12. Status
 **Tom**:
-> `@Cade status`
-
-- Pick a status from the menu, then:
 > `@Cade status client review`
 
 - Cade reacts ✅ and shows Tom a private **Ask for approval** → pick You →
@@ -274,10 +269,10 @@ completed times and task links, including the deleted one marked
 | "Started working on this" → In progress | 4, 16 |
 | Handing work on | 9 |
 | "LGTM" / "QA passed" / "done" → next status | 13 |
-| `@Cade assign` / `unassign` / role picker form | 10 |
+| `@Cade assign` / `unassign`, the card's ⋯ → Edit | 10 |
 | PR paste suggestion, `pr add`, `pr remove`, → In review | 6, 7 |
-| Partial release, approve / not approve, `deliver` alias | 11 |
-| `@Cade status` menu and typed status ✅ | 12 |
+| Partial release from the card's ⋯ → Release, approve / not approve | 11 |
+| `@Cade status client review` ✅ | 12 |
 | Client review approve / not approve | 12, 14 |
 | Priority / due date, and the card's ⋯ → Edit | 5 |
 | Incident priority is fixed | 15 |

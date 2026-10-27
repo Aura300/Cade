@@ -29,7 +29,8 @@ const INCIDENT_VIEW = "incident";
 // in move.js): the form, named from its first line, and once it is posted
 // the message is moved into its thread. The message shortcuts New task
 // and New incident do the same from any message, anywhere (see
-// move.js); outside a dev channel the form asks which project it's for.
+// move.js); outside a dev channel, with more than one group, the form asks
+// which project it's for.
 export default {
   name: "task",
   description: "Track a task (`@Cade task` in a message's thread tracks that message)",
