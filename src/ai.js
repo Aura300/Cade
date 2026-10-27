@@ -12,9 +12,20 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 // message and the task here (see checkChanges), and nothing changes until
 // whoever wrote the message confirms it.
 
-// Small and quick, and keeps to a JSON schema. `ai` in cade.config.json can
-// name another text model instead.
-export const DEFAULT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+// The quickest and cheapest of the models that read these messages as well
+// as any small one did, keeping to a JSON schema. `ai` in cade.config.json
+// can name another text model instead.
+export const DEFAULT_MODEL = "@cf/zai-org/glm-4.7-flash";
+
+// Models that reason before answering unless told not to, which only slows
+// them down for this, and makes some miss the JSON altogether.
+const NO_THINKING = [DEFAULT_MODEL, "@cf/google/gemma-4-26b-a4b-it", "@cf/qwen/qwen3-30b-a3b-fp8"];
+
+// A message in which the author speaks of themselves: only then can AI add
+// them to a role ("I'll test it", "on it"), as small models otherwise add
+// them to whatever the message is about.
+const SPEAKS_FOR_SELF =
+  /\b(i|i['’](m|ll|d|ve)|me|my|myself|we|we['’](ll|re)|us|our)\b|^\s*(ok(ay)?[,!.]?\s*)?(on it|taking (this|it)|picking (this |it )?up|starting|started)\b/i;
 
 // A message waits this long for the model before falling back.
 const TIMEOUT_MS = 8000;
@@ -55,15 +66,25 @@ const SCHEMA = {
 const INSTRUCTIONS = `You read one Slack message posted in the thread of a software task, and say what it asks to change on the task. Reply with JSON only.
 
 People are Slack user IDs such as U0123ABC. In the message, <@U0123ABC> mentions that person. "author" wrote the message.
-Roles:
-- developer: builds or fixes it ("can you pick this up", "take this", "I'm on it" from the author, "handing this over to").
-- reviewer: reviews the code or pull request ("can you review", "PR review").
-- tester: tests it or does QA ("can you test", "QA this", "verify").
-For each role, "add" lists who should now have it and "remove" who should no longer have it ("@rex is off this", "instead of @bob"). Use only IDs from "mentioned", "author" or the task's people. Don't add someone who already has the role. A mention that only informs ("cc @rex", "thanks @mia") changes nothing.
 
-Statuses: TODO, IN_PROGRESS (work started), IN_REVIEW (code ready for review), IN_TESTING (review approved, ready to test), CLIENT_REVIEW (the client checks it), DONE (finished, merged and tested). Set status only when the message says the work moved on ("started on this", "lgtm" from a reviewer, "QA passed", "done and deployed"), never for a question or a plan ("will start tomorrow", "is it done?").
-Priorities: ${Object.keys(PRIORITIES).join(", ")}. Set one only when the message asks for it ("this is urgent", "it's blocking the release", "low priority").
-dueDate: when the message sets a deadline ("need this by Friday", "due 30th"), as YYYY-MM-DD, worked out from "today"; "clear" if it says there's no deadline anymore.
+Roles:
+- developer: builds, implements or fixes it ("can you implement this", "pick this up", "take this over").
+- reviewer: reviews the code or pull request ("can you review").
+- tester: tests it or does QA ("can you test", "QA this", "verify").
+Add a person to a role only when the message asks that person to do that work, or the author says they will do it themselves ("I'll test it", "while I test this", "on it"). "remove" lists who should stop ("take over from @bob" removes @bob). Use only IDs from "mentioned", "author" or the task's people, and don't add someone who already has the role.
+Never add people for anything else: approving ("lgtm"), a deadline, urgency, thanks or a cc changes no one's role.
+
+Statuses: TODO, IN_PROGRESS (work started), IN_REVIEW (code ready for review), IN_TESTING (review approved, ready to test), CLIENT_REVIEW (the client checks it), DONE (finished, merged and tested).
+Set status only when the message says the work has moved on now ("started on this", "lgtm" from a reviewer, "QA passed", "deployed, please test"). Asking someone to start, a plan ("will start tomorrow") or a question ("is QA done?") changes no status.
+Priorities: ${Object.keys(PRIORITIES).join(", ")}. Set one only when the message says how urgent it is ("this is urgent", "blocking the release", "low priority").
+dueDate: when the message sets a deadline, as YYYY-MM-DD; for a weekday ("by Friday") or "tomorrow", take the date from "comingDays". "clear" if it says there's no deadline anymore.
+
+Examples (author UA):
+- "<@UB> can you implement this while I test it" → developer add UB, tester add UA.
+- "lgtm" from a reviewer, task IN_REVIEW → status IN_TESTING, no one added.
+- "urgent, client needs it by Friday" → priority Urgent, dueDate that Friday, no one added.
+- "will start on this tomorrow" → nothing.
+- "thanks <@UB>, cc <@UC>" → nothing.
 
 Leave anything the message doesn't clearly ask for empty. Most messages change nothing.`;
 
@@ -75,6 +96,8 @@ export async function readChanges(env, { message, task, today, allowed }) {
   const model = aiModel(env, message.channel);
   const input = {
     today: `${today.weekday} ${today.date}`,
+    // Small models get weekdays wrong when they work them out.
+    comingDays: comingDays(today.date),
     author: message.user,
     mentioned: message.mentions,
     task: {
@@ -96,14 +119,23 @@ export async function readChanges(env, { message, task, today, allowed }) {
       response_format: { type: "json_schema", json_schema: { name: "task_changes", schema: SCHEMA } },
       max_tokens: 400,
       temperature: 0,
-      // The default model reasons first unless told not to, which only slows
-      // it down for this.
-      ...(model === DEFAULT_MODEL && { chat_template_kwargs: { enable_thinking: false } }),
+      ...(NO_THINKING.includes(model) && { chat_template_kwargs: { enable_thinking: false } }),
     }),
   );
   const raw = answerOf(result);
   console.log("AI read a message", { model, ms: Date.now() - started });
-  return checkChanges(raw, { task, message, allowed });
+  return checkChanges(raw, { task, message, allowed: { ...allowed, author: SPEAKS_FOR_SELF.test(message.text) } });
+}
+
+// The next seven days after `date` (YYYY-MM-DD), as { Wednesday: "2026-10-28", … }.
+export function comingDays(date) {
+  const day = new Date(`${date}T00:00:00Z`);
+  return Object.fromEntries(
+    Array.from({ length: 7 }, (_, i) => {
+      const next = new Date(day.getTime() + (i + 1) * 86400000);
+      return [new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(next), next.toISOString().slice(0, 10)];
+    }),
+  );
 }
 
 function withTimeout(promise) {
@@ -136,10 +168,11 @@ function answerOf(result) {
 // `allowed` says which kinds may change: { roles, status, details }, and
 // `roles` which roles; and `fromMentions`, whether people the message
 // mentions may be added (not in a requirement's thread, where the client may
-// be among them, and only the author may be).
+// be among them, and only the author may be); and `author`, false when the
+// author may not be added either.
 export function checkChanges(raw, { task, message, allowed }) {
   const changes = {};
-  const candidates = new Set([message.user, ...(allowed.fromMentions ? message.mentions : [])]);
+  const candidates = new Set([...(allowed.author === false ? [] : [message.user]), ...(allowed.fromMentions ? message.mentions : [])]);
   for (const role of allowed.roles ?? []) {
     const current = task.people[role] ?? [];
     const add = unique(raw?.[role]?.add).filter((id) => candidates.has(id) && !current.includes(id));

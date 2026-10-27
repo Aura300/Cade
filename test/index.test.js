@@ -7704,7 +7704,8 @@ test("with AI on, a message is read for every change and confirmed privately", a
   const text = "<@UREX> can you take this over from <@UBOB>? <@UMIA> please review. Need it by Friday, it's blocking the release";
   await send("/slack/events", threadEvent(text), {}, environment);
 
-  assert.equal(asked[0].model, "@cf/google/gemma-4-26b-a4b-it");
+  assert.equal(asked[0].model, "@cf/zai-org/glm-4.7-flash");
+  assert.deepEqual(asked[0].input.chat_template_kwargs, { enable_thinking: false });
   const input = JSON.parse(asked[0].input.messages[1].content);
   assert.deepEqual(input.mentioned, ["UREX", "UBOB", "UMIA"]);
   assert.equal(input.task.status, "TODO");
@@ -7945,4 +7946,27 @@ test("the card's Delete opens a panel with Delete, and Detach for a tracked task
   const tracked = calls[0].args.view;
   assert.deepEqual(tracked.blocks[1].elements.map((button) => button.action_id), ["task:more:detach", "task:more:delete"]);
   assert.equal(tracked.blocks.length, 2);
+});
+
+test("AI only adds the author to a role when their message speaks of themselves", async (t) => {
+  // The model adds the author to whatever the message is about.
+  for (const [text, suggested] of [
+    ["this is urgent, client needs it by Friday", false],
+    ["lgtm, approved", false],
+    ["<@UREX> can you build this? I'll do the review", true],
+    ["on it", true],
+  ]) {
+    const { environment } = aiEnv(aiRead({ reviewer: { add: ["UACTOR"], remove: [] } }));
+    const calls = mockSlack(t, { stored: [ownTask()] });
+    await send("/slack/events", threadEvent(text), {}, environment);
+    assert.equal(Boolean(ephemeral(calls)), suggested, text);
+  }
+});
+
+test("AI is given the dates of the coming week, for deadlines like Friday", async () => {
+  const { comingDays } = await import("../src/ai.js");
+  const days = comingDays("2026-10-27");
+  assert.equal(days.Friday, "2026-10-30");
+  assert.equal(days.Tuesday, "2026-11-03");
+  assert.equal(Object.keys(days).length, 7);
 });
