@@ -1,4 +1,3 @@
-import { pairFor } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, insertRequirement, markRequirementPosted } from "../db.js";
 import { INCIDENT, requirementMessage } from "../requirements.js";
 import { callSlack, escapeSlack, plainText } from "../slack.js";
@@ -9,8 +8,6 @@ import { createTask, initialMessageBlock } from "./track.js";
 
 const REQUIREMENT_VIEW = "requirement";
 const INCIDENT_VIEW = "incident";
-
-const NO_INCIDENTS = "I can't take incidents in this channel yet. Add an `incidents` channel to its pair in `CHANNEL_PAIRS`, and I'll be ready.";
 
 // `@Cade requirement` and `@Cade incident` start one from a message already
 // in the channel, replied in its thread (see offerStart in move.js).
@@ -95,23 +92,19 @@ async function submit(payload, context) {
 // `/cade incident` in an external channel asks only for what the incident
 // is: incidents are always urgent and due immediately. It posts the incident
 // like a requirement, then tracks it straight away as a task in the pair's
-// incidents channel, without waiting for `@Cade track`. From then on it works
+// tasks channel, without waiting for `@Cade track`. From then on it works
 // like a tracked requirement, except that its priority and due date never
 // change. `@Cade incident` in the thread of a message in the channel
 // reports one from that message.
 export const incident = {
   name: "incident",
-  description: "Report an incident, tracked straight away in the incidents channel",
+  description: "Report an incident, tracked straight away in the dev channel",
   usage: "@Cade incident",
   slashUsage: "/cade incident",
   section: "start",
   channel: "external",
-  async run(command, { env }) {
-    if (!pairFor(env, command.channel).incidents) return NO_INCIDENTS;
-    return fromThread(env, command, "incident");
-  },
+  run: (command, { env }) => fromThread(env, command, "incident"),
   async slash(command, { env }) {
-    if (!pairFor(env, command.channel).incidents) return NO_INCIDENTS;
     await callSlack(env, "views.open", {
       trigger_id: command.triggerId,
       view: incidentView({ channel: command.channel }),

@@ -9,9 +9,8 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 // A summary is a channel's canvas listing what is open there, most urgent
 // first, then what is closed (Done), most recently first, each in tables:
 // in an external channel its requirements and incidents, in
-// a tasks channel the group's tasks, its incidents channel's too, as
-// `/cade tasks` lists them. Incidents channels have none: every incident
-// is in its external channel's. `/cade summary` puts it in the channel's
+// a tasks channel the group's tasks, incidents' too, as `/cade tasks`
+// lists them. `/cade summary` puts it in the channel's
 // canvas, making one if there is none, and saves which it is; from then on
 // the table is rewritten whenever a task or requirement in its group
 // changes. Channels without one are left alone.

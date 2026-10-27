@@ -1,4 +1,4 @@
-import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
+import { roleOf, tasksChannelFor } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, hasUnpostedTask, insertTask, markTaskPosted } from "../db.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
@@ -47,8 +47,7 @@ const ALREADY_WAITING =
 // has one task, so a tracked requirement cannot be tracked again.
 //
 // Incidents are tracked when they are reported (see requirement.js). If an
-// incident's task is deleted, `@Cade track` in its thread tracks it again,
-// in the pair's incidents channel.
+// incident's task is deleted, `@Cade track` in its thread tracks it again.
 //
 // `/cade track` in a tasks channel, for the team's own work, opens the full
 // form straight away, since a slash command carries a trigger_id. The task is
@@ -78,16 +77,7 @@ export default {
     if (!requirement) return notInRequirement(env, command.channel);
     if (requirement.task) return alreadyTracked(requirement);
 
-    const { title, priority, dueDate, incident } = requirement;
-    const origin = {
-      channel: command.channel,
-      threadTs: command.threadTs,
-      requirement: true,
-      incident,
-      title,
-      priority,
-      dueDate,
-    };
+    const origin = requirementOrigin(command.channel, command.threadTs, requirement);
     return {
       text: "Track a new task",
       blocks: [
@@ -123,6 +113,20 @@ export default {
   },
   views: { [TRACK_VIEW]: submit },
 };
+
+// The form's origin for tracking the requirement at `channel`/`threadTs`.
+function requirementOrigin(channel, threadTs, requirement) {
+  const { title, priority, dueDate, incident } = requirement;
+  return { channel, threadTs, requirement: true, incident, title, priority, dueDate };
+}
+
+// The requirement card menu's Track task (see menu.js): the form `@Cade
+// track` opens from its button, or why it can't be tracked. With no button
+// message to replace, the thread is told once the task is posted.
+export function trackRequirementForm({ channel, ts }, requirement) {
+  if (requirement.task) return alreadyTracked(requirement);
+  return trackView(requirementOrigin(channel, ts, requirement));
+}
 
 // `origin` says where to announce the task: { channel, threadTs, promptTs }.
 // From a requirement thread it also has `requirement: true` and the
@@ -243,8 +247,7 @@ async function submit(payload, context) {
 
 // Stores the task, then posts it and announces it, and returns its root
 // message's ts, if it was posted. `origin` is where it was tracked from, as
-// for the form; `/cade incident` uses this too, with `incident: true`, so
-// the task goes to the pair's incidents channel.
+// for the form; `/cade incident` uses this too, with `incident: true`.
 export async function createTask(env, task, origin) {
   if (origin.requirement) {
     // The requirement's current state, in case the client changed its
@@ -274,9 +277,7 @@ export async function createTask(env, task, origin) {
   // they'd started already.
   if (origin.developers?.length) task.people.developer = origin.developers;
   if (origin.started) task.status = "IN_PROGRESS";
-  const tasksChannel = origin.incident
-    ? pairFor(env, origin.channel).incidents
-    : tasksChannelFor(env, origin.channel);
+  const tasksChannel = tasksChannelFor(env, origin.channel);
   if (roleOf(env, origin.channel) === "external") {
     task.source = {
       channel: origin.channel,

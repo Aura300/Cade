@@ -42,7 +42,7 @@ export default {
   description: "Link or unlink pull requests (in a task thread)",
   usage: "@Cade pr add <link>",
   section: "thread",
-  channel: ["tasks", "incidents"],
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     const [action = ""] = command.text.split(/\s+/, 1);
@@ -160,7 +160,7 @@ async function suggestPullRequests(message, env) {
     const requirement = await loadRequirement(env, message.channel, message.threadTs);
     if (!requirement?.task || !(await onTheTeam(env, message.channel, message.user))) return;
     target = { channel: requirement.task.channel, ts: requirement.task.ts };
-  } else if (!["tasks", "incidents"].includes(place)) {
+  } else if (place !== "tasks") {
     return;
   }
 

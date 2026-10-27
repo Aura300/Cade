@@ -1,4 +1,4 @@
-import { pairFor, roleOf } from "../channels.js";
+import { roleOf } from "../channels.js";
 import { activeRequirements, tasksWithStatus } from "../db.js";
 import { intent } from "../intents.js";
 import { loadRequirement } from "../requirements.js";
@@ -32,7 +32,7 @@ const MOVED_REACTION = "outbox_tray";
 const NOT_IN_THREAD = "Reply `@Cade move` in the thread of the message you want to move.";
 
 // What a message can be moved to: requirements and incidents in the external
-// channel, tasks in a tasks or incidents channel. Each lists the open ones,
+// channel, tasks in a tasks channel. Each lists the open ones,
 // newest first, and loads one, or null if it is gone; `open` says whether it
 // can still take a message, and `noun` names its thread.
 const REQUIREMENTS = {
@@ -67,8 +67,8 @@ const targetsIn = (env, channel) => (roleOf(env, channel) === "external" ? REQUI
 
 // More about a requirement or task sometimes arrives as a message of its own.
 // `@Cade move`, replied in that message's thread, asks privately which open
-// requirement or incident (in the external channel) or task (in a tasks or
-// incidents channel) it belongs to; messages only move within their channel.
+// requirement or incident (in the external channel) or task (in a tasks
+// channel) it belongs to; messages only move within their channel.
 // Slack can't move messages, so Move copies it into that thread, quoted and
 // credited to whoever wrote it, replies under the original with a link to
 // the copy, asking people to carry on there, and reacts to the original with
@@ -100,7 +100,7 @@ export default {
   description: "Move a message into a requirement's or task's thread",
   usage: "@Cade move [message link]",
   section: "thread",
-  channel: ["external", "tasks", "incidents"],
+  channel: ["external", "tasks"],
   async run(command, { env }) {
     const inThread = command.threadTs && command.threadTs !== command.ts;
     if (!inThread) return NOT_IN_THREAD;
@@ -192,8 +192,8 @@ async function openMoveForm(payload, { env }) {
   const message = await shortcutMessage(
     payload,
     env,
-    ["external", "tasks", "incidents"],
-    "I only move messages in the client, dev and incidents channels I look after.",
+    ["external", "tasks"],
+    "I only move messages in the client and dev channels I look after.",
   );
   if (!message) return;
   const { channel, ts, tell } = message;
@@ -271,8 +271,7 @@ async function reacted(env, event) {
   if (!action) return;
   const { channel, ts } = event.item;
   const role = roleOf(env, channel);
-  const places = action === "convert" ? ["external", "tasks"] : ["external", "tasks", "incidents"];
-  if (!places.includes(role)) return;
+  if (!["external", "tasks"].includes(role)) return;
   const user = event.user;
   const tell = (body) => callSlack(env, "chat.postEphemeral", { channel, user, ...body });
 
@@ -365,10 +364,8 @@ const STARTS = {
   task: { question: "Shall I track this message as a task?", button: "Track task", action: TRACK_ACTION },
 };
 
-// The private question for a message posted on its own. In the external
-// channel, Report incident is there if the pair has an incidents channel;
-// Move to existing is there if there's anything open to move it to. The
-// incidents channel's tasks come only from incidents, so it isn't asked.
+// The private question for a message posted on its own. Move to existing is
+// there if there's anything open to move it to.
 async function offerThread(env, message) {
   const role = roleOf(env, message.channel);
   if (role !== "external" && role !== "tasks") return;
@@ -385,7 +382,7 @@ async function offerThread(env, message) {
           "Is this a new requirement, an incident, or part of one we're already on?",
           [
             button(START_ACTION, "Start requirement", "primary"),
-            pairFor(env, message.channel).incidents && button(INCIDENT_ACTION, "Report incident"),
+            button(INCIDENT_ACTION, "Report incident"),
           ],
         ]
       : ["Should I track this as a task, or is it part of one we're already on?", [button(TRACK_ACTION, "Track as task", "primary")]];

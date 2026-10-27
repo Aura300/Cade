@@ -37,7 +37,7 @@ Other scripts:
 | Script | Does |
 | --- | --- |
 | `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
-| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, makes or links its Doc and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--external C…] [--incidents C…] [--doc new\|<address>] [--sheet new\|<address>]` it takes them at once |
+| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, makes or links its Doc and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--external C…] [--doc new\|<address>] [--sheet new\|<address>]` it takes them at once |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
@@ -96,8 +96,8 @@ it, what it needs (a thread, a mention), an `order`, and what to do;
 Each only asks the writer, privately, before changing anything, since a
 phrase can match a message that didn't mean it. Questions ("done?") and
 hedged messages ("not done yet") don't count as progress. In a requirement's
-thread, the team's suggestions only go to members of the pair's tasks or
-incidents channel, since Slack can't otherwise tell the team from the
+thread, the team's suggestions only go to members of the pair's tasks
+channel, since Slack can't otherwise tell the team from the
 client.
 
 ### Where things are kept

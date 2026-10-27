@@ -28,7 +28,7 @@ const USAGE =
   "Try `/cade tasks` for your open tasks, with any of: `development`, `review` or `testing` for one role; `@person` for theirs; `-all` for everyone's; `-unassigned` for those with no developer; `-status=in-progress` (or `todo`, `in-review`, `in-testing`, `client-review`, `done`, several with commas); `-due=@today`, `-due<@today`, `-due>=31/10/2026` or `-due=none`.";
 
 // `/cade tasks` in any channel lists the open tasks you are assigned to, by
-// group (channel pair): each group's dev channel's and incidents channel's.
+// group (channel pair): each group's dev channel's.
 // They are grouped by your role (developing, reviewing, testing), incidents
 // first, then by priority and due date, each linking to its thread. Done
 // tasks are left out. It takes, in any order (see parseTaskFilters):
@@ -367,24 +367,16 @@ export function threadLink(url, channel, ts) {
 }
 
 // The group's tasks with one of `statuses`, as { channel, ts, task, link,
-// incident }, from its tasks and incidents channels. Links are built from
-// the workspace's address, `url`, rather than looked up one by one, which
-// would take a Slack call per task.
+// incident }, from its tasks channel; `incident` is whether it is tracked
+// from one. Links are built from the workspace's address, `url`, rather
+// than looked up one by one, which would take a Slack call per task.
 export async function groupTasks(env, group, statuses, url) {
-  const channels = [
-    { channel: group.tasks, incident: false },
-    ...(group.incidents ? [{ channel: group.incidents, incident: true }] : []),
-  ];
-  const found = await Promise.all(
-    channels.map(async ({ channel, incident }) =>
-      (await tasksWithStatus(env, channel, statuses)).map(({ ts, task }) => ({
-        channel,
-        ts,
-        task,
-        incident,
-        link: threadLink(url, channel, ts),
-      })),
-    ),
-  );
-  return found.flat();
+  const channel = group.tasks;
+  return (await tasksWithStatus(env, channel, statuses)).map(({ ts, task }) => ({
+    channel,
+    ts,
+    task,
+    incident: Boolean(task.source?.incident),
+    link: threadLink(url, channel, ts),
+  }));
 }

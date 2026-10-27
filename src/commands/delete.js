@@ -57,7 +57,7 @@ export default {
   usage: "@Cade delete",
   slashUsage: "/cade remove <link>",
   section: "thread",
-  channel: ["tasks", "incidents", "external"],
+  channel: ["tasks", "external"],
   slashChannel: [],
   inThread: true,
   async run(command, { env }) {
@@ -231,7 +231,7 @@ async function authorize(payload, env) {
 
 // The requirement's task that hasn't been deleted, if any: the one it links
 // to, or, if storing that link failed, the one that links to it.
-async function liveTaskOf(env, channel, ts, requirement) {
+export async function liveTaskOf(env, channel, ts, requirement) {
   const linked = requirement.task;
   if (linked && (await getTask(env, linked.channel, linked.ts))) return linked;
   const latest = await latestTaskFrom(env, { channel, threadTs: ts });
@@ -345,6 +345,18 @@ export async function deleteFromMenu(env, channel, ts, user) {
   if (task.source && (await sourceState(env, task.source)).alive) return belongsToRequirement(task);
   await deleteTaskOnly(env, channel, ts, user);
   return "Done, the task and my replies in its thread are gone.";
+}
+
+// Deletes from the requirement card menu's Delete panel (see menu.js), whose
+// button has already asked, as `@Cade delete` in its thread would: with its
+// task, if one was tracked. Returns what to tell whoever clicked.
+export async function deleteRequirementFromMenu(env, channel, ts, user) {
+  const requirement = await loadRequirement(env, channel, ts);
+  if (!requirement) return NOT_A_REQUIREMENT;
+  const noun = requirement.incident ? "incident" : "requirement";
+  const task = await liveTaskOf(env, channel, ts, requirement);
+  await deleteRequirement(env, channel, ts, user);
+  return task ? `Done, the ${noun}, its task and my replies in both threads are gone.` : `Done, the ${noun} and my replies in its thread are gone.`;
 }
 
 function belongsToRequirement(task) {

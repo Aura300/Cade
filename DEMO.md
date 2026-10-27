@@ -15,12 +15,12 @@ by side work well):
 |---|---|---|
 | Client PM | **Sarah** | `#acme-client` |
 | Team lead | **You** | everywhere |
-| Developer | **Rex** | `#acme-dev`, `#acme-incidents` |
+| Developer | **Rex** | `#acme-dev` |
 | Reviewer | **Mia** | `#acme-dev` |
 | QA | **Tom** | `#acme-dev` |
 
 **Channels** (one pair in `CHANNEL_PAIRS`): `#acme-client` (external),
-`#acme-dev` (tasks), `#acme-incidents` (incidents).
+`#acme-dev` (tasks and incidents).
 
 **Seed beforehand** (so pickers and lists aren't empty):
 - `#acme-client`: `/cade requirement` → **"Booking confirmation emails"**,
@@ -240,12 +240,12 @@ unpinned, and the requirement card shows Done.
 > `/cade incident` → **"Card payments failing at checkout for EU customers"**
 
 - **Show:** the incident card (🔴 Urgent, Immediate) and a task already in
-  `#acme-incidents` — no tracking step.
+  `#acme-dev`, marked *Incident* — no tracking step.
 - **Sarah** tries `@Cade priority low` in the incident thread → *"Incidents
   are always 🔴 Urgent and due Immediate…"*.
 
 ### 18. Work the incident
-In the `#acme-incidents` task thread, **You**:
+In the incident's task thread in `#acme-dev`, **You**:
 > @Rex please look into this ASAP, Stripe dashboard shows 3DS failures.
 
 - Accept → Rex assigned (still 📝 To do). **Rex**: `on it` → **Move to In

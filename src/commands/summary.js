@@ -3,7 +3,7 @@ import { respondLater } from "../slack.js";
 
 // `/cade summary` in a group's channel puts a table of what is open there in
 // the channel's canvas, most urgent first: requirements and incidents in the
-// external channel, the group's tasks, incidents' too, in its tasks channel.
+// external channel, the group's tasks, incidents too, in its tasks channel.
 // It goes in the canvas Slack shows in the channel's header, made if there
 // is none, replacing what it held. Cade then keeps it up to date as things
 // change (see summary.js). Sending it again rewrites the table.

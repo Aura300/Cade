@@ -1,10 +1,11 @@
 // CHANNEL_PAIRS names each group's tasks channel, where the team tracks its
-// work, and optionally its external channel, where a client starts
-// requirements and reports incidents, and its incidents channel, where
-// incidents are tracked. A group with only a tasks channel uses `/cade track`
-// alone. Several pairs can run side by side, such as the real channels and a
-// pair of test channels.
-const ROLES = ["external", "tasks", "incidents"];
+// work, incidents included, and optionally its external channel, where a
+// client starts requirements and reports incidents. A group with only a
+// tasks channel uses `/cade track` alone. Several pairs can run side by
+// side, such as the real channels and a pair of test channels. Pairs set up
+// before incidents moved to the tasks channel may still name an `incidents`
+// channel; it is ignored.
+const ROLES = ["external", "tasks"];
 
 // It is a Worker secret, so a JSON string; a list also works, as tests and
 // [vars] in wrangler.toml give it.
@@ -15,7 +16,7 @@ export function channelPairs(env) {
     !pairs.length ||
     pairs.some((pair) => !pair?.name || !pair?.tasks)
   ) {
-    throw new Error("CHANNEL_PAIRS must list { name, tasks } for each pair, with external and incidents if it has them");
+    throw new Error("CHANNEL_PAIRS must list { name, tasks } for each pair, with external if it has one");
   }
   return pairs;
 }
@@ -28,8 +29,8 @@ function parsePairs(json) {
   }
 }
 
-// Returns every channel ID with the given role: "external", "tasks" or
-// "incidents". Pairs without an external or incidents channel have none.
+// Returns every channel ID with the given role: "external" or "tasks".
+// Pairs without an external channel have none.
 export function channelsWithRole(env, role) {
   return channelPairs(env)
     .map((pair) => pair[role])

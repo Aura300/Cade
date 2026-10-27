@@ -65,7 +65,7 @@
       <article class="entry">
         <h3><code>/cade requirement</code></h3>
         <div class="tags"><span class="where">Client channel</span><span class="where">Top level</span></div>
-        <p>Opens a form for the requirement's name, priority and an optional due date, then posts it as a new message whose thread is where it's discussed. The card shows its status, priority and due date, and stays pinned until it's done.</p>
+        <p>Opens a form for the requirement's name, priority and an optional due date, then posts it as a new message whose thread is where it's discussed. The card shows its status, priority and due date, and stays pinned until it's done. Its ⋯ menu has <b>Edit</b>, a form with only the priority and due date (the team sets the rest on the task), <b>Track task</b> until a task is tracked from it, and <b>Delete</b>, which removes its task too.</p>
         <div class="example"><b>Example:</b> “Deposit payments at booking”, High, due 14/11/2026.</div>
       </article>
 
@@ -79,7 +79,7 @@
       <article class="entry">
         <h3><code>/cade incident</code></h3>
         <div class="tags"><span class="where">Client channel</span><span class="where">Top level</span></div>
-        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and are tracked straight away as a task in the incidents channel, with no tracking step. Needs an incidents channel set up for the channel pair.</p>
+        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and are tracked straight away as a task in the dev channel, marked as an incident on its card, with no tracking step. An incident's card has <b>Delete</b> in its ⋯ menu, and <b>Track task</b> if its task was deleted.</p>
         <div class="example"><b>Example:</b> “Card payments failing at checkout for EU customers”.</div>
       </article>
 
@@ -113,12 +113,12 @@
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
     <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel or the incidents channel. The ⋯ menu on a task's card has two choices. <b>Edit</b> opens one form with everything: developers, reviewers, testers, status, priority and due date (on the team's own tasks) and pull requests. <b>Delete</b> deletes the task, with <b>Detach</b> beside it for a task tracked from a requirement or incident. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
+    <p class="lede">These work in a task's thread in the dev channel. The ⋯ menu on a task's card has two choices. <b>Edit</b> opens one form with what can be changed there: developers, reviewers, testers, status and pull requests, and the priority and due date on the team's own tasks (a requirement's are set from its card in the client channel, and an incident's never change). <b>Delete</b> deletes the task, with <b>Detach</b> beside it for a task tracked from a requirement or incident. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
     <div class="entries">
 
       <article class="entry">
         <h3><code>@Cade assign dev @person</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <div class="tags"><span class="where">Dev channel</span></div>
         <p>Adds people to a role: <code>developer</code> (or <code>dev</code>), <code>reviewer</code> (or <code>review</code>) or <code>tester</code> (or <code>test</code>, <code>qa</code>), several at once if you like. Cade notes who assigned whom, and on the next line asks them to start (see <a href="notifications.html">notifications</a>). Without anyone mentioned, <code>@Cade assign</code> asks you privately, with a button that opens one form with every role, filled in with who's on it now, to add or remove people.</p>
         <ul>
           <li>Reviewers can be added before there's a PR. They're asked to review once one is linked.</li>
@@ -128,13 +128,13 @@
 
       <article class="entry">
         <h3><code>@Cade unassign dev @person</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <div class="tags"><span class="where">Dev channel</span></div>
         <p>Removes people from a role. Cade notes who removed whom, and on the next line tells them there's no need to do it anymore (see <a href="notifications.html">notifications</a>). <code>@Cade unassign @person</code> removes them from every role. The same short words work. Without anyone mentioned it shows a button per role, each opening a form with that role's people.</p>
       </article>
 
       <article class="entry">
         <h3><code>@Cade status</code> <code>@Cade status in review</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <div class="tags"><span class="where">Dev channel</span></div>
         <p>Without a status, shows a menu. With one, Cade sets it and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
         <ul>
           <li>Done unpins the task and its requirement; moving it out of Done pins them again.</li>
@@ -146,14 +146,14 @@
 
       <article class="entry">
         <h3><code>@Cade pr add &lt;link&gt;</code> <code>@Cade pr remove &lt;link&gt;</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <div class="tags"><span class="where">Dev channel</span></div>
         <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and shown on the card as <code>repo#number</code>. Linking moves a task that's To do or In progress to In review, and asks its reviewers to review it; with no reviewer yet, Cade asks who should review, with a people picker.</p>
         <div class="example"><b>Example:</b> <code>@Cade pr add https://github.com/acme/booking-web/pull/131</code></div>
       </article>
 
       <article class="entry">
         <h3><code>@Cade release</code> <code>@Cade deliver</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
+        <div class="tags"><span class="where">Dev channel</span></div>
         <p>Sends some of the task's PRs to the client before the whole task is done. A private <b>Choose PRs</b> button opens a form that lists the ones not sent yet and asks what they complete and who approves them (whoever started the requirement, to begin with). The approver gets them with <b>Approve</b> and <b>Not approve</b>, which only they can click, in the requirement thread, or in the task thread when there's none. PRs that weren't approved can be sent again. The task's status doesn't change.</p>
         <ul>
           <li>The task thread hears the decision, mentioning the developers.</li>
@@ -207,8 +207,8 @@
 
       <article class="entry">
         <h3><code>@Cade move</code> <code>@Cade move &lt;message link&gt;</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Incidents channel</span><span class="where">In a message's thread</span></div>
-        <p>Moves a message into the right thread. Cade privately shows the open requirements and incidents (in the client channel) or open tasks (in the dev and incidents channels) to pick from. Messages only move within their own channel.</p>
+        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
+        <p>Moves a message into the right thread. Cade privately shows the open requirements and incidents (in the client channel) or open tasks (in the dev channel) to pick from. Messages only move within their own channel.</p>
         <ul>
           <li><b>Without typing:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to task</b> opens a form with the same choices, and nothing is posted until it moves. <b>Convert to task</b>, next to it, opens the Track task form for a message in the dev channel, or the Start requirement form for one in the client channel, named from the message, which then moves into the new thread. Both work on messages posted in the channel itself, not replies.</li>
           <li><b>With an emoji, in one click:</b> add 🎫 <code>:ticket:</code> to a message to convert it, or 🔀 <code>:twisted_rightwards_arrows:</code> to move it. Cade answers only you: a <b>Track task</b> (or <b>Start requirement</b>) button, or the move picker. Add them to Slack's one-click reactions (Preferences → Messages &amp; media) and they sit in the bar you see when hovering over a message. Choose other emoji with <code>reactions</code> in <code>cade.config.json</code>.</li>
@@ -274,7 +274,7 @@
 
       <article class="entry">
         <h3><code>/cade standup</code> <code>/cade standup -unassigned</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span><span class="where">Only you see it</span></div>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Only you see it</span></div>
         <p>Walks through the open tasks one developer at a time: you first, then everyone else, then the tasks with no developer. Each task has a status menu, and unassigned ones a developer picker; changes are posted in each task's thread. <code>-unassigned</code> goes through just the tasks with no developer. Built to share your screen in a standup.</p>
       </article>
 
@@ -287,7 +287,7 @@
       <article class="entry">
         <h3><code>/cade brief</code> <code>/cade brief &lt;group&gt;</code></h3>
         <div class="tags"><span class="where">Any channel</span><span class="where">Only you see it</span><span class="where">Needs the group's Google Doc</span></div>
-        <p>Writes an executive summary with you, one step at a time, and adds it to the group's Google Doc (its <code>doc</code> in <code>cade.config.json</code>), at the top of its <b>Summary</b> tab, as a section headed with the day it was written. Nothing is posted in Slack. Without a linked doc it says how to link one. It covers the channel's group, or the only one, or the one named. First pick the period, <b>From</b> and <b>To</b> dates: from the day after the last summary's period (the past week, the first time) to today, unless you change them. Then what was completed from the start of From to the end of To: untick any not to mention as done. Then, for a group with a client channel, each open requirement and incident, most urgent first, or, for a group without one, each open task in its dev and incidents channels: how it's going (on track, at risk, delayed or blocked), its progress such as <code>3/5</code>, and any notes. <b>Peek at threads</b> shows the latest messages of its requirement thread and its dev or incidents thread, to help you write them. Health, progress and notes start as the last summary had them, to add to or change, and what the last summary said is shown above them, to compare. Last, the summary as it will read, with <b>Add to the Google Doc</b>. In the doc each title links to its thread, and notes are bullets under it. Back keeps your answers; nothing about the work itself changes.</p>
+        <p>Writes an executive summary with you, one step at a time, and adds it to the group's Google Doc (its <code>doc</code> in <code>cade.config.json</code>), at the top of its <b>Summary</b> tab, as a section headed with the day it was written. Nothing is posted in Slack. Without a linked doc it says how to link one. It covers the channel's group, or the only one, or the one named. First pick the period, <b>From</b> and <b>To</b> dates: from the day after the last summary's period (the past week, the first time) to today, unless you change them. Then what was completed from the start of From to the end of To: untick any not to mention as done. Then, for a group with a client channel, each open requirement and incident, most urgent first, or, for a group without one, each open task in its dev channel: how it's going (on track, at risk, delayed or blocked), its progress such as <code>3/5</code>, and any notes. <b>Peek at threads</b> shows the latest messages of its requirement thread and its dev thread, to help you write them. Health, progress and notes start as the last summary had them, to add to or change, and what the last summary said is shown above them, to compare. Last, the summary as it will read, with <b>Add to the Google Doc</b>. In the doc each title links to its thread, and notes are bullets under it. Back keeps your answers; nothing about the work itself changes.</p>
       </article>
 
       <article class="entry">

@@ -13,7 +13,7 @@ export default {
   description: "Unassign people from a role, or from every role (in its thread)",
   usage: "@Cade unassign dev @person",
   section: "thread",
-  channel: ["tasks", "incidents"],
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     const role = parseRole(command.text);

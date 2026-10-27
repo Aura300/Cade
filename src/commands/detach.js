@@ -6,7 +6,7 @@ import { NOT_A_TASK, loadTask, refreshSummary, saveTask, setPinned } from "../ta
 
 const NOT_LINKED = "This task isn't linked to a requirement or incident, so there's nothing to detach.";
 const NO_LINK =
-  "Paste the link to the task's thread: `/cade detach <link>`, with the link from Copy link on the task's message in the dev or incidents channel.";
+  "Paste the link to the task's thread: `/cade detach <link>`, with the link from Copy link on the task's message in the dev channel.";
 const NOT_A_TASK_LINK = "That link isn't to a task's thread. Use Copy link on the task's message.";
 
 const DETACH_ACTION = "detach:confirm";
@@ -14,7 +14,7 @@ const CANCEL_ACTION = "detach:cancel";
 
 // `@Cade detach` in the thread of a task tracked from a requirement or
 // incident ends the link between the two. The task stays in
-// the dev or incidents channel as the team's own, with its priority and due
+// the dev channel as the team's own, with its priority and due
 // date changed from its thread from then on; its message still links to
 // the thread it was tracked from. The requirement's message is
 // kept, saying where the work went, and Cade no longer tracks it: it counts
@@ -37,7 +37,7 @@ export default {
   usage: "@Cade detach",
   slashUsage: "/cade detach <link>",
   section: "thread",
-  channel: ["tasks", "incidents"],
+  channel: "tasks",
   slashChannel: [],
   inThread: true,
   async run(command, { env }) {
@@ -51,7 +51,7 @@ export default {
   },
   async slash(command, context) {
     const link = linkedThread(command.text);
-    if (!link || !["tasks", "incidents"].includes(roleOf(context.env, link.channel))) return NO_LINK;
+    if (!link || roleOf(context.env, link.channel) !== "tasks") return NO_LINK;
     const asked = { channel: link.channel, ts: link.ts, user: command.user, quiet: true };
     context.waitUntil(
       (async () => respondLater(command.responseUrl, await question(context.env, asked, NOT_A_TASK_LINK)))(),

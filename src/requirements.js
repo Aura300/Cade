@@ -1,6 +1,6 @@
 import { pairFor, roleOf } from "./channels.js";
 import { getRequirement, getTask, putRequirement } from "./db.js";
-import { callSlack, escapeSlack, mrkdwn } from "./slack.js";
+import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
 import { PRIORITY_COLORS, STATUSES, loadTask, metaLine, prLines, refreshSummary, saveTask, smallText } from "./tasks.js";
 
 // A requirement is a root message Cade posts in an external channel for
@@ -23,22 +23,20 @@ export function clientStatus(taskStatus) {
 }
 
 // Whether `user`, writing in the external channel `channel`, is on the team
-// rather than the client: a member of the pair's tasks or incidents channel.
+// rather than the client: a member of the pair's tasks channel.
 // Slack can't tell them apart otherwise, so the team's suggestions in a
 // requirement thread are only offered to the team. If the members can't be
 // read (the app was installed without channels:read and groups:read),
 // everyone counts, as before.
 export async function onTheTeam(env, channel, user) {
-  const { tasks, incidents } = pairFor(env, channel);
+  const { tasks } = pairFor(env, channel);
   try {
-    for (const teamChannel of [tasks, incidents].filter(Boolean)) {
-      let cursor;
-      do {
-        const page = await callSlack(env, "conversations.members", { channel: teamChannel, limit: "1000", cursor });
-        if (page.members.includes(user)) return true;
-        cursor = page.response_metadata?.next_cursor || undefined;
-      } while (cursor);
-    }
+    let cursor;
+    do {
+      const page = await callSlack(env, "conversations.members", { channel: tasks, limit: "1000", cursor });
+      if (page.members.includes(user)) return true;
+      cursor = page.response_metadata?.next_cursor || undefined;
+    } while (cursor);
     return false;
   } catch (error) {
     console.warn("Could not read the team's channel members", { error: error.message });
@@ -48,7 +46,7 @@ export async function onTheTeam(env, channel, user) {
 
 // An incident is a requirement started with `/cade incident`. It is always
 // urgent and fixed as soon as possible, and is tracked straight away in the
-// pair's incidents channel.
+// pair's tasks channel, where its card says it is an incident.
 export const INCIDENT = { priority: "Urgent", dueDate: "Immediate" };
 
 export const INCIDENT_IS_FIXED =
@@ -84,8 +82,33 @@ export function requirementMessage(requirement, trackedTask) {
   ];
   return {
     text: `${label}: ${requirement.title}`,
-    blocks: [{ type: "section", text: mrkdwn(`${label}  ·  *${escapeSlack(requirement.title)}*`) }],
+    blocks: [
+      {
+        type: "section",
+        text: mrkdwn(`${label}  ·  *${escapeSlack(requirement.title)}*`),
+        accessory: requirementMenu(requirement),
+      },
+    ],
     attachments: [{ color: PRIORITY_COLORS[priority], blocks: card }],
+  };
+}
+
+// The ⋯ menu on a requirement's or incident's card, as on a task's, so
+// people change it without typing a command in its thread (see menu.js):
+// Edit, for what the client sets (an incident's are fixed, so it has none),
+// Track task, until a task is tracked from it, and Delete.
+export const REQUIREMENT_MENU_ACTION = "requirement:menu";
+
+function requirementMenu(requirement) {
+  const choices = [
+    !requirement.incident && ["edit", "Edit…"],
+    !requirement.task && ["track", "Track task…"],
+    ["delete", "Delete…"],
+  ].filter(Boolean);
+  return {
+    type: "overflow",
+    action_id: REQUIREMENT_MENU_ACTION,
+    options: choices.map(([value, text]) => ({ text: plainText(text), value })),
   };
 }
 
@@ -137,16 +160,15 @@ export async function reflectOnRequirement(env, ts, task, fields) {
 //   "task"         a task thread for a task with no requirement
 //   "client"       a task thread for a task tracked from a requirement, whose
 //                  priority and due date cannot be changed there
-//   "incident"     an incident's thread, in either channel, or its task's
-//                  while linked to it, whose priority and due date are fixed
+//   "incident"     an incident's thread, or its task's while linked to it,
+//                  whose priority and due date are fixed
 export async function findDetails(env, channel, threadTs) {
-  const role = roleOf(env, channel);
-  if (role !== "external") {
+  if (roleOf(env, channel) !== "external") {
     const task = await loadTask(env, channel, threadTs);
     if (!task) return null;
     // A task detached from its incident is the team's own, like any other.
     let kind = task.source ? "client" : "task";
-    if (role === "incidents" && task.source) kind = "incident";
+    if (task.source?.incident) kind = "incident";
     return { kind, channel, ts: threadTs, item: task };
   }
 

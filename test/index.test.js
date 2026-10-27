@@ -1006,13 +1006,11 @@ test("@Cade assign outside the dev channel points to it", async (t) => {
 });
 
 test("@Cade track outside the external and dev channels points to them", async (t) => {
-  // From a paired channel only its pair's channels are named.
   for (const [channel, hint] of [
-    ["CINC", "<#CEXTERNAL> or <#CDEV>"],
     ["COTHER", "<#CEXTERNAL> or <#CTESTEXT> or <#CDEV> or <#CTESTDEV>"],
   ]) {
     const calls = mockSlack(t);
-    await send("/slack/events", threadEvent("<@UBOT> track", { channel }), {}, incidentEnv);
+    await send("/slack/events", threadEvent("<@UBOT> track", { channel }), {}, env);
     assert.equal(calls[0].args.text, `That one works with \`@Cade track\` in ${hint}.`, channel);
   }
 });
@@ -1482,7 +1480,7 @@ test("/cade help and unknown slash commands list the commands privately", async 
 test("@Cade requirement and @Cade incident outside a thread point to replying in one", async (t) => {
   for (const kind of ["requirement", "incident"]) {
     const calls = mockSlack(t);
-    await send("/slack/events", threadEvent(`<@UBOT> ${kind}`, { channel: "CEXTERNAL", ts: "400.1", thread_ts: undefined }), {}, incidentEnv);
+    await send("/slack/events", threadEvent(`<@UBOT> ${kind}`, { channel: "CEXTERNAL", ts: "400.1", thread_ts: undefined }), {}, env);
     assert.equal(
       calls[0].args.text,
       `To start one from a message, reply \`@Cade ${kind}\` in its thread, or use \`/cade ${kind}\` for something new.`,
@@ -2400,17 +2398,8 @@ test("confirming a requirement's deletion removes Cade's replies and then the re
   assert.ok(!calls.some((call) => ["sheet", "chat.postMessage", "chat.postEphemeral"].includes(call.method)));
 });
 
-// The acme pair with an incidents channel; the test pair has none.
-const incidentEnv = {
-  ...env,
-  CHANNEL_PAIRS: [
-    { name: "acme", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC" },
-    { name: "test", external: "CTESTEXT", tasks: "CTESTDEV" },
-  ],
-};
-
 // An incident's message in the external channel, at 200.1, tracked as the task
-// at CINC/100.1 unless `task` is false.
+// at CDEV/100.1 unless `task` is false.
 const incidentRoot = ({ task = true } = {}) => {
   const record = requirementRoot({ task });
   Object.assign(record.requirement, {
@@ -2419,14 +2408,12 @@ const incidentRoot = ({ task = true } = {}) => {
     dueDate: "Immediate",
     incident: true,
   });
-  if (task) record.requirement.task.channel = "CINC";
   return record;
 };
 
-// The incident's task, at CINC/100.1.
+// The incident's task, at CDEV/100.1.
 const incidentTask = (status = "TODO") => {
   const record = requirementTask(status);
-  record.channel = "CINC";
   Object.assign(record.task, { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate" });
   record.task.source.incident = true;
   return record;
@@ -2434,7 +2421,7 @@ const incidentTask = (status = "TODO") => {
 
 test("/cade incident opens a form that asks only what the incident is", async (t) => {
   const calls = mockSlack(t);
-  const response = await send("/slack/commands", slash("incident"), {}, incidentEnv);
+  const response = await send("/slack/commands", slash("incident"), {}, env);
   assert.equal(await response.text(), "");
   assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
   const { view } = calls[0].args;
@@ -2444,25 +2431,24 @@ test("/cade incident opens a form that asks only what the incident is", async (t
   assert.equal(view.blocks[0].label.text, "What's the incident?");
 });
 
-test("/cade incident needs an incidents channel and works only in external channels", async (t) => {
-  for (const [channel, text] of [
-    ["CTESTEXT", /^I can't take incidents in this channel yet/],
-    ["CDEV", /^That one works with `\/cade incident` in <#CEXTERNAL>\.$/],
-  ]) {
-    const calls = mockSlack(t);
-    const reply = await (await send("/slack/commands", slash("incident", channel), {}, incidentEnv)).json();
-    assert.equal(calls.length, 0, channel);
-    assert.equal(reply.response_type, "ephemeral");
-    assert.match(reply.text, text, channel);
-  }
+test("/cade incident works in every external channel, and only there", async (t) => {
+  let calls = mockSlack(t);
+  await send("/slack/commands", slash("incident", "CTESTEXT"));
+  assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
+
+  calls = mockSlack(t);
+  const reply = await (await send("/slack/commands", slash("incident", "CDEV"))).json();
+  assert.equal(calls.length, 0);
+  assert.equal(reply.response_type, "ephemeral");
+  assert.match(reply.text, /^That one works with `\/cade incident` in <#CEXTERNAL>\.$/);
 });
 
-test("reporting an incident posts it and tracks it straight away in the incidents channel", async (t) => {
+test("reporting an incident posts it and tracks it straight away in the dev channel", async (t) => {
   const calls = mockSlack(t, {
     "chat.postMessage": (args) =>
-      args.channel === "CINC" ? { channel: "CINC", ts: "100.1" } : { ts: "200.1" },
+      args.channel === "CDEV" ? { channel: "CDEV", ts: "100.1" } : { ts: "200.1" },
     "chat.getPermalink": (args) => ({
-      permalink: args.channel === "CINC" ? "https://slack.example/p100" : "https://slack.example/source",
+      permalink: args.channel === "CDEV" ? "https://slack.example/p100" : "https://slack.example/source",
     }),
   });
   const response = await send(
@@ -2477,7 +2463,7 @@ test("reporting an incident posts it and tracks it straight away in the incident
       },
     }),
     {},
-    incidentEnv,
+    env,
   );
   assert.deepEqual(await response.json(), { response_action: "clear" });
 
@@ -2495,20 +2481,22 @@ test("reporting an incident posts it and tracks it straight away in the incident
   assert.deepEqual((await savedRequirement()).priority, "Urgent");
   assert.deepEqual((await savedRequirement()).dueDate, "Immediate");
 
-  // The task, in the incidents channel, pinned, linking back to the incident.
-  const task = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CINC");
+  // The task, in the dev channel, pinned, labelled and linking back to the
+  // incident.
+  const task = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV");
+  assert.equal(task.args.text, "Urgent incident: Checkout is down");
+  assert.equal(allBlocks(task.args)[0].text.text, "Incident  ·  *Checkout is down*");
   assert.equal(blockText(allBlocks(task.args)[1]), ":memo: To do  ·  Urgent  ·  Due Immediate");
-  const stored = await savedTask("CINC");
+  const stored = await savedTask("CDEV");
   assert.equal(stored.source.threadTs, "200.1");
   assert.equal(stored.source.incident, true);
   assert.equal(footerLines(task.args)[1], "Tracked by <@UCLIENT> from <https://slack.example/source|the incident thread>");
-  assert.ok(calls.some((call) => call.method === "pins.add" && call.args.channel === "CINC"));
-  assert.ok(!calls.some((call) => call.args.channel === "CDEV"), "nothing goes to the dev channel");
+  assert.ok(calls.some((call) => call.method === "pins.add" && call.args.channel === "CDEV"));
 
   // The incident message then links to the task and shows In progress.
   const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "200.1");
   assert.equal(blockText(allBlocks(update.args)[1]), ":arrow_forward: In progress  ·  Urgent  ·  Due Immediate");
-  assert.deepEqual((await savedRequirement()).task.channel, "CINC");
+  assert.deepEqual((await savedRequirement()).task.channel, "CDEV");
 });
 
 test("an incident needs a description", async (t) => {
@@ -2525,7 +2513,7 @@ test("an incident needs a description", async (t) => {
       },
     }),
     {},
-    incidentEnv,
+    env,
   );
   assert.equal(calls.length, 0);
   assert.deepEqual(await response.json(), {
@@ -2537,11 +2525,11 @@ test("an incident needs a description", async (t) => {
 test("an incident's priority and due date can't be changed in either thread", async (t) => {
   for (const [channel, overrides] of [
     ["CEXTERNAL", { ts: "200.5", thread_ts: "200.1" }],
-    ["CINC", {}],
+    ["CDEV", {}],
   ]) {
     for (const text of ["<@UBOT> priority low", "<@UBOT> due 15/12/2026"]) {
       const calls = mockSlack(t, threads(incidentRoot(), incidentTask()));
-      await send("/slack/events", threadEvent(text, { channel, ...overrides }), {}, incidentEnv);
+      await send("/slack/events", threadEvent(text, { channel, ...overrides }), {}, env);
       assert.ok(!calls.some((call) => call.method === "chat.update"), `${channel}: ${text}`);
       assert.equal(
         calls.at(-1).args.text,
@@ -2551,31 +2539,31 @@ test("an incident's priority and due date can't be changed in either thread", as
   }
 });
 
-test("the incidents channel runs the task commands like the dev channel", async (t) => {
+test("an incident's task runs the task commands like any other", async (t) => {
   let calls = mockSlack(t, threads(incidentRoot(), incidentTask("IN_TESTING")));
-  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>", { channel: "CINC" }), {}, incidentEnv);
-  assert.equal(calls[0].args.channel, "CINC");
-  assert.deepEqual((await savedTask("CINC")).people.developer, ["UBOB"]);
+  await send("/slack/events", threadEvent("<@UBOT> assign developer <@UBOB>"));
+  assert.equal(calls[0].args.channel, "CDEV");
+  assert.deepEqual((await savedTask()).people.developer, ["UBOB"]);
 
   // Client review asks whoever is chosen in the incident's thread, as for
   // requirements.
   calls = await clientReview(t, {
     ...threads(incidentRoot(), incidentTask("IN_TESTING")),
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
-  }, { channel: "CINC", environment: incidentEnv });
+  });
   assert.deepEqual((await savedRequirement()).status, "CLIENT_REVIEW");
   const review = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
   assert.match(review.args.text, /\n<@UCREATOR>, could you take a look and approve it/);
   assert.equal(review.args.blocks[1].elements[0].action_id, "status:approve");
 });
 
-test("an incident whose task was deleted is tracked again in the incidents channel", async (t) => {
+test("an incident whose task was deleted is tracked again", async (t) => {
   let calls = mockSlack(t, { stored: [incidentRoot({ task: false })] });
   await send(
     "/slack/events",
     threadEvent("<@UBOT> track", { channel: "CEXTERNAL", ts: "200.5", thread_ts: "200.1" }),
     {},
-    incidentEnv,
+    env,
   );
   const origin = JSON.parse(allBlocks(calls[0].args)[0].elements[0].value);
   assert.equal(origin.incident, true);
@@ -2583,19 +2571,19 @@ test("an incident whose task was deleted is tracked again in the incidents chann
   calls = mockSlack(t, {
     ...createdTask,
     "chat.postMessage": (args) =>
-      args.channel === "CINC" ? { channel: "CINC", ts: "100.1" } : { ts: "300.1" },
+      args.channel === "CDEV" ? { channel: "CDEV", ts: "100.1" } : { ts: "300.1" },
     stored: [incidentRoot({ task: false })],
   });
   await send(
     "/slack/interactions",
     interaction(titleOnlySubmission("Checkout is down", { ...origin, promptTs: "300.1" })),
     {},
-    incidentEnv,
+    env,
   );
-  const task = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CINC");
-  assert.ok(task, "the task goes to the incidents channel");
-  assert.deepEqual((await savedTask("CINC")).priority, "Urgent");
-  assert.deepEqual((await savedTask("CINC")).dueDate, "Immediate");
+  const task = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV");
+  assert.ok(task, "the task goes to the dev channel");
+  assert.deepEqual((await savedTask()).priority, "Urgent");
+  assert.deepEqual((await savedTask()).dueDate, "Immediate");
 });
 
 test("incident tasks are recorded in the pair's sheet tab", async (t) => {
@@ -2605,9 +2593,9 @@ test("incident tasks are recorded in the pair's sheet tab", async (t) => {
   });
   await send(
     "/slack/events",
-    threadEvent("<@UBOT> status in progress", { channel: "CINC" }),
+    threadEvent("<@UBOT> status in progress"),
     {},
-    { ...incidentEnv, CHANNEL_PAIRS: withSheets(incidentEnv.CHANNEL_PAIRS), GOOGLE_URL, GOOGLE_SECRET: "secret" },
+    { ...env, CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS), GOOGLE_URL, GOOGLE_SECRET: "secret" },
   );
   const row = calls.find((call) => call.method === "sheet").args;
   assert.equal(row.project, "acme");
@@ -2655,6 +2643,15 @@ const historyTask = (ts, { developers = [], reviewers = [], testers = [], ...fie
   Object.assign(record.task, fields);
   return record;
 };
+
+// A task tracked from the incident at CEXTERNAL/200.4, as historyTask.
+const incidentHistoryTask = (ts, fields) =>
+  historyTask(ts, {
+    priority: "Urgent",
+    dueDate: "Immediate",
+    source: { channel: "CEXTERNAL", threadTs: "200.4", link: "https://slack.example/source", incident: true },
+    ...fields,
+  });
 
 // What `/cade tasks` says it takes, after saying what was wrong.
 const TASKS_USAGE =
@@ -2708,13 +2705,11 @@ test("/cade tasks in a group's channel shows its open tasks by role, only to you
       historyTask("100.4", { title: "Done task", status: "DONE", developers: ["UACTOR"] }),
       historyTask("100.5", { title: "Not mine", developers: ["UBOB"] }),
       historyTask("100.6", { title: "Review me", reviewers: ["UACTOR"], status: "IN_REVIEW" }),
-    ],
-    CINC: [
-      historyTask("100.8", { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", developers: ["UACTOR"] }),
+      incidentHistoryTask("100.8", { title: "Checkout is down", developers: ["UACTOR"] }),
     ],
     // Another group's task is left out.
     CTESTDEV: [historyTask("100.9", { title: "Test task", developers: ["UACTOR"] })],
-  }), incidentEnv);
+  }), env);
 
   // Slack is answered at once; the list follows, only to you.
   assert.equal(now, "");
@@ -2733,7 +2728,7 @@ test("/cade tasks in a group's channel shows its open tasks by role, only to you
     developing.text.text,
     [
       "*Developing (4)*",
-      `• *Incident:* <${thread("CINC", "100.8")}|Checkout is down>  ·  :memo: To do  ·  :red_circle: Urgent  ·  Due Immediate`,
+      `• *Incident:* <${thread("CDEV", "100.8")}|Checkout is down>  ·  :memo: To do  ·  :red_circle: Urgent  ·  Due Immediate`,
       `• <${thread("CDEV", "100.3")}|High, sooner>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 01/11/2026`,
       `• <${thread("CDEV", "100.2")}|High task>  ·  :memo: To do  ·  :large_orange_circle: High  ·  Due 05/11/2026`,
       `• <${thread("CDEV", "100.1")}|Low task>  ·  :memo: To do  ·  :large_green_circle: Low  ·  Due 31/10/2026`,
@@ -2746,14 +2741,12 @@ test("/cade tasks in a group's channel shows its open tasks by role, only to you
   assert.equal(testing.text.text, "*Testing*\n_Nothing assigned._");
 });
 
-test("/cade tasks in an external or incidents channel shows that channel's group", async (t) => {
-  for (const channel of ["CEXTERNAL", "CINC"]) {
-    const { later } = await tasksCommand(t, "tasks", channel, ({
-      CDEV: [historyTask("100.1", { developers: ["UACTOR"] })],
-      CTESTDEV: [historyTask("100.2", { developers: ["UACTOR"] })],
-    }), incidentEnv);
-    assert.equal(later.text, "You have 1 open acme task.", channel);
-  }
+test("/cade tasks in an external channel shows that channel's group", async (t) => {
+  const { later } = await tasksCommand(t, "tasks", "CEXTERNAL", ({
+    CDEV: [historyTask("100.1", { developers: ["UACTOR"] })],
+    CTESTDEV: [historyTask("100.2", { developers: ["UACTOR"] })],
+  }));
+  assert.equal(later.text, "You have 1 open acme task.");
 });
 
 test("/cade tasks outside every group shows each group in turn", async (t) => {
@@ -2915,11 +2908,11 @@ test("@Cade pr needs add or remove and a pull request link", async (t) => {
   }
 });
 
-test("@Cade pr works in incidents channels but not in external ones", async (t) => {
+test("@Cade pr works in an incident's task thread but not in external channels", async (t) => {
   let calls = mockSlack(t, threads(incidentRoot(), incidentTask()));
-  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`, { channel: "CINC" }), {}, incidentEnv);
-  assert.equal(calls[0].args.channel, "CINC");
-  assert.deepEqual((await savedTask("CINC")).prs, [PR]);
+  await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
+  assert.equal(calls[0].args.channel, "CDEV");
+  assert.deepEqual((await savedTask()).prs, [PR]);
 
   calls = mockSlack(t);
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`, { channel: "CEXTERNAL" }));
@@ -3584,7 +3577,7 @@ test("a task tracked with Track and assign is announced in the requirement threa
 
 test("a reported incident is not announced as tracked", async (t) => {
   const calls = mockSlack(t, {
-    "chat.postMessage": (args) => (args.channel === "CINC" ? { channel: "CINC", ts: "100.1" } : { ts: "200.1" }),
+    "chat.postMessage": (args) => (args.channel === "CDEV" ? { channel: "CDEV", ts: "100.1" } : { ts: "200.1" }),
     stored: [incidentRoot({ task: false })],
     "chat.getPermalink": { permalink: "https://slack.example/p100" },
   });
@@ -3600,7 +3593,7 @@ test("a reported incident is not announced as tracked", async (t) => {
       },
     }),
     {},
-    incidentEnv,
+    env,
   );
   // Only the incident message itself goes to the external channel.
   const external = calls.filter((call) => call.method === "chat.postMessage" && call.args.channel === "CEXTERNAL");
@@ -3696,7 +3689,7 @@ test("confirming removes the task first, then the requirement", async (t) => {
 test("a task from a requirement or incident can't be removed from its own thread", async (t) => {
   for (const [requirement, root, environment, channel, text] of [
     [requirementRoot({ task: true }), requirementTask(), env, "CDEV", "This task is tracked by <https://slack.example/source|the requirement thread>, so please remove it from there with `@Cade remove`."],
-    [incidentRoot(), incidentTask(), incidentEnv, "CINC", "This task is tracked by <https://slack.example/source|the incident thread>, so please remove it from there with `@Cade remove`."],
+    [incidentRoot(), incidentTask(), env, "CDEV", "This task is tracked by <https://slack.example/source|the incident thread>, so please remove it from there with `@Cade remove`."],
   ]) {
     const calls = mockSlack(t, {
       stored: [requirement, root],
@@ -4572,7 +4565,7 @@ test("an incident Slack refused is tracked as a task once the cron posts it", as
   const calls = mockSlack(t, {
     ...createdTask,
     "chat.postMessage": (args) =>
-      args.channel === "CINC" ? { channel: "CINC", ts: "100.1" } : { ts: "200.1" },
+      args.channel === "CDEV" ? { channel: "CDEV", ts: "100.1" } : { ts: "200.1" },
   });
   await insertRequirement(env, "CEXTERNAL", {
     title: "Checkout is down",
@@ -4583,14 +4576,14 @@ test("an incident Slack refused is tracked as a task once the cron posts it", as
     createdBy: "UCLIENT",
   });
   await age();
-  await runCron(incidentEnv);
+  await runCron(env);
 
   const posts = calls.filter((call) => call.method === "chat.postMessage").map((call) => call.args.channel);
-  assert.deepEqual(posts, ["CEXTERNAL", "CINC"]);
-  const task = await savedTask("CINC");
+  assert.deepEqual(posts, ["CEXTERNAL", "CDEV"]);
+  const task = await savedTask();
   assert.equal(task.source.threadTs, "200.1");
   assert.equal(task.source.incident, true);
-  assert.equal((await savedRequirement()).task.channel, "CINC");
+  assert.equal((await savedRequirement()).task.channel, "CDEV");
 });
 
 // /cade tasks options: a person, everyone, status and due date filters.
@@ -4674,9 +4667,9 @@ test("/cade tasks -due compares due dates with today, tomorrow or a date", async
       historyTask("100.2", { title: "Today", developers: ["UACTOR"], dueDate: dueIn(0) }),
       historyTask("100.3", { title: "Tomorrow", developers: ["UACTOR"], dueDate: dueIn(1) }),
       historyTask("100.4", { title: "Someday", developers: ["UACTOR"], dueDate: "" }),
+      // Immediate counts as today.
+      historyTask("100.5", { title: "Down", developers: ["UACTOR"], dueDate: "Immediate" }),
     ],
-    // Immediate counts as today.
-    CINC: [historyTask("100.5", { title: "Down", developers: ["UACTOR"], dueDate: "Immediate" })],
   };
   const titles = (later) =>
     later.blocks.filter((block) => block.type === "section").flatMap((block) =>
@@ -4692,7 +4685,7 @@ test("/cade tasks -due compares due dates with today, tomorrow or a date", async
     [`-due=${dueIn(-1).split("/").reverse().join("-")}`, ["Late"], `Due ${dueIn(-1)}`],
     ["-due=none", ["Someday"], "No due date"],
   ]) {
-    const { later } = await tasksCommand(t, `tasks ${filter}`, "CDEV", stored, incidentEnv);
+    const { later } = await tasksCommand(t, `tasks ${filter}`, "CDEV", stored, env);
     assert.deepEqual(titles(later), expected, filter);
     assert.equal(later.blocks[1].elements[0].text, label, filter);
   }
@@ -5597,8 +5590,8 @@ const promptClick = (actionId) =>
 
 test("a message posted on its own in the external channel is asked where it belongs", async (t) => {
   for (const [environment, stored, buttons] of [
-    [incidentEnv, [requirementRoot()], ["Start requirement", "Report incident", "Move to existing", "Not now"]],
-    [env, [], ["Start requirement", "Not now"]],
+    [env, [requirementRoot()], ["Start requirement", "Report incident", "Move to existing", "Not now"]],
+    [env, [], ["Start requirement", "Report incident", "Not now"]],
   ]) {
     const calls = mockSlack(t, { stored });
     await send("/slack/events", channelMessage(), {}, environment);
@@ -5621,7 +5614,7 @@ test("with suggestions off, a message posted on its own is still asked where it 
 test("only messages posted on their own in the external and dev channels are asked about", async (t) => {
   const calls = mockSlack(t, { stored: [requirementRoot()] });
   await send("/slack/events", channelMessage("thanks!", { ts: "200.5", thread_ts: "200.1" }));
-  await send("/slack/events", channelMessage("deploying now", { channel: "CINC" }), {}, incidentEnv);
+  await send("/slack/events", channelMessage("deploying now", { channel: "CRANDOM" }));
   await send("/slack/events", channelMessage("done", { bot_id: "BOTHER" }));
   await send("/slack/events", channelMessage("edited", { subtype: "message_changed" }));
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
@@ -5631,7 +5624,7 @@ test("Start requirement and Report incident open their forms, named from the mes
   for (const [actionId, callbackId] of [["move:start-requirement", "requirement"], ["move:report-incident", "incident"]]) {
     const calls = mockSlack(t);
     const responses = recordResponses(t);
-    await send("/slack/interactions", promptClick(actionId), {}, incidentEnv);
+    await send("/slack/interactions", promptClick(actionId), {}, env);
     const { view } = calls.find((call) => call.method === "views.open").args;
     assert.equal(view.callback_id, callbackId);
     assert.equal(view.blocks[0].element.initial_value, "Also add a CSV export");
@@ -5688,7 +5681,7 @@ test("an incident reported from a message takes the message into its thread once
   const calls = mockSlack(t, {
     ...moveSlack(),
     "chat.postMessage": (args) =>
-      args.thread_ts ? { ts: `${args.thread_ts.split(".")[0]}.9` } : args.channel === "CINC" ? { channel: "CINC", ts: "100.1" } : { ts: "200.1" },
+      args.thread_ts ? { ts: `${args.thread_ts.split(".")[0]}.9` } : args.channel === "CDEV" ? { channel: "CDEV", ts: "100.1" } : { ts: "200.1" },
   });
   await send(
     "/slack/interactions",
@@ -5702,11 +5695,11 @@ test("an incident reported from a message takes the message into its thread once
       },
     }),
     {},
-    incidentEnv,
+    env,
   );
   const methods = calls.map((call) => [call.method, call.args.channel]);
   // The incident's task is posted before the message is moved.
-  const task = methods.findIndex(([method, channel]) => method === "chat.postMessage" && channel === "CINC");
+  const task = methods.findIndex(([method, channel]) => method === "chat.postMessage" && channel === "CDEV");
   const copy = calls.findIndex((call) => call.method === "chat.postMessage" && call.args.thread_ts === "200.1");
   assert.ok(task >= 0 && copy > task);
   assert.match(calls.at(-1).args.name ?? "", /outbox_tray/);
@@ -5723,7 +5716,7 @@ test("@Cade requirement, @Cade incident and @Cade track in a message's thread of
     ["track", "CDEV", devStray, "Shall I track this message as a task?", "Track task", "move:track-task"],
   ]) {
     const calls = mockSlack(t, moveSlack(root));
-    await send("/slack/events", startEvent(kind, channel, root.ts), {}, incidentEnv);
+    await send("/slack/events", startEvent(kind, channel, root.ts), {}, env);
     assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "chat.postEphemeral"], kind);
     const offer = calls[1].args;
     assert.equal(offer.user, "UACTOR", kind);
@@ -5742,7 +5735,7 @@ test("@Cade requirement, @Cade incident and @Cade track say why they can't start
     [startEvent("track", "CDEV", "100.1"), [ownTask()], devStray, "This is already a task thread."],
   ]) {
     const calls = mockSlack(t, { ...moveSlack(root), stored });
-    await send("/slack/events", event, {}, incidentEnv);
+    await send("/slack/events", event, {}, env);
     assert.equal(calls.at(-1).method, "chat.postMessage", text);
     assert.equal(calls.at(-1).args.text, text);
   }
@@ -6088,16 +6081,10 @@ test("in a requirement thread, the team's suggestions only go to the team", asyn
   }
 });
 
-test("the team includes the incidents channel, every page of members, and everyone if Slack won't say", async (t) => {
+test("the team includes every page of members, and everyone if Slack won't say", async (t) => {
   const stored = [requirementRoot({ task: true }), requirementTask("TODO")];
-  // In the incidents channel only.
-  let calls = mockSlack(t, { ...teamMembers({ CDEV: [], CINC: ["UACTOR"] }), stored });
-  await send("/slack/events", requirementReply("started working on this"), {}, incidentEnv);
-  assert.ok(ephemeral(calls));
-  assert.deepEqual(calls.filter((call) => call.method === "conversations.members").map((call) => call.args.channel), ["CDEV", "CINC"]);
-
   // On a later page.
-  calls = mockSlack(t, {
+  let calls = mockSlack(t, {
     "conversations.members": (args) =>
       args.cursor === "page-2"
         ? { members: ["UACTOR"], response_metadata: { next_cursor: "" } }
@@ -6418,9 +6405,9 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
     ["CDEV", historyTask("100.3", { title: "High, sooner", priority: "High", dueDate: "01/11/2026", status: "IN_PROGRESS" })],
     ["CDEV", historyTask("100.4", { title: "Done task", status: "DONE", completedAt: "2026-10-10T09:00:00.000Z" })],
     ["CDEV", historyTask("100.5", { title: "Done later", status: "DONE", completedAt: "2026-10-20T09:00:00.000Z", developers: ["UBOB"] })],
-    ["CINC", historyTask("100.8", { title: "Checkout is down", priority: "Urgent", dueDate: "Immediate", testers: ["UALICE", "UBOB"] })],
+    ["CDEV", incidentHistoryTask("100.8", { title: "Checkout is down", testers: ["UALICE", "UBOB"] })],
   ]) await putTask(env, channel, record.ts, record.task);
-  const { now, later } = await runTasksCommand("summary", "CDEV", incidentEnv);
+  const { now, later } = await runTasksCommand("summary", "CDEV", env);
 
   assert.equal(now, "");
   assert.equal(later.text, "Added the summary to this channel's canvas. I'll keep it up to date.");
@@ -6436,7 +6423,7 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
   const thread = (channel, ts) =>
     `(https://acme.slack.com/archives/${channel}/p${ts.replace(".", "")}?thread_ts=${ts}&cid=${channel})`;
   assert.deepEqual(summaryRows(markdown), [
-    `| **Incident:** [Checkout is down]${thread("CINC", "100.8")} | :memo:~To~do | :red_circle:~Urgent | Immediate | — | — | ![](@UALICE), ![](@UBOB) |`,
+    `| **Incident:** [Checkout is down]${thread("CDEV", "100.8")} | :memo:~To~do | :red_circle:~Urgent | Immediate | — | — | ![](@UALICE), ![](@UBOB) |`,
     `| [High, sooner]${thread("CDEV", "100.3")} | :arrow_forward:~In~progress | :large_orange_circle:~High | 01/11/2026 | — | — | — |`,
     `| [High \\| \\[later\\]]${thread("CDEV", "100.2")} | :memo:~To~do | :large_orange_circle:~High | 05/11/2026 | — | ![](@UBOB) | — |`,
     `| [Low task]${thread("CDEV", "100.1")} | :memo:~To~do | :large_green_circle:~Low | 31/10/2026 | ![](@UALICE) | — | — |`,
@@ -6449,7 +6436,7 @@ test("/cade summary in the dev channel puts the group's open tasks in its canvas
 
   // Sent again, the same canvas is rewritten.
   calls.length = 0;
-  const again = await runTasksCommand("summary", "CDEV", incidentEnv);
+  const again = await runTasksCommand("summary", "CDEV", env);
   assert.equal(again.later.text, "Updated the summary in this channel's canvas.");
   const edits = calls.filter((call) => call.method === "canvases.edit");
   assert.deepEqual(edits.map((call) => call.args.canvas_id), ["F0CANVAS", "F0CANVAS"]);
@@ -6525,10 +6512,8 @@ test("/cade summary uses the canvas the channel already has", async (t) => {
 
 test("/cade summary only works in a group's external and dev channels", async (t) => {
   const calls = mockSlack(t, canvasResponses);
-  for (const channel of ["CRANDOM", "CINC"]) {
-    const { now } = await runTasksCommand("summary", channel, incidentEnv);
-    assert.match(now, /summary/);
-  }
+  const { now } = await runTasksCommand("summary", "CRANDOM");
+  assert.match(now, /summary/);
   assert.ok(!calls.some((call) => /canvas/.test(call.method)));
 });
 
@@ -6580,13 +6565,13 @@ test("a summary's Closed section keeps the last 50 done", async (t) => {
   assert.match(markdown, /The last 50 done, most recently first\./);
 });
 
-// The acme pair with an incidents channel and a Google Doc, in UTC.
+// The acme pair with a Google Doc, in UTC.
 const execEnv = {
   ...env,
   TIMEZONE: "UTC",
   GOOGLE_URL,
   GOOGLE_SECRET: "google-secret",
-  CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV", incidents: "CINC", doc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
+  CHANNEL_PAIRS: [{ name: "acme", external: "CEXTERNAL", tasks: "CDEV", doc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
 };
 
 const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
@@ -6595,7 +6580,7 @@ const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
 //   CEXTERNAL/200.1  requirement "Export reports", its task CDEV/100.1 done
 //                    two days ago
 //   CEXTERNAL/200.2  requirement "Dark mode", in discussion
-//   CEXTERNAL/200.4  incident "Checkout is down", its task CINC/100.8 to do
+//   CEXTERNAL/200.4  incident "Checkout is down", its task CDEV/100.8 to do
 //   CDEV/100.3       the team's own task "Upgrade Node", in review
 //   CDEV/100.5       the team's own task "Old work", done long ago
 async function storeExecWork() {
@@ -6611,11 +6596,11 @@ async function storeExecWork() {
     priority: "Urgent",
     dueDate: "Immediate",
     incident: true,
-    task: { channel: "CINC", ts: "100.8", title: "Checkout is down", link: "https://slack.example/p108", trackedBy: "UACTOR" },
+    task: { channel: "CDEV", ts: "100.8", title: "Checkout is down", link: "https://slack.example/p108", trackedBy: "UACTOR" },
   }));
   for (const record of [
     task("CDEV", "100.1", "Export reports", { status: "DONE", completedAt: daysAgo(2), developers: ["UALICE"] }),
-    task("CINC", "100.8", "Checkout is down", { priority: "Urgent", dueDate: "Immediate", developers: ["UBOB"] }),
+    task("CDEV", "100.8", "Checkout is down", { priority: "Urgent", dueDate: "Immediate", developers: ["UBOB"] }),
   ]) {
     record.task.source = { channel: "CEXTERNAL", threadTs: record.ts === "100.1" ? "200.1" : "200.4", incident: record.ts === "100.8" };
     await putTask(env, record.channel, record.ts, record.task);
@@ -6693,7 +6678,7 @@ test("/cade brief goes through a client group's requirements and incidents, and 
   const peek = incident.blocks.find((block) => block.accessory?.action_id === "export:peek").accessory;
   assert.deepEqual(JSON.parse(peek.value), [
     { c: "CEXTERNAL", t: "200.4", n: "Incident thread" },
-    { c: "CINC", t: "100.8", n: "Incidents channel thread" },
+    { c: "CDEV", t: "100.8", n: "Dev thread" },
   ]);
   await send("/slack/interactions", execClick(incident, "export:next", execFields(incident, { health: "BLOCKED", progress: "", notes: "Waiting on the payment provider\nETA Monday" })), {}, execEnv);
 
@@ -6803,7 +6788,7 @@ test("Peek at threads shows each thread's latest replies in a modal", async (t) 
     `*Incident thread*  ·  <${execLink("CEXTERNAL", "200.4")}|Open>`,
     "*<@UCLIENT>*  ·  24/10/2025 10:00\nStill failing for EU customers",
     "*<@UBOB>*  ·  24/10/2025 10:01\n_(attachment)_",
-    `*Incidents channel thread*  ·  <${execLink("CINC", "100.8")}|Open>`,
+    `*Dev thread*  ·  <${execLink("CDEV", "100.8")}|Open>`,
     "_No replies yet._",
   ]);
   // Peeking leaves the step as it was.
@@ -6890,9 +6875,9 @@ test("/cade brief outside a group asks which, when there are several", async (t)
   assert.match(blockText(later.blocks[0]), /Executive summary: test/);
 });
 
-// acme without its client channel: its summaries are of the dev and
-// incidents channels' tasks.
-const teamEnv = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV", incidents: "CINC", doc: execEnv.CHANNEL_PAIRS[0].doc }] };
+// acme without its client channel: its summaries are of the dev channel's
+// tasks, incidents' too.
+const teamEnv = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV", doc: execEnv.CHANNEL_PAIRS[0].doc }] };
 
 test("/cade brief goes through a team group's tasks", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
@@ -6900,7 +6885,7 @@ test("/cade brief goes through a team group's tasks", async (t) => {
   const { later: period } = await runTasksCommand("brief", "CDEV", teamEnv);
   const sent = recordResponses(t);
   // Step 1 is the period, step 2 the task done in it, then the open tasks,
-  // the incident first, with their dev or incidents thread to peek at.
+  // the incident first, with their dev thread to peek at.
   assert.match(blockText(period.blocks[0]), /Step 1 of 5$/);
   await send("/slack/interactions", execClick(period, "export:next"), {}, teamEnv);
   assert.match(messageText(sent.at(-1)), /Completed[\s\S]*Export reports>  ·  Done/);
@@ -7038,14 +7023,14 @@ test("@Cade detach in a task thread hands it to the team and closes its requirem
 });
 
 test("@Cade detach frees an incident's task to change its priority and due date", async (t) => {
-  const incidentTask = inChannel("CINC", storedTask());
+  const incidentTask = storedTask();
   incidentTask.task.source.incident = true;
   const calls = mockSlack(t, { stored: [incidentTask] });
-  await send("/slack/events", threadEvent("<@UBOT> detach", { channel: "CINC" }), {}, incidentEnv);
-  await answerPrivately(t, calls[0].args, "detach:confirm", incidentEnv);
-  mockSlack(t, { stored: [{ ...incidentTask, task: await savedTask("CINC") }] });
-  await send("/slack/events", threadEvent("<@UBOT> due 5/1/2027", { channel: "CINC" }), {}, incidentEnv);
-  assert.equal((await savedTask("CINC")).dueDate, "05/01/2027");
+  await send("/slack/events", threadEvent("<@UBOT> detach"));
+  await answerPrivately(t, calls[0].args, "detach:confirm");
+  mockSlack(t, { stored: [{ ...incidentTask, task: await savedTask() }] });
+  await send("/slack/events", threadEvent("<@UBOT> due 5/1/2027"));
+  assert.equal((await savedTask()).dueDate, "05/01/2027");
 });
 
 test("@Cade detach works only in a linked task's thread", async (t) => {
@@ -7468,8 +7453,11 @@ test("npm run group adds or changes a group in cade.config.json", async () => {
   assert.equal(added.timezone, "UTC");
   assert.deepEqual(added.channels[1], { name: "beta", tasks: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit" });
   // A group there already keeps what isn't given; `none` removes a setting.
-  const changed = JSON.parse(withGroup(start, "acme", { incidents: "C0000000004", doc: "none" }));
-  assert.deepEqual(changed.channels, [{ name: "acme", external: "C0000000001", tasks: "C0000000002", incidents: "C0000000004" }]);
+  const changed = JSON.parse(withGroup(start, "acme", { sheet: "https://docs.google.com/spreadsheets/d/S/edit", doc: "none" }));
+  assert.deepEqual(changed.channels, [{ name: "acme", external: "C0000000001", tasks: "C0000000002", sheet: "https://docs.google.com/spreadsheets/d/S/edit" }]);
+  // An old incidents channel goes: incidents are tracked in the tasks channel.
+  const old = JSON.stringify({ channels: [{ name: "acme", tasks: "C0000000002", incidents: "C0000000004" }] });
+  assert.deepEqual(JSON.parse(withGroup(old, "acme", {})).channels, [{ name: "acme", tasks: "C0000000002" }]);
   assert.throws(() => withGroup(start, "gamma", { external: "C0000000005" }), /gamma needs a --tasks channel/);
 });
 
@@ -7499,7 +7487,7 @@ test("npm run group's guided setup finds channels and people", async () => {
   };
   assert.deepEqual(await findChannel(slack, "#acme-dev"), { id: "C0000000002", name: "acme-dev", isPrivate: false, isMember: false });
   assert.deepEqual(await findChannel(slack, "G0000000003"), { id: "G0000000003", name: "acme-client", isPrivate: true, isMember: true });
-  assert.equal(await findChannel(slack, "acme-incidents"), null);
+  assert.equal(await findChannel(slack, "acme-other"), null);
   assert.equal(await findChannel(slack, "C0000000009"), null);
 
   assert.deepEqual(await memberIds(slack, "ann@acme.test, U0000000002"), ["U0000000001", "U0000000002"]);
@@ -7517,7 +7505,7 @@ test("npm run group asks for each channel, existing by ID or new by name", async
   const slack = async (method, args) => {
     if (method === "conversations.info") {
       // G0000000003 is private: Cade sees it only once invited.
-      const found = channels[args.channel] ?? (invited && args.channel === "G0000000003" && { id: "G0000000003", name: "acme-incidents", is_private: true, is_member: true });
+      const found = channels[args.channel] ?? (invited && args.channel === "G0000000003" && { id: "G0000000003", name: "acme-other", is_private: true, is_member: true });
       if (!found) throw new Error("Slack conversations.info failed: channel_not_found");
       return { channel: found };
     }
@@ -7544,7 +7532,7 @@ test("npm run group asks for each channel, existing by ID or new by name", async
     assert.deepEqual(await channelPlan(slack, ask, role, "Acme", [], undefined), { field: "tasks", action: "join", id: "C0000000001", name: "acme-dev", isPrivate: false, isMember: false });
     // A private one, seen once invited.
     ({ ask } = answering(["e", "G0000000003", ""], (n) => n === 3 && (invited = true)));
-    assert.equal((await channelPlan(slack, ask, { ...role, field: "incidents" }, "Acme", [], undefined)).action, "use");
+    assert.equal((await channelPlan(slack, ask, { ...role, field: "external" }, "Acme", [], undefined)).action, "use");
     // A new one: a taken name is refused, then the suggested one is made, private.
     const answers = answering(["n", "acme-dev", "n", "", "y"]);
     assert.deepEqual(await channelPlan(slack, answers.ask, role, "Beta", [], undefined), { field: "tasks", action: "create", name: "beta-dev", isPrivate: true });
@@ -7562,7 +7550,7 @@ test("npm run group asks for each channel, existing by ID or new by name", async
 test("the dev channel's summary links the group's Google Sheet, the client channel's doesn't", async (t) => {
   const calls = mockSlack(t, canvasResponses);
   await putTask(env, "CDEV", "100.1", historyTask("100.1", { title: "Low task", priority: "Low" }).task);
-  const withSheet = { ...incidentEnv, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: withSheets(incidentEnv.CHANNEL_PAIRS) };
+  const withSheet = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS) };
   await runTasksCommand("summary", "CDEV", withSheet);
   const dev = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   assert.match(
@@ -7900,8 +7888,8 @@ test("npm run config checks each group's suggestions and ai, and npm run group k
   assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[1], suggestions: ["nope"] }] })), /test's suggestions is/);
 
   const { withGroup } = await import("../scripts/group.mjs");
-  const next = JSON.parse(withGroup(JSON.stringify({ channels }), "test", { incidents: "C0000000004" }));
-  assert.deepEqual(next.channels[1], { name: "test", tasks: "C0000000003", incidents: "C0000000004", suggestions: false });
+  const next = JSON.parse(withGroup(JSON.stringify({ channels }), "test", { external: "C0000000004" }));
+  assert.deepEqual(next.channels[1], { name: "test", tasks: "C0000000003", external: "C0000000004", suggestions: false });
 });
 
 test("the card's Edit opens one form with everything, and saving it applies what changed as one message", async (t) => {
@@ -7954,6 +7942,134 @@ test("the card's Delete opens a panel with Delete, and Detach for a tracked task
   const tracked = calls[0].args.view;
   assert.deepEqual(tracked.blocks[1].elements.map((button) => button.action_id), ["task:more:detach", "task:more:delete"]);
   assert.equal(tracked.blocks.length, 2);
+});
+
+// Choosing `choice` from the ⋯ menu on the card of the requirement at
+// CEXTERNAL/200.1.
+const requirementMenuClick = (choice) =>
+  interaction({
+    type: "block_actions",
+    trigger_id: "T1",
+    user: { id: "UCLIENT" },
+    channel: { id: "CEXTERNAL" },
+    message: { ts: "200.1" },
+    actions: [{ action_id: "requirement:menu", selected_option: { value: choice } }],
+  });
+
+test("a requirement's card has a menu: Edit, Track task until it's tracked, and Delete; an incident's has no Edit", async () => {
+  const { requirementMessage } = await import("../src/requirements.js");
+  const choices = (record) => {
+    const { accessory } = requirementMessage(record.requirement).blocks[0];
+    assert.equal(accessory.action_id, "requirement:menu");
+    return accessory.options.map((option) => option.value);
+  };
+  assert.deepEqual(choices(requirementRoot()), ["edit", "track", "delete"]);
+  assert.deepEqual(choices(requirementRoot({ task: true })), ["edit", "delete"]);
+  assert.deepEqual(choices(incidentRoot()), ["delete"]);
+  assert.deepEqual(choices(incidentRoot({ task: false })), ["track", "delete"]);
+});
+
+test("the Edit form shows only what can be changed where it's opened", async (t) => {
+  const blockIds = (view) => view.blocks.map((block) => block.block_id ?? block.type);
+
+  // A requirement's card: the priority and due date, which its task follows.
+  let calls = mockSlack(t, threads(requirementRoot({ task: true })));
+  await send("/slack/interactions", requirementMenuClick("edit"));
+  let form = calls[0].args.view;
+  assert.equal(form.callback_id, "task:edit");
+  assert.equal(form.title.text, "Edit requirement");
+  assert.deepEqual(blockIds(form), ["priority", "due_date", "context"]);
+  assert.equal(form.blocks[0].element.initial_option.value, "High");
+  assert.equal(form.blocks[1].element.initial_date, "2026-10-31");
+
+  // Its task's card: everything but the priority and due date.
+  calls = mockSlack(t, threads(requirementRoot({ task: true })));
+  await send("/slack/interactions", cardMenuClick("edit"));
+  form = calls[0].args.view;
+  assert.equal(form.title.text, "Edit task");
+  assert.deepEqual(blockIds(form), ["developer", "reviewer", "tester", "status", "prs", "context"]);
+  assert.match(blockText(form.blocks.at(-1)), /come from its requirement/);
+
+  // An incident's task: the same, as its priority and due date are fixed.
+  calls = mockSlack(t, threads(incidentRoot(), incidentTask()));
+  await send("/slack/interactions", cardMenuClick("edit"));
+  form = calls[0].args.view;
+  assert.deepEqual(blockIds(form), ["developer", "reviewer", "tester", "status", "prs", "context"]);
+  assert.match(blockText(form.blocks.at(-1)), /Incidents are always :red_circle: Urgent and due Immediate/);
+});
+
+test("saving a requirement's Edit changes it and its task, telling both threads", async (t) => {
+  const calls = mockSlack(t, {
+    ...threads(requirementRoot({ task: true })),
+    "chat.getPermalink": { permalink: "https://slack.example/source" },
+  });
+  await send("/slack/interactions", requirementMenuClick("edit"));
+  const form = calls[0].args.view;
+  calls.length = 0;
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "view_submission",
+      user: { id: "UCLIENT" },
+      view: {
+        callback_id: form.callback_id,
+        private_metadata: form.private_metadata,
+        state: {
+          values: {
+            priority: { value: { selected_option: { value: "Urgent" } } },
+            due_date: { value: { selected_date: "2026-10-31" } },
+          },
+        },
+      },
+    }),
+  );
+  assert.equal((await savedRequirement()).priority, "Urgent");
+  assert.equal((await savedTask()).priority, "Urgent");
+  // The due date was left as it was, so only the priority is told.
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  assert.deepEqual(posts.map((call) => [call.args.channel, call.args.thread_ts]), [["CDEV", "100.1"], ["CEXTERNAL", "200.1"]]);
+  assert.equal(posts[1].args.text, "<@UCLIENT> set the priority to :red_circle: Urgent.");
+});
+
+test("a requirement's Track task opens the track form, or says it's tracked already", async (t) => {
+  let calls = mockSlack(t, { stored: [requirementRoot()] });
+  await send("/slack/interactions", requirementMenuClick("track"));
+  assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
+  const { view } = calls[0].args;
+  assert.equal(view.callback_id, "track");
+  assert.deepEqual(JSON.parse(view.private_metadata), {
+    channel: "CEXTERNAL",
+    threadTs: "200.1",
+    requirement: true,
+    incident: false,
+    title: "Export reports",
+    priority: "High",
+    dueDate: "31/10/2026",
+  });
+
+  calls = mockSlack(t, threads(requirementRoot({ task: true })));
+  await send("/slack/interactions", requirementMenuClick("track"));
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
+  assert.match(calls[0].args.text, /already tracked as <https:\/\/slack\.example\/p100\|Fix login>/);
+});
+
+test("a requirement's Delete opens a panel whose Delete removes it with its task", async (t) => {
+  let calls = mockSlack(t, threads(requirementRoot({ task: true })));
+  await send("/slack/interactions", requirementMenuClick("delete"));
+  const panel = calls[0].args.view;
+  const [button] = panel.blocks[1].elements;
+  assert.equal(button.action_id, "requirement:menu:delete");
+  assert.match(button.confirm.text.text, /^I'll delete the requirement and its task "Fix login", and my replies in both threads\./);
+
+  calls = mockSlack(t, { ...threads(requirementRoot({ task: true })), "conversations.replies": { messages: [] } });
+  await send(
+    "/slack/interactions",
+    interaction({ type: "block_actions", user: { id: "UCLIENT" }, view: { id: "V1" }, actions: [{ action_id: button.action_id, value: button.value }] }),
+  );
+  const deleted = calls.filter((call) => call.method === "chat.delete").map((call) => [call.args.channel, call.args.ts]);
+  assert.deepEqual(deleted, [["CDEV", "100.1"], ["CEXTERNAL", "200.1"]]);
+  assert.equal(await savedRequirement(), null);
+  assert.equal(blockText(calls.at(-1).args.view.blocks[0]), "Done, the requirement, its task and my replies in both threads are gone.");
 });
 
 test("AI only adds the author to a role when their message speaks of themselves", async (t) => {

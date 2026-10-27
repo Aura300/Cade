@@ -203,7 +203,7 @@ async function entries(env, group, url) {
       const task = tracked ? await getTask(env, tracked.channel, tracked.ts) : null;
       const noun = requirement.incident ? "Incident" : "Requirement";
       const threads = [{ c: group.external, t: ts, n: `${noun} thread` }];
-      if (task) threads.push({ c: tracked.channel, t: tracked.ts, n: tracked.channel === group.incidents ? "Incidents channel thread" : "Dev thread" });
+      if (task) threads.push({ c: tracked.channel, t: tracked.ts, n: "Dev thread" });
       return {
         kind: "requirement",
         channel: group.external,
@@ -237,7 +237,7 @@ async function ownEntries(env, group, url) {
       status: statusName(task.status),
       task,
       people: task.people,
-      threads: [{ c: channel, t: ts, n: incident ? "Incidents channel thread" : "Dev thread" }],
+      threads: [{ c: channel, t: ts, n: "Dev thread" }],
     }));
 }
 

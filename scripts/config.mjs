@@ -59,7 +59,7 @@ export function readConfig(json) {
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
   const pairs = channelPairs({ CHANNEL_PAIRS: config.channels });
-  const ids = pairs.flatMap((pair) => [pair.external, pair.tasks, pair.incidents].filter(Boolean));
+  const ids = pairs.flatMap((pair) => [pair.external, pair.tasks].filter(Boolean));
   const notId = ids.find((id) => !/^[CG][A-Z0-9]{8,}$/.test(id));
   if (notId) throw new Error(`"${notId}" doesn't look like a Slack channel ID (C… from the channel's About tab).`);
   const reused = ids.find((id, i) => ids.indexOf(id) !== i);
@@ -154,11 +154,10 @@ export async function uploadConfig() {
   const secrets = readConfig(json);
   for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
     const own = ["suggestions", "ai"].filter((key) => pair[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(pair[key])}`).join("");
-    const incidents = pair.incidents ? `, incidents ${pair.incidents}` : "";
     const external = pair.external ? `external ${pair.external} → ` : "";
     const doc = pair.doc ? `, doc ${pair.doc}` : "";
     const sheet = pair.sheet ? `, sheet ${pair.sheet}` : "";
-    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}${doc}${sheet}${own}`);
+    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${doc}${sheet}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);

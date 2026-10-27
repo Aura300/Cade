@@ -288,7 +288,7 @@ async function threadTask(env, message) {
     if (!requirement?.task || !(await onTheTeam(env, message.channel, message.user))) return null;
     target = { channel: requirement.task.channel, ts: requirement.task.ts };
     of = ` <${requirement.task.link}|${escapeSlack(requirement.task.title)}>`;
-  } else if (!["tasks", "incidents"].includes(place)) {
+  } else if (place !== "tasks") {
     return null;
   }
   const task = await loadTask(env, target.channel, target.ts);

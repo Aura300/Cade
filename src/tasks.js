@@ -121,9 +121,12 @@ export function taskMessage(task) {
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
     smallText([people || "_Unassigned_", `Tracked by <@${task.createdBy}>${from}`]),
   ];
+  // Incidents share the dev channel with the rest of the work, so their
+  // cards say which they are, as in the client channel.
+  const label = task.source?.incident ? "Incident  ·  " : "";
   return {
-    text: `${task.priority} task: ${task.title}`,
-    blocks: [{ type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`), accessory: taskMenu() }],
+    text: `${task.priority} ${task.source?.incident ? "incident" : "task"}: ${task.title}`,
+    blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`), accessory: taskMenu() }],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
 }

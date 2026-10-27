@@ -48,7 +48,7 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "incidents", "doc" }`. `name` is the group's name; `tasks` is the dev channel; `external` (optional) is the client's channel; `incidents` (optional) the incidents channel; `doc` (optional) the address of the group's Google Doc, where `/cade brief` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet); `suggestions` and `ai` (optional) the group's own, replacing the ones below for that group only. `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "doc" }`. `name` is the group's name; `tasks` is the dev channel, where the team tracks its tasks and incidents; `external` (optional) is the client's channel; `doc` (optional) the address of the group's Google Doc, where `/cade brief` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet); `suggestions` and `ai` (optional) the group's own, replacing the ones below for that group only. `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work. | Set for you by `npm run google:create` (step 7). |
 | `suggestions` | Optional (on) | For every group, unless a group in `channels` sets its own. **The proactive agent**: whether Cade reads messages in the threads it manages (requirement, incident and task threads) and offers, privately, to act on them. `true`, `false` for **commands only** (nothing is read from messages in threads; slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work, and a message posted on its own in a channel is still asked about: start a requirement or task, report an incident, or move it to an existing thread), or a list of the kinds to keep: `pr-links` (a pasted PR link: link it, and pick a reviewer if there's none), `hand-offs` ("@mia can you review this?": a picker for that role, filled with who has it now), `started` ("on it": In progress), `progress` ("lgtm", "done": the next status) and `details` (with `ai` only: "this is urgent", "need it by Friday": the priority and due date, on the team's own tasks). Role and status suggestions come as one private message: a summary of what Cade read, with **Accept**, **Edit…** (the task's Edit form) and **Reject**. Without `ai`, a hand-off asks whoever the request names ("@mia can you review this?"), never someone only cc'd. | Edit by hand, then `npm run config`. |
@@ -71,10 +71,10 @@ slack:update`, then reinstall the app, if it was made before them).
 Or give the settings at once:
 
 ```sh
-npm run group -- --name acme --tasks C… --external C… --incidents C… --doc new --sheet new
+npm run group -- --name acme --tasks C… --external C… --doc new --sheet new
 ```
 
-`--external` and `--incidents` can be left out. `--doc` and `--sheet` take
+`--external` can be left out. `--doc` and `--sheet` take
 `new` (made for you, named "acme executive summaries" and "acme tasks"),
 the address of one you have, or `none` to unlink; leave them out to keep
 what the group has. It checks and uploads the file, as `npm run config`
@@ -234,9 +234,8 @@ A **group** is a team or project, with its own channels:
   Slack with you.
 - **With a client:** the dev channel, plus a **client** (external) channel
   shared with the client (`#acme-client`), where they start requirements and
-  report incidents that the team tracks as tasks in the dev channel, and
-  optionally an **incidents** channel (`#acme-incidents`) for incidents'
-  tasks.
+  report incidents that the team tracks as tasks in the dev channel.
+  Incidents' tasks are marked as incidents on their cards there.
 
 `npm run group` takes you through it. It asks questions, so run it in a
 terminal window of your own, in this folder:
@@ -252,7 +251,7 @@ npm run group
    (the channel's name → **About** → **Channel ID**, `C…`), which Cade joins
    if it's public, or waits for `/invite @Cade` in it if it's private; or a
    new one by name, which Cade makes, public or private, and is then in.
-   The client and incidents channels can be left out (`-`), and added later.
+   The client channel can be left out (`-`), and added later.
 4. People to add to the channels, by email or Slack member ID.
 5. With the Google web app (step 7), the group's Doc and Sheet: `new`, the
    address of one you have, or none.

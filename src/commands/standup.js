@@ -17,7 +17,7 @@ const MAX_SHOWN = 20;
 const STATUS_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:status:${i}`);
 const ASSIGN_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:assign:${i}`);
 
-// `/cade standup` in a group's tasks or incidents channel goes through the
+// `/cade standup` in a group's tasks channel goes through the
 // group's open tasks with whoever runs it, one developer at a time: you
 // first, then everyone else by name, then the tasks with no developer. Each
 // developer's step lists their tasks, most urgent first, each with a status
@@ -38,7 +38,7 @@ export default {
     "Go through the open tasks one developer at a time, only to you (`-unassigned` to give tasks a developer)",
   slashUsage: "/cade standup",
   section: "work",
-  slashChannel: ["tasks", "incidents"],
+  slashChannel: "tasks",
   async slash(command, context) {
     const option = command.text.trim();
     const unassigned = /^(?:--?|[—–])unassigned$/i.test(option);

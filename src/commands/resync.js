@@ -38,7 +38,7 @@ export default {
 
 // Redraws what the link points at and says how it went.
 async function resync(env, { channel, ts }) {
-  if (["tasks", "incidents"].includes(roleOf(env, channel))) {
+  if (roleOf(env, channel) === "tasks") {
     const task = await loadTask(env, channel, ts);
     if (!task) return "That link isn't to a task I'm tracking.";
     await saveTask(env, channel, ts, task);

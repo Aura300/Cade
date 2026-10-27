@@ -78,7 +78,7 @@ export default {
   description: "Update the task's status (in its thread)",
   usage: "@Cade status",
   section: "thread",
-  channel: ["tasks", "incidents"],
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
     const task = await loadTask(env, command.channel, command.threadTs);
