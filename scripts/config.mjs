@@ -41,6 +41,7 @@ import { channelPairs } from "../src/channels.js";
 import { docId } from "../src/doc.js";
 import { SUGGESTION_KINDS } from "../src/intents.js";
 import { sheetId } from "../src/sheet.js";
+import "./cloudflare.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FILE = `${ROOT}cade.config.json`;

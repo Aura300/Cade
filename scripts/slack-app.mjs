@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { askHidden } from "./prompt.mjs";
+import "./cloudflare.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MANIFEST = `${ROOT}slack/manifest.json`;

@@ -5,10 +5,10 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "dev": "node scripts/dev.mjs",
-    "deploy": "wrangler deploy && wrangler d1 migrations apply DB --remote",
+    "deploy": "node scripts/wrangler.mjs deploy && node scripts/wrangler.mjs d1 migrations apply DB --remote",
     "test": "node --test",
-    "db:migrate": "wrangler d1 migrations apply DB --remote",
-    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate": "node scripts/wrangler.mjs d1 migrations apply DB --remote",
+    "db:migrate:local": "node scripts/wrangler.mjs d1 migrations apply DB --local",
     "slack:create": "node scripts/slack-app.mjs create",
     "slack:update": "node scripts/slack-app.mjs update",
     "config": "node scripts/config.mjs",

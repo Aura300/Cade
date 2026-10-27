@@ -6,6 +6,8 @@ node_modules/
 .slack-app.json
 # Local settings for npm run dev.
 .dev.vars
+# The Cloudflare account Cade is deployed to (see scripts/cloudflare.mjs).
+.cloudflare.json
 # Your settings, uploaded with npm run config.
 cade.config.json
 # The Google web app: its secret, made by npm run google:create, and clasp's

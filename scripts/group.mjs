@@ -248,6 +248,17 @@ export async function channelPlan(slack, ask, role, group, options, current) {
   }
 }
 
+// The Slack app's OAuth & Permissions page, where its bot token is: straight
+// to it with the app's ID from .slack-app.json (see slack-app.mjs), or the
+// list of apps without it.
+async function tokenPage() {
+  try {
+    const { appId } = JSON.parse(await readFile(`${ROOT}.slack-app.json`, "utf8"));
+    if (appId) return `https://api.slack.com/apps/${appId}/oauth`;
+  } catch {}
+  return "https://api.slack.com/apps (open Cade → OAuth & Permissions)";
+}
+
 // `npm run group` with no options: asks for each setting in turn, says what
 // it will do, and does it once confirmed. For each channel it makes a new
 // one or links an existing one (see channelPlan), adds people to all of
@@ -256,7 +267,11 @@ export async function channelPlan(slack, ask, role, group, options, current) {
 async function guided() {
   if (!process.stdin.isTTY) throw new Error(`Run it in a terminal to be asked for each setting, or give them: ${USAGE}`);
   console.log("Setting up a group: its Slack channels, then its Google Doc and Sheet. Nothing changes until you confirm.\n");
-  const token = process.env.SLACK_BOT_TOKEN || (await askHidden("Cade's Slack bot token (xoxb-…, from the app's page → OAuth & Permissions): "));
+  let token = process.env.SLACK_BOT_TOKEN;
+  if (!token) {
+    console.log(`Cade's bot token is under Bot User OAuth Token at ${await tokenPage()}\n`);
+    token = await askHidden("Cade's Slack bot token (xoxb-…): ");
+  }
   if (!token.startsWith("xoxb-")) throw new Error("That isn't a bot token; it starts with xoxb-.");
   const slack = (method, args = {}) => callSlack({ SLACK_BOT_TOKEN: token }, method, args);
   const { team, url } = await slack("auth.test");

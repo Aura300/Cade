@@ -126,6 +126,11 @@ prints your account name and ID. **If it fails:** run `npx wrangler login`
 again; on a machine without a browser, use an API token instead
 (`CLOUDFLARE_API_TOKEN`, with **Workers Scripts → Edit**).
 
+**If `whoami` lists several accounts**, give the one for Cade once, with any
+npm script: `CLOUDFLARE_ACCOUNT_ID=<its ID> npm run deploy`. It's saved to
+`.cloudflare.json` (kept out of git), and every npm script uses it from then
+on.
+
 ## 3. Name and deploy the Worker
 
 In `wrangler.toml`, set `name` (for example `cade`). It must be unique in

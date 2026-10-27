@@ -19,6 +19,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, copyFile, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import "./cloudflare.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DIR = `${ROOT}google`;
