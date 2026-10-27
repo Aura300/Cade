@@ -7822,6 +7822,14 @@ test("with AI on, a message that changes nothing gets no question", async (t) =>
   assert.equal(ephemeral(calls), undefined);
 });
 
+test("AI doesn't read messages in a task that's Done", async (t) => {
+  const { environment, asked } = aiEnv(aiRead({ reviewer: { add: ["UMIA"], remove: [] } }));
+  const calls = mockSlack(t, { stored: [withStatus("DONE")] });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, environment);
+  assert.equal(asked.length, 0);
+  assert.equal(ephemeral(calls), undefined);
+});
+
 test("when AI fails, the message is read by its phrases instead", async (t) => {
   const { environment } = aiEnv(new Error("model unavailable"));
   const calls = mockSlack(t, { stored: [storedTask()] });

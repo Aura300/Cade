@@ -255,7 +255,7 @@ export function suggestionsFor(env, message, task, { place, hasClient }) {
 // the pickers for what it suggests, if anything.
 async function suggestWork(message, env) {
   const about = await threadTask(env, message);
-  if (!about) return;
+  if (!about || about.task.status === "DONE") return;
   if (aiModel(env, message.channel)) {
     try {
       return await suggestWithAi(env, message, about);
