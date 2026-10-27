@@ -5,7 +5,8 @@
 //   intent({
 //     name,                   // for logs, such as "pr-link"
 //     kinds,                  // the `suggestions` kinds it serves (see
-//                             // SUGGESTION_KINDS); off when all are off
+//                             // SUGGESTION_KINDS); off when all are off.
+//                             // None: always on, whatever `suggestions` says
 //     order,                  // lower is checked first; the first match wins
 //     phrases,                // words that signal it, or…
 //     match(message),         // …a test of the message, true when it matches
@@ -67,8 +68,10 @@ export function plainMessage(event, botUserId) {
 }
 
 // The kinds of suggestion, as `suggestions` in cade.config.json names them
-// (SUGGESTIONS).
-export const SUGGESTION_KINDS = ["pr-links", "hand-offs", "started", "progress", "details", "new-threads"];
+// (SUGGESTIONS): the proactive agent, reading messages in the threads Cade
+// manages. Asking where a message posted on its own in a channel belongs
+// isn't one of them, so it stays on with commands (see move.js).
+export const SUGGESTION_KINDS = ["pr-links", "hand-offs", "started", "progress", "details"];
 
 // Whether the suggestion kind `kind` is turned on: all are, unless
 // SUGGESTIONS is false (none) or lists the kinds that are.
@@ -83,9 +86,9 @@ export function suggesting(env, kind) {
   return Array.isArray(kinds) && kinds.includes(kind);
 }
 
-// The intents with a kind turned on.
+// The intents with a kind turned on, and those with no kind, which always are.
 export function intentsOn(env, intents) {
-  return intents.filter((candidate) => candidate.kinds.some((kind) => suggesting(env, kind)));
+  return intents.filter((candidate) => !candidate.kinds.length || candidate.kinds.some((kind) => suggesting(env, kind)));
 }
 
 // The first intent, by order, that matches the message, or undefined.

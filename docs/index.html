@@ -19,7 +19,7 @@
       <li><a href="#walkthrough">Demo</a></li>
       <li><a href="#how">How it works</a></li>
       <li><a href="#features">Features</a></li>
-      <li><a href="#commands">Commands</a></li>
+      <li><a href="#commands">Commands &amp; AI</a></li>
       <li><a href="#principles">Principles</a></li>
     </ul>
     <div class="nav-right">
@@ -224,7 +224,7 @@
       <div class="feature">
         <div class="bar"></div>
         <h3>Talk naturally</h3>
-        <p>Write "@mia can you review this" or paste a PR link. Cade offers, privately, to assign or link it, and changes nothing without a click.</p>
+        <p>Write "@mia can you review this" or paste a PR link in a task's thread. The proactive agent offers, privately, to assign or link it, optionally with AI, and changes nothing without a click.</p>
       </div>
       <div class="feature">
         <div class="bar"></div>
@@ -262,13 +262,51 @@
 
 <section id="commands">
   <div class="wrap">
-    <div class="eyebrow">Commands</div>
-    <h2>A handful of commands, and plain words for the rest.</h2>
-    <p class="lede">Most things happen with a click on Cade's suggestions. When you want to be explicit:</p>
+    <div class="eyebrow">Three layers</div>
+    <h2>Commands always work. Cade can also read along, with or without AI.</h2>
+    <p class="lede">Each layer builds on the one before. Turn the proactive agent and AI on or off in <code>cade.config.json</code>, and Cade still asks before it changes anything.</p>
+
+    <div class="grid">
+      <div class="feature">
+        <div class="bar"></div>
+        <h3>1 · Commands</h3>
+        <span class="where">Always on</span>
+        <p>You say exactly what to do, and Cade does it.</p>
+        <ul>
+          <li><code>/cade …</code> and <code>@Cade …</code> commands</li>
+          <li>The task card's ⋯ menu, message shortcuts and emoji</li>
+          <li>A message posted on its own in a channel gets a private question: start a requirement or task, or move it to an existing thread</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <div class="bar"></div>
+        <h3>2 · Proactive agent</h3>
+        <span class="where"><code>suggestions</code> · on by default</span>
+        <p>Cade reads messages in the threads it manages and offers, privately, what you're about to do.</p>
+        <ul>
+          <li>“@mia can you review this?” offers to add a reviewer</li>
+          <li>A pasted PR link offers to link it</li>
+          <li>“on it”, “lgtm”, “done” offer the next status</li>
+          <li>Off means commands only: nothing is read from messages in threads</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <div class="bar"></div>
+        <h3>3 · AI suggestions</h3>
+        <span class="where"><code>ai</code> · off by default</span>
+        <p>The proactive agent reads task threads with a small model on Cloudflare Workers AI, so one message can mean several changes.</p>
+        <ul>
+          <li>Several people across roles, added or removed</li>
+          <li>Status, priority and due date (“need it by Friday”)</li>
+          <li><b>Confirm</b>, <b>Change…</b> in a form, or <b>Not now</b></li>
+          <li>Needs the proactive agent on, and falls back to phrases if the model fails</li>
+        </ul>
+      </div>
+    </div>
 
     <div class="cmds">
       <div class="cmd-group">
-        <h3>Most used</h3>
+        <h3>Most used commands</h3>
         <div class="cmd"><code>/cade requirement</code><span>Start a requirement thread</span></div>
         <div class="cmd"><code>@Cade track</code><span>Track it as a task</span></div>
         <div class="cmd"><code>@Cade status in review</code><span>Move a task on</span></div>
@@ -280,7 +318,7 @@
         <div class="cmd"><code>/cade tasks</code><span>Your open tasks</span></div>
       </div>
     </div>
-    <div class="more"><a class="btn" href="commands.html">See all commands →</a></div>
+    <div class="more"><a class="btn" href="commands.html">See all commands →</a> <a class="btn" href="commands.html#words">Proactive agent →</a> <a class="btn" href="commands.html#ai">AI suggestions →</a></div>
   </div>
 </section>
 

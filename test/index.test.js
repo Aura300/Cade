@@ -4092,6 +4092,7 @@ test("npm run config checks the suggestions setting", async () => {
   assert.equal(readConfig(JSON.stringify({ channels, suggestions: false })).SUGGESTIONS, "false");
   assert.equal(readConfig(JSON.stringify({ channels, suggestions: ["pr-links"] })).SUGGESTIONS, '["pr-links"]');
   assert.equal(readConfig(JSON.stringify({ channels })).SUGGESTIONS, undefined);
+  assert.equal(readConfig(JSON.stringify({ channels, suggestions: ["pr-links", "new-threads"] })).SUGGESTIONS, '["pr-links"]');
   assert.throws(() => readConfig(JSON.stringify({ channels, suggestions: ["handoffs"] })), /"handoffs" isn't one of them/);
   assert.throws(() => readConfig(JSON.stringify({ channels, suggestions: "off" })), /true, false or a list/);
 });
@@ -5609,6 +5610,12 @@ test("a message posted on its own in the external channel is asked where it belo
     assert.deepEqual(question.blocks[1].elements.map((button) => button.text.text), buttons);
     assert.deepEqual(JSON.parse(question.blocks[1].elements[0].value), { channel: "CEXTERNAL", ts: "400.1", title: "Also add a CSV export" });
   }
+});
+
+test("with suggestions off, a message posted on its own is still asked where it belongs", async (t) => {
+  const calls = mockSlack(t, { stored: [] });
+  await send("/slack/events", channelMessage(), {}, { ...env, SUGGESTIONS: "false" });
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
 });
 
 test("only messages posted on their own in the external and dev channels are asked about", async (t) => {
@@ -7823,6 +7830,14 @@ test("when AI fails, the message is read by its phrases instead", async (t) => {
   await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, environment);
   const question = ephemeral(calls);
   assert.equal(question.text, "Should I update the task? I've filled this in from your message: change anything, then Save.");
+});
+
+test("with suggestions off, AI isn't asked and only commands work", async (t) => {
+  const { environment, asked } = aiEnv(aiRead({ reviewer: { add: ["UMIA"], remove: [] } }));
+  const calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, SUGGESTIONS: "false" });
+  assert.equal(asked.length, 0);
+  assert.equal(ephemeral(calls), undefined);
 });
 
 test("ai in cade.config.json turns AI on, names a model, or turns it off", async () => {

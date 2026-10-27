@@ -206,7 +206,7 @@ nav ul a:hover { color: var(--text); }
 footer { border-top: 1px solid var(--border); padding: 36px 0 48px; color: var(--muted); font-size: .9rem; }
 footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
 
-.more { margin-top: 24px; }
+.more { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 10px; }
 nav ul a[aria-current="page"] { color: var(--text); font-weight: 600; }
 
 /* The commands guide */

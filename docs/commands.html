@@ -34,8 +34,10 @@
     <h1>Every command, and where it works.</h1>
     <p class="lede">
       <code>/cade …</code> commands work at the top of a channel. <code>@Cade …</code> commands are messages, so they
-      also work in threads, where most of the work happens. Most of the time you won't need either: Cade
-      offers what you're about to do, privately, and you click.
+      also work in threads, where most of the work happens. Cade works in three layers, each built on the one before:
+      <b>commands</b>, which always work; the <b>proactive agent</b>, which reads messages in the threads Cade
+      manages and offers what you're about to do; and <b>AI suggestions</b>, which let it read them with AI. Turn the
+      last two on or off in <code>cade.config.json</code>.
     </p>
     <input class="search" id="search" type="search" placeholder="Filter commands: try “due”, “review” or “client”" aria-label="Filter commands">
     <ul class="toc">
@@ -44,7 +46,8 @@
       <li><a href="#details">Priority &amp; due date</a></li>
       <li><a href="#tidy">Move &amp; delete</a></li>
       <li><a href="#work">Your work</a></li>
-      <li><a href="#words">Just say it</a></li>
+      <li><a href="#words">Proactive agent</a></li>
+      <li><a href="#ai">AI suggestions</a></li>
       <li><a href="#owners">Who owns what</a></li>
     </ul>
     <p class="empty" id="empty">No commands match that. Try a shorter word.</p>
@@ -192,6 +195,17 @@
     <div class="entries">
 
       <article class="entry">
+        <h3>Post a new message</h3>
+        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Top level</span><span class="where">Always on</span></div>
+        <p>A message posted on its own in a channel, not in a thread, gets a private question to whoever wrote it, so it lands in the right thread. This works even with the proactive agent off.</p>
+        <ul>
+          <li><b>Client channel:</b> <b>Start requirement</b>, <b>Report incident</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
+          <li><b>Dev channel:</b> <b>Track as task</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
+          <li>Starting something from it names it from the message's first line and moves the message into the new thread.</li>
+        </ul>
+      </article>
+
+      <article class="entry">
         <h3><code>@Cade move</code> <code>@Cade move &lt;message link&gt;</code></h3>
         <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Incidents channel</span><span class="where">In a message's thread</span></div>
         <p>Moves a message into the right thread. Cade privately shows the open requirements and incidents (in the client channel) or open tasks (in the dev and incidents channels) to pick from. Messages only move within their own channel.</p>
@@ -294,9 +308,10 @@
 
 <section id="words" class="alt">
   <div class="wrap">
-    <div class="eyebrow">Just say it</div>
-    <h2>Plain words Cade picks up</h2>
-    <p class="lede">Cade notices these and offers, privately, to act on them. Nothing changes until you click.</p>
+    <div class="eyebrow">Proactive agent</div>
+    <h2>Plain words Cade picks up in its threads</h2>
+    <p class="lede">With the proactive agent on, Cade reads messages in the requirement, incident and task threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
+    <p class="lede"><b>On by default.</b> Set <code>"suggestions": false</code> in <code>cade.config.json</code> for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -319,20 +334,63 @@
       </article>
 
       <article class="entry">
-        <h3>Post a new message</h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Top level</span></div>
+        <h3>Say how it's going</h3>
+        <div class="tags"><span class="where">Task thread</span></div>
         <ul>
-          <li><b>Client channel:</b> <b>Start requirement</b>, <b>Report incident</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
-          <li><b>Dev channel:</b> <b>Track as task</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
-          <li>Starting something from it names it from the message's first line and moves the message into the new thread.</li>
+          <li><b>Started:</b> “on it”, “started on this” from someone on the task offers <b>In progress</b>.</li>
+          <li><b>Progress:</b> “lgtm” from a reviewer, “QA passed” from a tester, or “done” from anyone on it offers the next status.</li>
+          <li>Role and status suggestions come together as one private message, with pickers and <b>Save</b>.</li>
         </ul>
+        <div class="example"><b>Example:</b> “lgtm, approved the PR”</div>
+      </article>
+
+
+    </div>
+  </div>
+</section>
+
+<section id="ai">
+  <div class="wrap">
+    <div class="eyebrow">AI suggestions</div>
+    <h2>One message, every change, read with AI</h2>
+    <p class="lede">With AI suggestions on, the proactive agent reads messages in task threads with a small model on Cloudflare Workers AI, not by fixed phrases. That catches more ways of saying things, and several changes in one message.</p>
+    <p class="lede"><b>Off by default.</b> Turn it on with <code>"ai": true</code> in <code>cade.config.json</code>, or name another Workers AI model. It needs the proactive agent on: with <code>"suggestions": false</code>, AI is never asked.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <h3>What it reads</h3>
+        <div class="tags"><span class="where">Task thread</span><span class="where">Requirement thread</span></div>
+        <ul>
+          <li><b>People:</b> developers, reviewers and testers added or removed, several roles in one message. Only people the message mentions, or whoever wrote it, can be added. A mention that only informs (“cc @rex”, “thanks @mia”) changes nothing.</li>
+          <li><b>Status:</b> when the message says the work moved on, never for a question or a plan.</li>
+          <li><b>Priority and due date:</b> “this is urgent”, “need it by Friday”, on the team's own tasks. A client's requirement keeps the client's.</li>
+          <li>In a requirement's thread, only developers and the status are read, and only whoever wrote the message can be added.</li>
+        </ul>
+        <div class="example"><b>Example:</b> “@Rex can you take this over from @Bob? @Mia please review. Need it by Friday, it's blocking the release”</div>
+      </article>
+
+      <article class="entry">
+        <h3>Confirm, change, or not now</h3>
+        <div class="tags"><span class="where">Only you see it</span></div>
+        <p>Whoever wrote the message gets a private summary of what Cade read, such as <i>Developers: + @Rex − @Bob · Reviewers: + @Mia · Priority: High → Urgent · Due: none → 31/10</i>.</p>
+        <ul>
+          <li><b>Confirm</b> applies it all, and the thread hears it as one message.</li>
+          <li><b>Change…</b> opens a form filled in with it: every role's people, the status, priority and due date. Correct anything, then Save.</li>
+          <li><b>Not now</b> drops it.</li>
+        </ul>
+      </article>
+
+      <article class="entry">
+        <h3>Falls back on its own</h3>
+        <div class="tags"><span class="where">Always</span></div>
+        <p>If the model fails, or takes more than 8 seconds, the message is read by its phrases instead, as with AI off. Pasted PR links and new messages in a channel are always read without AI.</p>
       </article>
 
     </div>
   </div>
 </section>
 
-<section id="owners">
+<section id="owners" class="alt">
   <div class="wrap">
     <div class="eyebrow">Who owns what</div>
     <h2>Clear ownership, so nothing is overwritten</h2>

@@ -121,7 +121,8 @@ export default {
     intent({
       name: "new-thread",
       order: 50,
-      kinds: ["new-threads"],
+      // Not a suggestion kind: messages posted on their own are asked about
+      // even with `suggestions` off.
       match: (message) => !message.inThread,
       handle: (message, { env }) => offerThread(env, message),
     }),

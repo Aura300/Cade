@@ -7,13 +7,16 @@
 //   timezone  for times in the Google Sheet (optional)        → TIMEZONE
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
 //             each group's Sheet and Doc
-//   suggestions what Cade offers from people's own words       → SUGGESTIONS
-//             (optional): false for nothing, or a list of the
-//             kinds to keep, from SUGGESTION_KINDS (intents.js)
-//   ai        read people's own words with Workers AI          → AI_MODEL
-//             (optional): true for the default model, a model
-//             name such as "@cf/google/gemma-4-26b-a4b-it", or
-//             false to read them by their phrases (see ai.js)
+//   suggestions the proactive agent: Cade reading messages in the → SUGGESTIONS
+//             threads it manages and offering changes (optional,
+//             on): true, false for commands only, or a list of the
+//             kinds to keep, from SUGGESTION_KINDS (intents.js).
+//             Messages posted on their own are asked about either way
+//   ai        AI suggestions: the proactive agent reads people's → AI_MODEL
+//             words with Workers AI (optional, off): true for the
+//             default model, a model name such as
+//             "@cf/google/gemma-4-26b-a4b-it", or false to read
+//             them by their phrases (see ai.js). Needs suggestions on.
 //   reactions the emoji that convert or move a message when    → REACTIONS
 //             added to it (optional): { "convert": "ticket",
 //             "move": "twisted_rightwards_arrows" }, by Slack name
@@ -88,6 +91,9 @@ export function checkAi(ai) {
 // throws.
 export function checkSuggestions(suggestions) {
   if (typeof suggestions === "boolean") return suggestions;
+  // "new-threads" was a kind until messages posted on their own were always
+  // asked about; a config listing it still reads.
+  if (Array.isArray(suggestions)) suggestions = suggestions.filter((kind) => kind !== "new-threads");
   const kinds = SUGGESTION_KINDS;
   const unknown = Array.isArray(suggestions) ? suggestions.find((kind) => !kinds.includes(kind)) : suggestions;
   if (unknown !== undefined) {
@@ -143,7 +149,10 @@ export async function uploadConfig() {
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
   if (secrets.SUGGESTIONS) console.log(`suggestions: ${secrets.SUGGESTIONS}`);
   if (secrets.REACTIONS) console.log(`reactions: ${secrets.REACTIONS}`);
-  if (secrets.AI_MODEL) console.log(`ai: ${secrets.AI_MODEL}`);
+  if (secrets.AI_MODEL) {
+    const idle = secrets.AI_MODEL !== "off" && secrets.SUGGESTIONS === "false";
+    console.log(`ai: ${secrets.AI_MODEL}${idle ? " (does nothing while suggestions is false)" : ""}`);
+  }
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.
   const dir = await mkdtemp(join(tmpdir(), "cade-config-"));
