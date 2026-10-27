@@ -203,6 +203,13 @@
       </article>
 
       <article class="entry">
+        <h3><code>/cade replace &lt;link&gt; "New wording"</code></h3>
+        <div class="tags"><span class="where">Anywhere, with a link</span><span class="where">Only you see it</span></div>
+        <p>Changes what one of Cade's messages says, such as a reply in a task's thread: Copy link on it, then send the new text, in quotes or not. Slack formatting, mentions and links work as in any message, and an edited message notifies no one. Slack only lets Cade change its own messages. A task's card is drawn from the task, so change it with its ⋯ → <b>Edit</b> instead.</p>
+        <div class="example"><b>Example:</b> <code>/cade replace https://acme.slack.com/archives/C0DEV/p1700000000000200 "Deploy moved to Friday"</code></div>
+      </article>
+
+      <article class="entry">
         <h3><code>/cade resync &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Anywhere, with a link</span></div>
         <p>Redraws a task's card from what Cade has stored, and sends it to the Sheet and summary again: for a card that's out of date, such as one posted before the ⋯ menu was added. Use Copy link on the task's message or any reply in its thread; several links at once work too. Nothing is posted, so no one is notified, and only you see the reply.</p>
