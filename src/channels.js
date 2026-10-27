@@ -49,6 +49,18 @@ export function pairFor(env, channel) {
   return pair;
 }
 
+// The group's own `suggestions` or `ai` (`key`) for `channel`, or undefined
+// when it has none, or `channel` is in no group, so the setting for every
+// group applies (see suggesting in intents.js and aiModel in ai.js).
+export function groupSetting(env, channel, key) {
+  if (!channel) return undefined;
+  try {
+    return findPair(env, channel)?.[key];
+  } catch {
+    return undefined;
+  }
+}
+
 // Returns the role `channel` has in its pair, or undefined when it is in none.
 export function roleOf(env, channel) {
   const pair = findPair(env, channel);

@@ -37,7 +37,7 @@
       also work in threads, where most of the work happens. Cade works in three layers, each built on the one before:
       <b>commands</b>, which always work; the <b>proactive agent</b>, which reads messages in the threads Cade
       manages and offers what you're about to do; and <b>AI suggestions</b>, which let it read them with AI. Turn the
-      last two on or off in <code>cade.config.json</code>.
+      last two on or off in <code>cade.config.json</code>, for every group or for each group on its own.
     </p>
     <input class="search" id="search" type="search" placeholder="Filter commands: try “due”, “review” or “client”" aria-label="Filter commands">
     <ul class="toc">
@@ -311,7 +311,7 @@
     <div class="eyebrow">Proactive agent</div>
     <h2>Plain words Cade picks up in its threads</h2>
     <p class="lede">With the proactive agent on, Cade reads messages in the requirement, incident and task threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
-    <p class="lede"><b>On by default.</b> Set <code>"suggestions": false</code> in <code>cade.config.json</code> for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
+    <p class="lede"><b>On by default.</b> Set <code>"suggestions": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -354,7 +354,7 @@
     <div class="eyebrow">AI suggestions</div>
     <h2>One message, every change, read with AI</h2>
     <p class="lede">With AI suggestions on, the proactive agent reads messages in task threads with a small model on Cloudflare Workers AI, not by fixed phrases. That catches more ways of saying things, and several changes in one message.</p>
-    <p class="lede"><b>Off by default.</b> Turn it on with <code>"ai": true</code> in <code>cade.config.json</code>, or name another Workers AI model. It needs the proactive agent on: with <code>"suggestions": false</code>, AI is never asked.</p>
+    <p class="lede"><b>Off by default.</b> Turn it on with <code>"ai": true</code> in <code>cade.config.json</code>, or name another Workers AI model, for every group or only some: <code>{ "name": "acme", …, "ai": true }</code> in <code>channels</code>. It needs the proactive agent on: with <code>"suggestions": false</code>, AI is never asked.</p>
     <div class="entries">
 
       <article class="entry">

@@ -21,6 +21,9 @@
 //             added to it (optional): { "convert": "ticket",
 //             "move": "twisted_rightwards_arrows" }, by Slack name
 //
+// Each group in `channels` can have its own `suggestions` and `ai`, which
+// replace the ones above for that group: { "name": "acme", …, "ai": true }.
+//
 // Each group in `channels` can link its Google Doc, for executive summaries,
 // with `doc`, and its own Google Sheet, for its tasks, with `sheet`: their
 // addresses. A group without `sheet` isn't recorded in a Sheet. `npm run
@@ -64,6 +67,16 @@ export function readConfig(json) {
   if (badDoc) throw new Error(`${badDoc.name}'s doc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
   const badSheet = pairs.find((pair) => pair.sheet !== undefined && !sheetId(pair.sheet));
   if (badSheet) throw new Error(`${badSheet.name}'s sheet should be a Google Sheet's address: https://docs.google.com/spreadsheets/d/…/edit.`);
+
+  // A group's own `suggestions` and `ai` replace those for every group.
+  for (const pair of pairs) {
+    try {
+      if (pair.suggestions !== undefined) pair.suggestions = checkSuggestions(pair.suggestions);
+      if (pair.ai !== undefined) pair.ai = checkAi(pair.ai);
+    } catch (error) {
+      throw new Error(`${pair.name}'s ${error.message}`);
+    }
+  }
 
   const secrets = { CHANNEL_PAIRS: JSON.stringify(pairs) };
   if (config.timezone !== undefined) secrets.TIMEZONE = checkZone(config.timezone);
@@ -139,11 +152,12 @@ export async function uploadConfig() {
   }
   const secrets = readConfig(json);
   for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
+    const own = ["suggestions", "ai"].filter((key) => pair[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(pair[key])}`).join("");
     const incidents = pair.incidents ? `, incidents ${pair.incidents}` : "";
     const external = pair.external ? `external ${pair.external} → ` : "";
     const doc = pair.doc ? `, doc ${pair.doc}` : "";
     const sheet = pair.sheet ? `, sheet ${pair.sheet}` : "";
-    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}${doc}${sheet}`);
+    console.log(`${pair.name}: ${external}tasks ${pair.tasks}${incidents}${doc}${sheet}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
@@ -151,7 +165,7 @@ export async function uploadConfig() {
   if (secrets.REACTIONS) console.log(`reactions: ${secrets.REACTIONS}`);
   if (secrets.AI_MODEL) {
     const idle = secrets.AI_MODEL !== "off" && secrets.SUGGESTIONS === "false";
-    console.log(`ai: ${secrets.AI_MODEL}${idle ? " (does nothing while suggestions is false)" : ""}`);
+    console.log(`ai: ${secrets.AI_MODEL}${idle ? " (does nothing where suggestions is false)" : ""}`);
   }
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.

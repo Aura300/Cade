@@ -191,14 +191,14 @@ export function suggestionsFor(env, message, task, { place, hasClient }) {
   const roles = new Set();
   let status = null;
   const external = place === "external";
-  const asked = suggesting(env, "hand-offs") ? rolesAskedIn(message) : [];
+  const asked = suggesting(env, "hand-offs", message.channel) ? rolesAskedIn(message) : [];
   for (const role of asked) if (!external || role === "developer") roles.add(role);
 
-  if (suggesting(env, "progress") && !external && soundsLikeProgress(message)) {
+  if (suggesting(env, "progress", message.channel) && !external && soundsLikeProgress(message)) {
     status = progressOptions(task, message.user, message, hasClient)[0] ?? null;
   }
   const working = (STARTED(message) && !message.mentions.length) || (REPORTED(message) && message.mentions.length);
-  if (!status && suggesting(env, "started") && working && !isQuestion(message) && task.status !== "DONE") {
+  if (!status && suggesting(env, "started", message.channel) && working && !isQuestion(message) && task.status !== "DONE") {
     const { reviewer, tester, developer } = task.people;
     // A reviewer or tester starting on their part isn't the work starting.
     const theirPart = !message.mentions.length && [...reviewer, ...tester].includes(message.user);
@@ -220,7 +220,7 @@ export function suggestionsFor(env, message, task, { place, hasClient }) {
 async function suggestWork(message, env) {
   const about = await threadTask(env, message);
   if (!about) return;
-  if (aiModel(env)) {
+  if (aiModel(env, message.channel)) {
     try {
       return await suggestWithAi(env, message, about);
     } catch (error) {

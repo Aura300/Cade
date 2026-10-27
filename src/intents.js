@@ -21,6 +21,8 @@
 // works too. Intents should only ever ask, privately, before changing
 // anything, since a phrase can match a message that didn't mean it.
 
+import { groupSetting } from "./channels.js";
+
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
 export function intent({ phrases, match, needs = {}, kinds = [], ...rest }) {
@@ -73,22 +75,26 @@ export function plainMessage(event, botUserId) {
 // isn't one of them, so it stays on with commands (see move.js).
 export const SUGGESTION_KINDS = ["pr-links", "hand-offs", "started", "progress", "details"];
 
-// Whether the suggestion kind `kind` is turned on: all are, unless
-// SUGGESTIONS is false (none) or lists the kinds that are.
-export function suggesting(env, kind) {
-  let kinds;
-  try {
-    kinds = env.SUGGESTIONS === undefined ? true : JSON.parse(env.SUGGESTIONS);
-  } catch {
-    return true;
+// Whether the suggestion kind `kind` is turned on in `channel`'s group: all
+// are, unless its `suggestions`, or else SUGGESTIONS for every group, is
+// false (none) or lists the kinds that are.
+export function suggesting(env, kind, channel) {
+  let kinds = groupSetting(env, channel, "suggestions");
+  if (kinds === undefined) {
+    try {
+      kinds = env.SUGGESTIONS === undefined ? true : JSON.parse(env.SUGGESTIONS);
+    } catch {
+      return true;
+    }
   }
   if (kinds === true) return true;
   return Array.isArray(kinds) && kinds.includes(kind);
 }
 
-// The intents with a kind turned on, and those with no kind, which always are.
-export function intentsOn(env, intents) {
-  return intents.filter((candidate) => !candidate.kinds.length || candidate.kinds.some((kind) => suggesting(env, kind)));
+// The intents with a kind turned on in `channel`'s group, and those with no
+// kind, which always are.
+export function intentsOn(env, intents, channel) {
+  return intents.filter((candidate) => !candidate.kinds.length || candidate.kinds.some((kind) => suggesting(env, kind, channel)));
 }
 
 // The first intent, by order, that matches the message, or undefined.

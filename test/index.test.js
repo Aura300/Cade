@@ -7852,3 +7852,47 @@ test("ai in cade.config.json turns AI on, names a model, or turns it off", async
   assert.equal(aiModel({ AI: {}, AI_MODEL: "off" }), null);
   assert.equal(aiModel({ AI: {}, AI_MODEL: "@cf/x/y" }), "@cf/x/y");
 });
+
+test("suggestions and ai can be set per group, over the setting for every group", async (t) => {
+  const pairs = (acme) => env.CHANNEL_PAIRS.map((pair) => (pair.name === "acme" ? { ...pair, ...acme } : pair));
+
+  // acme turns the proactive agent off, though it's on for every group.
+  let calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...env, CHANNEL_PAIRS: pairs({ suggestions: false }) });
+  assert.equal(ephemeral(calls), undefined);
+
+  // acme turns AI on, though it's off for every group.
+  const { environment, asked } = aiEnv(aiRead({ reviewer: { add: ["UMIA"], remove: [] } }));
+  calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, AI_MODEL: "off", CHANNEL_PAIRS: pairs({ ai: true }) });
+  assert.equal(asked.length, 1);
+  assert.equal(ephemeral(calls).text, "Should I update the task? From your message:");
+
+  // Another group keeps the setting for every group.
+  const { aiModel } = await import("../src/ai.js");
+  const { suggesting } = await import("../src/intents.js");
+  const split = { AI: {}, AI_MODEL: "off", SUGGESTIONS: "false", CHANNEL_PAIRS: pairs({ ai: "@cf/x/y", suggestions: ["hand-offs"] }) };
+  assert.equal(aiModel(split, "CDEV"), "@cf/x/y");
+  assert.equal(aiModel(split, "CTESTDEV"), null);
+  assert.equal(suggesting(split, "hand-offs", "CEXTERNAL"), true);
+  assert.equal(suggesting(split, "progress", "CDEV"), false);
+  assert.equal(suggesting(split, "hand-offs", "CTESTDEV"), false);
+});
+
+test("npm run config checks each group's suggestions and ai, and npm run group keeps them", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const channels = [
+    { name: "acme", external: "C0000000001", tasks: "C0000000002", suggestions: true, ai: true },
+    { name: "test", tasks: "C0000000003", suggestions: false },
+  ];
+  assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ channels })).CHANNEL_PAIRS), [
+    { ...channels[0], ai: "on" },
+    channels[1],
+  ]);
+  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[0], ai: "gpt" }] })), /acme's ai is true, false/);
+  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[1], suggestions: ["nope"] }] })), /test's suggestions is/);
+
+  const { withGroup } = await import("../scripts/group.mjs");
+  const next = JSON.parse(withGroup(JSON.stringify({ channels }), "test", { incidents: "C0000000004" }));
+  assert.deepEqual(next.channels[1], { name: "test", tasks: "C0000000003", incidents: "C0000000004", suggestions: false });
+});

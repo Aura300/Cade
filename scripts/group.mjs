@@ -63,8 +63,10 @@ export function withGroup(configJson, name, fields) {
     else group[field] = value;
   }
   if (!group.tasks) throw new Error(`${name} needs a --tasks channel.`);
-  // Settings in a steady order, as the file shows them.
+  // Settings in a steady order, as the file shows them, then those set by
+  // hand, such as `suggestions` and `ai`.
   const ordered = Object.fromEntries(["name", ...FIELDS].filter((field) => group[field]).map((field) => [field, group[field]]));
+  for (const [field, value] of Object.entries(group)) if (!(field in ordered) && !FIELDS.includes(field)) ordered[field] = value;
   const next = at === -1 ? [...channels, ordered] : channels.map((other, i) => (i === at ? ordered : other));
   return `${JSON.stringify({ ...config, channels: next }, null, 2)}\n`;
 }

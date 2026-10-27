@@ -1,3 +1,4 @@
+import { groupSetting } from "./channels.js";
 import { PRIORITIES, STATUSES } from "./tasks.js";
 
 // Reading what a message in a task's thread asks to change, with a model on
@@ -18,9 +19,12 @@ export const DEFAULT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 // A message waits this long for the model before falling back.
 const TIMEOUT_MS = 8000;
 
-// The model to read messages with, or null when AI is off.
-export function aiModel(env) {
-  const setting = env.AI_MODEL;
+// The model to read messages in `channel` with, or null when AI is off: the
+// group's own `ai`, or else AI_MODEL for every group. A group's is as `ai` in
+// cade.config.json gives it ("on", "off" or a model's name, or true or false).
+export function aiModel(env, channel) {
+  let setting = groupSetting(env, channel, "ai") ?? env.AI_MODEL;
+  if (typeof setting === "boolean") setting = setting ? "on" : "off";
   if (!env.AI || !setting || setting === "off") return null;
   return setting === "on" ? DEFAULT_MODEL : setting;
 }
@@ -68,7 +72,7 @@ Leave anything the message doesn't clearly ask for empty. Most messages change n
 // model can't be reached or answers with something that isn't JSON, so
 // whoever asked can fall back. `today` is { date: "YYYY-MM-DD", weekday }.
 export async function readChanges(env, { message, task, today, allowed }) {
-  const model = aiModel(env);
+  const model = aiModel(env, message.channel);
   const input = {
     today: `${today.weekday} ${today.date}`,
     author: message.user,

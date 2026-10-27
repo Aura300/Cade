@@ -28,12 +28,12 @@ const CHANGE_VIEW = "ai-suggest:form";
 // it. Throws if the model fails, for suggest.js to fall back on phrases.
 export async function suggestWithAi(env, message, { target, of, task, place }) {
   const external = place === "external";
-  const handOffs = suggesting(env, "hand-offs") || suggesting(env, "started");
+  const handOffs = suggesting(env, "hand-offs", message.channel) || suggesting(env, "started", message.channel);
   const allowed = {
     roles: handOffs ? (external ? ["developer"] : Object.keys(ROLES)) : [],
     fromMentions: !external,
-    status: suggesting(env, "started") || suggesting(env, "progress"),
-    details: !external && suggesting(env, "details") && (await findDetails(env, target.channel, target.ts))?.kind === "task",
+    status: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
+    details: !external && suggesting(env, "details", message.channel) && (await findDetails(env, target.channel, target.ts))?.kind === "task",
   };
   const changes = await readChanges(env, { message, task, today: today(env), allowed });
   if (!changes) return;

@@ -100,8 +100,9 @@ async function handleEvent(body, request, context) {
   } else {
     // Plain messages can still mean something: see intents.js.
     const message = plainMessage(envelope.event, botUserId);
-    // Kinds turned off in `suggestions` aren't considered (see suggesting).
-    const meant = message && findIntent(intentsOn(context.env, intents), message);
+    // Kinds turned off in `suggestions`, for the message's group or every
+    // group, aren't considered (see suggesting).
+    const meant = message && findIntent(intentsOn(context.env, intents, message.channel), message);
     if (meant) context.waitUntil(meant.handle(message, context));
   }
   return respond();
