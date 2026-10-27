@@ -1,5 +1,4 @@
 import { linked, oneMessage, request, unlinked } from "../notify.js";
-import { reflectOnRequirement } from "../requirements.js";
 import { callSlack } from "../slack.js";
 import { loadTask, saveTask } from "../tasks.js";
 import { teamChanges } from "./assign.js";
@@ -23,8 +22,8 @@ const BEFORE_REVIEW = ["TODO", "IN_PROGRESS"];
 // changed in its thread. People are changed first, so they're asked as the
 // task stands; then pull requests, which move a task not yet in review to In
 // review unless the status is changed too, and the reviewers kept are asked
-// to review the new ones; then the priority and due date, where the team
-// owns them; then the status, unless the task has moved on from `from` since
+// to review the new ones; then the priority and due date, unless it's an
+// incident; then the status, unless the task has moved on from `from` since
 // the suggestion was made. Returns whether anything changed.
 export async function applyChanges(env, { channel, ts }, changes, user, { from } = {}) {
   const task = await loadTask(env, channel, ts);
@@ -55,7 +54,6 @@ export async function applyChanges(env, { channel, ts }, changes, user, { from }
   // People added are asked with the pull requests as they now are.
   const team = teamChanges(user, task, people);
   if (team.log.length || prs.log.length) await saveTask(env, channel, ts, task);
-  if (prs.log.length) await reflectOnRequirement(env, ts, task, {});
 
   const fields = Object.fromEntries(["priority", "dueDate"].filter((name) => name in changes).map((name) => [name, changes[name]]));
   const details = Object.keys(fields).length ? await detailsChange(env, channel, ts, fields, user) : null;

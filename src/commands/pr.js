@@ -1,6 +1,5 @@
 import { roleOf } from "../channels.js";
 import { intent } from "../intents.js";
-import { loadRequirement, onTheTeam, reflectOnRequirement } from "../requirements.js";
 import { assigned, linked as linkedText, movedTo, oneMessage, request, unlinked as unlinkedText } from "../notify.js";
 import { CLOSE_ALL, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
@@ -73,7 +72,6 @@ export default {
     if (!removed.length) return "Hmm, those pull requests aren't linked to this task.";
     task.prs = task.prs.filter((url) => !removed.includes(url));
     await saveTask(env, command.channel, command.threadTs, task);
-    await reflectOnRequirement(env, command.threadTs, task, {});
     return unlinkedText(command.user, removed);
   },
   // Checked before hand-offs: a message with PR links gets only this question.
@@ -117,12 +115,9 @@ async function addPullRequests(env, channel, ts, task, urls) {
   const added = urls.filter((url) => !task.prs.includes(url));
   if (!added.length) return null;
   task.prs = [...task.prs, ...added];
-  // The requirement it came from shows In progress either way; it is
-  // updated only to show the new PRs.
   const moved = BEFORE_REVIEW.includes(task.status);
   if (moved) task.status = "IN_REVIEW";
   await saveTask(env, channel, ts, task);
-  await reflectOnRequirement(env, ts, task, {});
   return { added, moved };
 }
 
@@ -144,32 +139,19 @@ export function pullRequestsIn(text) {
 // linked yet, and whether to add the people it mentions who aren't reviewers
 // yet as reviewers. Mentions in a message only one person sees notify no one.
 //
-// Pasted in the thread of a tracked requirement or incident, the links are
-// for its task, and only the team is asked (see onTheTeam); people mentioned
-// there aren't offered as reviewers, since the client may be among them.
-//
 // The person clicking wrote the message, so accepting adds little to the
 // thread: only a status change, and a review request for reviewers the
 // message didn't mention.
 async function suggestPullRequests(message, env) {
   const { text, botUserId } = message;
   const urls = pullRequestsIn(text);
-  const place = roleOf(env, message.channel);
-  let target = { channel: message.channel, ts: message.threadTs };
-  if (place === "external") {
-    const requirement = await loadRequirement(env, message.channel, message.threadTs);
-    if (!requirement?.task || !(await onTheTeam(env, message.channel, message.user))) return;
-    target = { channel: requirement.task.channel, ts: requirement.task.ts };
-  } else if (place !== "tasks") {
-    return;
-  }
+  if (roleOf(env, message.channel) !== "tasks") return;
+  const target = { channel: message.channel, ts: message.threadTs };
 
   const task = await loadTask(env, target.channel, target.ts);
   if (!task) return;
   const unlinked = urls.filter((url) => !task.prs.includes(url));
-  // Those mentioned in the task's own thread; the requirement thread's
-  // mentions notified people there, not in the task's thread.
-  const mentioned = place === "external" ? [] : [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))];
+  const mentioned = [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))];
   const reviewers = mentioned.filter((id) => id !== botUserId && !task.people.reviewer.includes(id));
   // PRs that are all linked already need nothing.
   if (!unlinked.length) return;
@@ -387,7 +369,6 @@ function savePullRequests(payload, context) {
       const moved = added.length > 0 && BEFORE_REVIEW.includes(task.status);
       if (moved) task.status = "IN_REVIEW";
       await saveTask(env, channel, ts, task);
-      await reflectOnRequirement(env, ts, task, {});
 
       const prs = { log: [], notes: [] };
       if (added.length) prs.log.push(linkedText(user, added, moved));

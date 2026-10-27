@@ -1,8 +1,10 @@
-// Tasks and requirements are stored in D1 (the DB binding). Each is stored
-// before its root message is posted; once posted, it is found by the
-// message's channel and ts. The root message and the Google Sheet row are
-// rendered from the row after every change (see saveTask and
-// saveRequirement). The schema is in migrations/.
+// Tasks are stored in D1 (the DB binding). Each is stored before its root
+// message is posted; once posted, it is found by the message's channel and
+// ts. The root message and the Google Sheet row are rendered from the row
+// after every change (see saveTask). The schema is in migrations/; the
+// requirements table, and tasks' source_channel, source_thread_ts and
+// source_link, are left from when a client channel could be paired, and no
+// longer read.
 
 // How many times Cade tries to post a root message before giving up: once
 // when it is made, then on each retry (see retry.js).
@@ -103,34 +105,6 @@ export async function getTaskIncludingDeleted(env, channel, ts) {
   return row ? { ...taskFromRow(row), deleted: Boolean(row.deleted_at) } : null;
 }
 
-// The posted task most recently tracked from the requirement thread
-// `source` ({ channel, threadTs }), deleted or not, as { channel, ts, title,
-// link, deleted }, or null. The requirement links to it too, unless storing
-// that link failed.
-export async function latestTaskFrom(env, source) {
-  const row = await env.DB.prepare(
-    `SELECT channel, ts, title, link, deleted_at FROM tasks
-     WHERE source_channel = ? AND source_thread_ts = ? AND ts IS NOT NULL
-     ORDER BY id DESC LIMIT 1`,
-  )
-    .bind(source.channel, source.threadTs)
-    .first();
-  return row
-    ? { channel: row.channel, ts: row.ts, title: row.title, link: row.link || undefined, deleted: Boolean(row.deleted_at) }
-    : null;
-}
-
-// Marks deleted the tasks tracked from the thread that are waiting to be
-// posted, so a retry doesn't post them.
-export async function markUnpostedTasksDeleted(env, source) {
-  await env.DB.prepare(
-    `UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP
-     WHERE source_channel = ? AND source_thread_ts = ? AND ts IS NULL AND deleted_at IS NULL`,
-  )
-    .bind(source.channel, source.threadTs)
-    .run();
-}
-
 // The posted tasks in `channel` with one of `statuses`, as { ts, task },
 // oldest first.
 export async function tasksWithStatus(env, channel, statuses) {
@@ -145,22 +119,15 @@ export async function tasksWithStatus(env, channel, statuses) {
   return results.map((row) => ({ ts: row.ts, task: taskFromRow(row) }));
 }
 
-// Whether a task tracked from the thread is waiting to be posted.
-export async function hasUnpostedTask(env, source) {
-  const row = await env.DB.prepare(
-    `SELECT 1 FROM tasks
-     WHERE source_channel = ? AND source_thread_ts = ? AND ts IS NULL AND deleted_at IS NULL`,
-  )
-    .bind(source.channel, source.threadTs)
-    .first();
-  return Boolean(row);
-}
-
 // The tasks whose root message Slack hasn't taken yet, as { id, channel,
 // task, origin, attempts }, oldest first. Only those made a minute or more
 // ago, so a post still under way isn't made twice.
 export async function unpostedTasks(env) {
-  const results = await unposted(env, "tasks");
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM tasks
+     WHERE ts IS NULL AND deleted_at IS NULL AND created_at <= datetime('now', '-1 minute')
+     ORDER BY id`,
+  ).all();
   return results.map((row) => ({
     id: row.id,
     channel: row.channel,
@@ -168,68 +135,6 @@ export async function unpostedTasks(env) {
     origin: JSON.parse(row.origin ?? "{}"),
     attempts: row.post_attempts,
   }));
-}
-
-// Returns the requirement whose root message is `ts`, as getTask does.
-export async function getRequirement(env, channel, ts) {
-  const row = await env.DB.prepare(
-    "SELECT * FROM requirements WHERE channel = ? AND ts = ? AND deleted_at IS NULL",
-  )
-    .bind(channel, ts)
-    .first();
-  return row ? requirementFromRow(row) : null;
-}
-
-// Stores a new requirement that is about to be posted, and returns its id.
-export async function insertRequirement(env, channel, requirement) {
-  return insert(env, "requirements", channel, requirementToRow(requirement));
-}
-
-export async function markRequirementPosted(env, id, ts) {
-  await env.DB.prepare(
-    "UPDATE requirements SET ts = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-  )
-    .bind(ts, id)
-    .run();
-}
-
-export async function putRequirement(env, channel, ts, requirement) {
-  await upsert(env, "requirements", channel, ts, requirementToRow(requirement));
-}
-
-export async function markRequirementDeleted(env, channel, ts) {
-  await env.DB.prepare(
-    "UPDATE requirements SET deleted_at = CURRENT_TIMESTAMP WHERE channel = ? AND ts = ?",
-  )
-    .bind(channel, ts)
-    .run();
-}
-
-// The posted requirements and incidents in `channel` that aren't done or
-// deleted, as { ts, title, incident }, newest first: at most 100, as many as
-// a Slack menu takes.
-export async function activeRequirements(env, channel) {
-  const { results } = await env.DB.prepare(
-    `SELECT ts, title, incident FROM requirements
-     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL AND status != 'DONE'
-     ORDER BY id DESC LIMIT 100`,
-  )
-    .bind(channel)
-    .all();
-  return results.map((row) => ({ ts: row.ts, title: row.title, incident: Boolean(row.incident) }));
-}
-
-// The posted requirements and incidents in `channel` that aren't deleted,
-// as { ts, requirement, updatedAt }, oldest first.
-export async function postedRequirements(env, channel) {
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM requirements
-     WHERE channel = ? AND ts IS NOT NULL AND deleted_at IS NULL
-     ORDER BY ts`,
-  )
-    .bind(channel)
-    .all();
-  return results.map((row) => ({ ts: row.ts, requirement: requirementFromRow(row), updatedAt: row.updated_at }));
 }
 
 // The id of the canvas Cade keeps the channel's summary in, or null.
@@ -295,7 +200,7 @@ export async function getExport(env, id) {
     : null;
 }
 
-// What was chosen for each requirement or task in the export `id`, keyed
+// What was chosen for each task in the export `id`, keyed
 // by its message's "channel:ts", as { included, health, progress, notes }.
 export async function exportItems(env, id) {
   const { results } = await env.DB.prepare("SELECT * FROM export_items WHERE export_id = ?").bind(id).all();
@@ -419,39 +324,18 @@ function suggestionFromRow(row) {
   };
 }
 
-// The requirements whose root message Slack hasn't taken yet, as { id,
-// channel, requirement, attempts }, as for unpostedTasks.
-export async function unpostedRequirements(env) {
-  const results = await unposted(env, "requirements");
-  return results.map((row) => ({
-    id: row.id,
-    channel: row.channel,
-    requirement: requirementFromRow(row),
-    attempts: row.post_attempts,
-  }));
-}
-
-// Counts a post Slack refused, for the task or requirement `id` in `table`.
-// After the last attempt it is given up: marked deleted, so it isn't tried
-// again and its thread can be tracked afresh. Returns the attempts so far.
-export async function countPostAttempt(env, table, id) {
+// Counts a post Slack refused, for the task `id`. After the last attempt it
+// is given up: marked deleted, so it isn't tried again. Returns the attempts
+// so far.
+export async function countPostAttempt(env, id) {
   const { post_attempts: attempts } = await env.DB.prepare(
-    `UPDATE ${table} SET post_attempts = post_attempts + 1,
+    `UPDATE tasks SET post_attempts = post_attempts + 1,
        deleted_at = CASE WHEN post_attempts + 1 >= ? THEN CURRENT_TIMESTAMP END
      WHERE id = ? RETURNING post_attempts`,
   )
     .bind(POST_ATTEMPTS, id)
     .first();
   return attempts;
-}
-
-async function unposted(env, table) {
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM ${table}
-     WHERE ts IS NULL AND deleted_at IS NULL AND created_at <= datetime('now', '-1 minute')
-     ORDER BY id`,
-  ).all();
-  return results;
 }
 
 async function insert(env, table, channel, row) {
@@ -492,11 +376,7 @@ function taskToRow(task) {
     prs: JSON.stringify(task.prs ?? []),
     created_by: task.createdBy,
     completed_at: task.completedAt ?? "",
-    source_channel: task.source?.channel ?? null,
-    source_thread_ts: task.source?.threadTs ?? null,
-    // A detached task keeps the link to where it was tracked from.
-    source_link: (task.source ?? task.trackedFrom)?.link ?? null,
-    source_incident: (task.source ?? task.trackedFrom)?.incident ? 1 : 0,
+    source_incident: task.incident ? 1 : 0,
     link: task.link ?? null,
   };
 }
@@ -515,54 +395,8 @@ function taskFromRow(row) {
     prs: JSON.parse(row.prs),
     createdBy: row.created_by,
     completedAt: row.completed_at,
-    source: row.source_channel
-      ? {
-          channel: row.source_channel,
-          threadTs: row.source_thread_ts,
-          link: row.source_link || undefined,
-          incident: Boolean(row.source_incident),
-        }
-      : undefined,
-    // Where a task detached from its requirement or incident was tracked
-    // from, as { link, incident }; only shown, as it no longer follows it.
-    ...(!row.source_channel &&
-      row.source_link && { trackedFrom: { link: row.source_link, incident: Boolean(row.source_incident) } }),
+    // Whether it is an incident: always urgent and due immediately.
+    incident: Boolean(row.source_incident),
     link: row.link || undefined,
-  };
-}
-
-function requirementToRow(requirement) {
-  return {
-    title: requirement.title,
-    status: requirement.status,
-    priority: requirement.priority ?? "",
-    due_date: requirement.dueDate ?? "",
-    created_by: requirement.createdBy,
-    incident: requirement.incident ? 1 : 0,
-    task_channel: requirement.task?.channel ?? null,
-    task_ts: requirement.task?.ts ?? null,
-    task_title: requirement.task?.title ?? null,
-    task_link: requirement.task?.link ?? null,
-    tracked_by: requirement.task?.trackedBy ?? null,
-  };
-}
-
-function requirementFromRow(row) {
-  return {
-    title: row.title,
-    status: row.status,
-    priority: row.priority,
-    dueDate: row.due_date,
-    createdBy: row.created_by,
-    incident: Boolean(row.incident),
-    task: row.task_ts
-      ? {
-          channel: row.task_channel,
-          ts: row.task_ts,
-          title: row.task_title,
-          link: row.task_link,
-          trackedBy: row.tracked_by,
-        }
-      : undefined,
   };
 }

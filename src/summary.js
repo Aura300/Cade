@@ -1,19 +1,16 @@
-import { findPair, roleOf } from "./channels.js";
-import { deleteCanvas, getCanvas, postedRequirements, putCanvas } from "./db.js";
-import { byUrgency, groupTasks, threadLink } from "./commands/tasks.js";
-import { REQUIREMENT_STATUSES } from "./requirements.js";
+import { findPair } from "./channels.js";
+import { deleteCanvas, getCanvas, putCanvas } from "./db.js";
+import { byUrgency, groupTasks } from "./commands/tasks.js";
 import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
 import { callSlack } from "./slack.js";
 import { PRIORITIES, STATUSES } from "./tasks.js";
 
 // A summary is a channel's canvas listing what is open there, most urgent
 // first, then what is closed (Done), most recently first, each in tables:
-// in an external channel its requirements and incidents, in
-// a tasks channel the group's tasks, incidents' too, as `/cade tasks`
-// lists them. `/cade summary` puts it in the channel's
-// canvas, making one if there is none, and saves which it is; from then on
-// the table is rewritten whenever a task or requirement in its group
-// changes. Channels without one are left alone.
+// the group's tasks, incidents too, as `/cade tasks` lists them. `/cade
+// summary` puts it in the dev channel's canvas, making one if there is none,
+// and saves which it is; from then on the table is rewritten whenever a
+// task in its group changes. Channels without one are left alone.
 
 // A canvas table holds at most 300 cells, header included, so longer
 // summaries continue in another table.
@@ -24,12 +21,11 @@ const MAX_CELLS = 300;
 const MAX_CLOSED = 50;
 
 const TASK_COLUMNS = ["Title", "Status", "Priority", "Due date", "Dev", "Reviewer", "Tester"];
-const REQUIREMENT_COLUMNS = ["Title", "Priority", "Due date", "Status", "Tracked"];
 
 // The canvas's title, which heads the summary.
 export function summaryTitle(env, channel) {
   const { name } = findPair(env, channel);
-  return roleOf(env, channel) === "external" ? `${name} requirements` : `${name} tasks`;
+  return `${name} tasks`;
 }
 
 // The channel's summary, as canvas markdown.
@@ -38,23 +34,6 @@ export async function summaryMarkdown(env, channel) {
   // Links are built from the workspace's address, as `/cade tasks` does.
   const { url } = await callSlack(env, "auth.test", {});
   const updated = `_Updated ${formatTime(env, new Date())}. Cade keeps this up to date._`;
-  if (roleOf(env, channel) === "external") {
-    const requirements = (await postedRequirements(env, channel)).map(({ ts, requirement, updatedAt }) => ({
-      incident: requirement.incident,
-      task: requirement,
-      link: threadLink(url, channel, ts),
-      // A requirement is last changed when it is done.
-      closedAt: updatedAt,
-    }));
-    const row = ({ task: requirement, incident, link }) => [
-      title(requirement.title, incident, link),
-      priority(requirement.priority),
-      requirement.dueDate || "—",
-      unbroken(REQUIREMENT_STATUSES[requirement.status]),
-      requirement.task ? ":white_check_mark: Yes" : "Not yet",
-    ];
-    return document(updated, REQUIREMENT_COLUMNS, sections(requirements, row), "requirements or incidents");
-  }
   const tasks = (await groupTasks(env, group, Object.keys(STATUSES), url)).map((entry) => ({
     ...entry,
     closedAt: entry.task.completedAt,
@@ -69,8 +48,7 @@ export async function summaryMarkdown(env, channel) {
     people(task.people.tester),
   ];
   // The Closed section is cut short, so the group's Google Sheet, which has
-  // every task, is linked when it has one. It's the team's own record, so
-  // the client channel's summary leaves it out.
+  // every task, is linked when it has one.
   const sheet = sheetEnabled(env, group)
     ? ` [All tasks in the Google Sheet](https://docs.google.com/spreadsheets/d/${sheetId(group.sheet)}/edit).`
     : "";
@@ -88,19 +66,17 @@ function sections(entries, row) {
   return { open: open.map(row), closed: closed.map(row) };
 }
 
-// Rewrites the summary a change in `channel` touches: the external
-// channel's for a requirement, the tasks channel's for a task.
+// Rewrites the summary of the dev channel `channel`, if it has one.
 // A summary is a convenience, so failures are logged rather than failing
 // the command.
 export async function refreshSummary(env, channel) {
   const group = findPair(env, channel);
   if (!group) return;
-  const summaryChannel = roleOf(env, channel) === "external" ? group.external : group.tasks;
   try {
-    const canvasId = await getCanvas(env, summaryChannel);
-    if (canvasId) await writeCanvas(env, canvasId, await summaryMarkdown(env, summaryChannel));
+    const canvasId = await getCanvas(env, group.tasks);
+    if (canvasId) await writeCanvas(env, canvasId, await summaryMarkdown(env, group.tasks));
   } catch (error) {
-    console.warn("Could not update the summary", { channel: summaryChannel, error: error.message });
+    console.warn("Could not update the summary", { channel: group.tasks, error: error.message });
   }
 }
 

@@ -47,7 +47,7 @@ async function runHandler(handler, run, usage, scope, command, context) {
 
 // Handlers declare where they may run:
 //   channel       the role, or list of roles, of the channels they work in
-//                 ("external", "tasks"; see CHANNEL_PAIRS)
+//                 ("tasks"; see CHANNEL_PAIRS)
 //   slashChannel  the same for their `/cade` form, when it differs
 //   inThread      whether they must be sent as a thread reply
 function checkScope(scope, usage, command, env) {
@@ -57,9 +57,6 @@ function checkScope(scope, usage, command, env) {
     (!channels.length || channels.includes(command.channel)) &&
     (!scope.inThread || inThread);
   if (allowed) return undefined;
-
-  const missing = missingRoles(scope, env, command.channel);
-  if (missing) return missing;
   const where = scope.inThread ? " in a task thread" : "";
   return `That one works with \`${usage}\`${where}${channelHint(scope, env, command.channel)}.`;
 }
@@ -69,18 +66,8 @@ function channelsFor(scope, env) {
   return roles.flatMap((role) => channelsWithRole(env, role));
 }
 
-// From a channel in a pair that has none of the channels the command works
-// in, such as a group with only a tasks channel, says what to add.
-function missingRoles(scope, env, from) {
-  const pair = findPair(env, from);
-  const roles = [scope.channel ?? []].flat();
-  if (!pair || !roles.length || roles.some((role) => pair[role])) return undefined;
-  const names = roles.map((role) => `\`${role}\``).join(" or ");
-  return `This group has no ${names} channel, so that one isn't available here. Add one to its pair in \`CHANNEL_PAIRS\` to use it.`;
-}
-
-// Names the channels to use instead. From a channel in a pair, only that
-// pair's channels are named, since the others belong to another project.
+// Names the channels to use instead. From a group's channel, only its own
+// is named, since the others belong to another project.
 function channelHint(scope, env, from) {
   const pair = findPair(env, from);
   const channels = pair

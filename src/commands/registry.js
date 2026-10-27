@@ -2,7 +2,6 @@ import aiSuggest from "./ai-suggest.js";
 import assign from "./assign.js";
 import remove from "./delete.js";
 import edit from "./edit.js";
-import detach from "./detach.js";
 import { due, priority } from "./details.js";
 import brief from "./brief.js";
 import debrief from "./debrief.js";
@@ -10,14 +9,13 @@ import menu from "./menu.js";
 import move from "./move.js";
 import pr from "./pr.js";
 import release from "./release.js";
-import requirement, { incident } from "./requirement.js";
 import resync from "./resync.js";
 import standup from "./standup.js";
 import status from "./status.js";
 import suggest from "./suggest.js";
 import summary from "./summary.js";
 import tasks from "./tasks.js";
-import track from "./track.js";
+import track, { incident } from "./track.js";
 import unassign from "./unassign.js";
 
 // To add a command, create a handler module and list it here. A handler is:
@@ -27,7 +25,7 @@ import unassign from "./unassign.js";
 //     slashUsage?: how to send it as `/cade name`,
 //     section: where help lists it: "start", "thread" or "work",
 //     aliases?: other names that run the same handler,
-//     channel?: "external", "tasks" or both as a list: the channels in
+//     channel?: "tasks", or [] for any channel: the channels in
 //               CHANNEL_PAIRS it works in,
 //     slashChannel?: like `channel`, for `/cade name` when it differs,
 //     inThread?: true if it must be run from a thread reply,
@@ -44,7 +42,7 @@ import unassign from "./unassign.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [requirement, incident, track, assign, unassign, status, priority, due, pr, release, detach, remove, move, resync, tasks, standup, summary, brief, debrief];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, remove, move, resync, tasks, standup, summary, brief, debrief];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>

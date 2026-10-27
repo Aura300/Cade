@@ -85,12 +85,6 @@ export function request(people, role, prs = []) {
   return `${mentions(people)}, could you ${ASKS[role](prs)} when you get a chance? Thanks!`;
 }
 
-// Developers added to a task whose work has started: there's nothing to
-// ask, only to let them know.
-export function startedNote(people) {
-  return `${mentions(people)}, you're down as developer on this, and it's ${STATUSES.IN_PROGRESS}.`;
-}
-
 // Tells people removed from a role, or from every role (`role` null), that
 // they no longer need to do it.
 export function noLonger(people, role) {

@@ -367,8 +367,7 @@ export function threadLink(url, channel, ts) {
 }
 
 // The group's tasks with one of `statuses`, as { channel, ts, task, link,
-// incident }, from its tasks channel; `incident` is whether it is tracked
-// from one. Links are built from the workspace's address, `url`, rather
+// incident }, from its tasks channel. Links are built from the workspace's address, `url`, rather
 // than looked up one by one, which would take a Slack call per task.
 export async function groupTasks(env, group, statuses, url) {
   const channel = group.tasks;
@@ -376,7 +375,7 @@ export async function groupTasks(env, group, statuses, url) {
     channel,
     ts,
     task,
-    incident: Boolean(task.source?.incident),
+    incident: task.incident,
     link: threadLink(url, channel, ts),
   }));
 }

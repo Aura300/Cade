@@ -1,6 +1,5 @@
 import { readChanges, today } from "../ai.js";
 import { suggesting } from "../intents.js";
-import { findDetails } from "../requirements.js";
 import { callSlack, dismiss, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, loadTask } from "../tasks.js";
 import { applyChanges } from "./changes.js";
@@ -19,32 +18,26 @@ const REJECT_ACTION = "ai-suggest:skip";
 // Edit… opens the task's Edit form filled in with it (see edit.js), and
 // Reject drops it. Applying it tells the thread as any change does (see
 // changes.js).
-//
-// In the thread of a requirement or incident tracked as a task, only
-// developers and the status are read, and only whoever wrote the message
-// can be added, since the client may be among those it mentions.
 
 // Reads the message for `about` (the task its thread is about; see
 // threadTask in suggest.js) and, if it asks for changes, asks whoever wrote
 // it. Throws if the model fails, for suggest.js to fall back on phrases.
-export async function suggestWithAi(env, message, { target, of, task, place }) {
-  const external = place === "external";
+export async function suggestWithAi(env, message, { target, task }) {
   const handOffs = suggesting(env, "hand-offs", message.channel) || suggesting(env, "started", message.channel);
   const allowed = {
-    roles: handOffs ? (external ? ["developer"] : Object.keys(ROLES)) : [],
-    fromMentions: !external,
+    roles: handOffs ? Object.keys(ROLES) : [],
     status: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
-    details: !external && suggesting(env, "details", message.channel) && (await findDetails(env, target.channel, target.ts))?.kind === "task",
+    details: suggesting(env, "details", message.channel) && !task.incident,
   };
   const changes = await readChanges(env, { message, task, today: today(env), allowed });
-  if (changes) await askToChange(env, message, { target, of, task }, changes);
+  if (changes) await askToChange(env, message, { target, task }, changes);
 }
 
 // Asks whoever wrote `message`, privately, whether to make `changes` (as
 // changes.js takes them) to `task`, with a summary and Accept, Edit… and
 // Reject. Shared with suggestions by phrases (see suggest.js).
-export async function askToChange(env, message, { target, of, task }, changes) {
-  const question = `Should I update the task${of}? From your message:`;
+export async function askToChange(env, message, { target, task }, changes) {
+  const question = "Should I update the task? From your message:";
   const value = JSON.stringify({ ...target, changes, from: task.status });
   await callSlack(env, "chat.postEphemeral", {
     channel: message.channel,
@@ -100,7 +93,7 @@ export default {
       if (!task) return;
       await callSlack(env, "views.open", {
         trigger_id: payload.trigger_id,
-        view: await editForm(env, { channel, ts }, task, { changes, responseUrl: payload.response_url }),
+        view: editForm({ channel, ts }, task, { changes, responseUrl: payload.response_url }),
       });
     },
     [REJECT_ACTION]: async (payload) => {

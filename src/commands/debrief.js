@@ -3,7 +3,6 @@ import { decideSuggestion, getExport, getSuggestion, insertSuggestion, lastExpor
 import { readSection } from "../doc.js";
 import { callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.js";
 import { docProblem, pickGroup, showDay } from "./brief.js";
-import { requirementView } from "./requirement.js";
 import { trackView } from "./track.js";
 import { threadLink, todayIn } from "./tasks.js";
 
@@ -16,19 +15,16 @@ const POINT_VIEW = "import:point";
 // group's last executive summary in its Google Doc (see brief.js) with them.
 // It reads the summary's section back and compares it with what Cade wrote,
 // for what was added during the call:
-//   - a bullet of its own, with no link: a new requirement, with the lines
-//     under it as its details;
-//   - lines under one of the summary's requirements or tasks: points for
-//     its thread.
+//   - a bullet of its own, with no link: a new task, with the lines under it
+//     as its details;
+//   - lines under one of the summary's tasks: points for its thread.
 // It suggests them one at a time, shown only to whoever sent it, each to
 // Apply or Discard:
 //   - Apply on a point opens a text box with it, to edit, then posts it in
 //     the thread its line links to;
-//   - Apply on a new requirement opens the requirement form, named from it,
-//     with an Initial message, its details, posted in the new requirement's
-//     thread in the client channel once it's started; it's tracked from
-//     there as any requirement. A group with no client channel gets the task
-//     form instead, the same way, for a task in its dev channel.
+//   - Apply on a new task opens the task form, named from it, with an
+//     Initial message, its details, posted in the new task's thread in the
+//     dev channel once it's tracked.
 // Each is found once: sending `/cade debrief` again goes on with those not
 // decided yet, and adds any added to the doc since.
 export default {
@@ -65,14 +61,10 @@ export default {
       }
       const sync = { id: suggestion.id, r: payload.response_url };
       const initial = { initial: suggestion.details || suggestion.text };
-      // A new requirement starts in the client channel, or, for a group with
-      // none, is tracked as a task in the dev channel.
-      let view = pointView(suggestion, sync);
-      if (suggestion.kind === "REQUIREMENT") {
-        view = group.external
-          ? requirementView({ channel: group.external, title: suggestion.text, sync }, initial)
-          : trackView({ channel: group.tasks, title: suggestion.text, sync }, initial);
-      }
+      const view =
+        suggestion.kind === "TASK"
+          ? trackView(env, { channel: group.tasks, title: suggestion.text, sync }, initial)
+          : pointView(suggestion, sync);
       await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view });
     },
     [DISCARD_ACTION]: async (payload, context) => {
@@ -119,14 +111,14 @@ async function next(env, responseUrl, exportId) {
 
 // What was added to the section, as suggestions to store: { kind: "POINT",
 // channel, ts, title, text } for lines under a linked line, the lines under
-// each line together, or { kind: "REQUIREMENT", text, details } for a bullet
+// each line together, or { kind: "TASK", text, details } for a bullet
 // of its own with no link. `written` is the text of each line Cade wrote,
 // which isn't counted, nor are lines of `found`, the summary's suggestions
 // so far, however they were decided.
 export function findAdditions(elements, written, found = []) {
   const known = new Set(written.map((text) => text.trim()));
   const pointed = new Set(found.filter((s) => s.kind === "POINT").flatMap((s) => s.text.split("\n").map((line) => `${s.channel}:${s.ts}:${line}`)));
-  const named = new Set(found.filter((s) => s.kind === "REQUIREMENT").map((s) => s.text));
+  const named = new Set(found.filter((s) => s.kind === "TASK").map((s) => s.text));
   const additions = [];
   let entry = null;
   let fresh = null;
@@ -144,7 +136,7 @@ export function findAdditions(elements, written, found = []) {
         entry = { kind: "POINT", channel: thread.channel, ts: thread.ts, title: text.split("  ·  ")[0], lines: [] };
         additions.push(entry);
       } else if (!known.has(text)) {
-        fresh = { kind: "REQUIREMENT", text, lines: [] };
+        fresh = { kind: "TASK", text, lines: [] };
         if (!named.has(text)) additions.push(fresh);
       }
       continue;
@@ -154,7 +146,7 @@ export function findAdditions(elements, written, found = []) {
     else if (entry && !pointed.has(`${entry.channel}:${entry.ts}:${text}`)) entry.lines.push(text);
   }
   return additions
-    .filter((addition) => addition.kind === "REQUIREMENT" || addition.lines.length)
+    .filter((addition) => addition.kind === "TASK" || addition.lines.length)
     .map(({ lines, ...addition }) =>
       addition.kind === "POINT" ? { ...addition, text: lines.join("\n") } : { ...addition, details: lines.join("\n") },
     );
@@ -191,15 +183,11 @@ async function render(env, summary) {
   } else {
     const details = suggestion.details ? `\n${quote(suggestion.details)}` : "";
     blocks.push(
-      { type: "section", text: mrkdwn(`*New requirement:* ${escapeSlack(suggestion.text)}${details}`.slice(0, 3000)) },
+      { type: "section", text: mrkdwn(`*New task:* ${escapeSlack(suggestion.text)}${details}`.slice(0, 3000)) },
       {
         type: "context",
         elements: [
-          mrkdwn(
-            group?.external
-              ? `Apply opens the requirement form, with ${details ? "the lines under it" : "it"} as the initial message, to start its thread in <#${group.external}>.`
-              : `Apply opens the task form, with ${details ? "the lines under it" : "it"} as the initial message, to track it in <#${group?.tasks}>.`,
-          ),
+          mrkdwn(`Apply opens the task form, with ${details ? "the lines under it" : "it"} as the initial message, to track it in <#${group?.tasks}>.`),
         ],
       },
     );

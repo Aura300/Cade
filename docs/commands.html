@@ -39,7 +39,7 @@
       manages and offers what you're about to do; and <b>AI suggestions</b>, which let it read them with AI. Turn the
       last two on or off in <code>cade.config.json</code>, for every group or for each group on its own.
     </p>
-    <input class="search" id="search" type="search" placeholder="Filter commands: try “due”, “review” or “client”" aria-label="Filter commands">
+    <input class="search" id="search" type="search" placeholder="Filter commands: try “due”, “review” or “incident”" aria-label="Filter commands">
     <ul class="toc">
       <li><a href="#start">Start</a></li>
       <li><a href="#thread">In a task thread</a></li>
@@ -59,50 +59,40 @@
 <section id="start">
   <div class="wrap">
     <div class="eyebrow">Start</div>
-    <h2>Requirements, incidents and tasks</h2>
+    <h2>Tasks and incidents</h2>
     <div class="entries">
 
       <article class="entry">
-        <h3><code>/cade requirement</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Top level</span></div>
-        <p>Opens a form for the requirement's name, priority and an optional due date, then posts it as a new message whose thread is where it's discussed. The card shows its status, priority and due date, and stays pinned until it's done. Its ⋯ menu has <b>Edit</b>, a form with only the priority and due date (the team sets the rest on the task), <b>Track task</b> until a task is tracked from it, and <b>Delete</b>, which removes its task too.</p>
-        <div class="example"><b>Example:</b> “Deposit payments at booking”, High, due 14/11/2026.</div>
-      </article>
-
-      <article class="entry">
-        <h3><code>@Cade requirement</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">In a message's thread</span></div>
-        <p>Starts a requirement from a message that's already in the channel. Cade privately offers a <b>Start requirement</b> button; the form is named from the message's first line, and once the requirement is posted the message is moved into its thread.</p>
-        <div class="example"><b>Example:</b> reply <code>@Cade requirement</code> under “Could we get a monthly occupancy report as a PDF?”</div>
+        <h3><code>/cade task</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
+        <p>A form for the title, priority and an optional due date. The task is posted in the dev channel and stays pinned until it's done.</p>
+        <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
       </article>
 
       <article class="entry">
         <h3><code>/cade incident</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Top level</span></div>
-        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and are tracked straight away as a task in the dev channel, marked as an incident on its card, with no tracking step. An incident's card has <b>Delete</b> in its ⋯ menu, and <b>Track task</b> if its task was deleted.</p>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
+        <p>Asks only what the incident is. Incidents are always Urgent and due Immediate, and their cards say <b>Incident</b>, so they stand out among the channel's tasks. They're listed first in <code>/cade tasks</code>, summaries and briefs.</p>
         <div class="example"><b>Example:</b> “Card payments failing at checkout for EU customers”.</div>
       </article>
 
       <article class="entry">
-        <h3><code>@Cade incident</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">In a message's thread</span></div>
-        <p>Reports an incident from a message already in the channel, as <code>@Cade requirement</code> does for requirements. The message is moved into the incident's thread.</p>
+        <h3><code>@Cade task</code> <code>@Cade incident</code></h3>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
+        <p>Starts a task or an incident from a message already in the channel. Cade privately offers a button that opens the form, named from the message's first line; once it's posted, the message moves into its thread.</p>
+        <div class="example"><b>Example:</b> reply <code>@Cade incident</code> under “Checkout is failing for EU customers”.</div>
       </article>
 
       <article class="entry">
-        <h3><code>@Cade track</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">In a thread</span></div>
+        <h3>Message shortcuts</h3>
+        <div class="tags"><span class="where">Anywhere</span><span class="where">Any message</span></div>
+        <p>On any message, in any channel or DM: ⋯ → <b>More actions</b>.</p>
         <ul>
-          <li><b>In a requirement thread:</b> a <b>Track task</b> button opens a form for the task title. The priority and due date come from the requirement, and the client keeps changing them there. The task is posted in the dev channel and linked both ways. A requirement has one task, so it can't be tracked twice. If an incident's task was deleted, this tracks it again.</li>
-          <li><b>In a message's thread in the dev channel:</b> privately offers <b>Track task</b>, with the full form named from the message's first line. Once the task is posted, the message moves into its thread.</li>
+          <li><b>New task</b> and <b>New incident</b> open their form, named from the message's first line.</li>
+          <li><b>Move to existing</b> opens a form to pick an open task or incident.</li>
+          <li>In a dev channel the forms are for its project. Anywhere else they ask for the <b>Project</b> first, and Move to existing then lists that project's open tasks.</li>
+          <li>The message is copied into the task's thread, credited to whoever wrote it, so everyone on the task can read it, even if they can't see where it was written. The link back to it, and Cade's note and 📤 under it, work only where they can.</li>
         </ul>
-      </article>
-
-      <article class="entry">
-        <h3><code>/cade track</code></h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
-        <p>The team's own work: a form for the title, priority and an optional due date. The task has no client thread, so its changes aren't shared anywhere else, and the team owns its priority and due date.</p>
-        <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
       </article>
 
     </div>
@@ -113,7 +103,7 @@
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
     <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel. The ⋯ menu on a task's card has two choices. <b>Edit</b> opens one form with what can be changed there: developers, reviewers, testers, status and pull requests, and the priority and due date on the team's own tasks (a requirement's are set from its card in the client channel, and an incident's never change). <b>Delete</b> deletes the task, with <b>Detach</b> beside it for a task tracked from a requirement or incident. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
+    <p class="lede">These work in a task's thread in the dev channel. The ⋯ menu on a task's card has two choices. <b>Edit</b> opens one form with everything: developers, reviewers, testers, status, priority, due date and pull requests (an incident's priority and due date never change, so its form leaves them out). <b>Delete</b> deletes the task. Save the form, and Cade notes who changed what in the thread, as one message, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>. Sending PRs for approval is <code>@Cade release</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -137,10 +127,8 @@
         <div class="tags"><span class="where">Dev channel</span></div>
         <p>Without a status, shows a menu. With one, Cade sets it and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
         <ul>
-          <li>Done unpins the task and its requirement; moving it out of Done pins them again.</li>
-          <li>Done is told to the requirement thread.</li>
-          <li>Client review shows whoever set it a private <b>Ask for approval</b> button (set it again to get it back): pick who approves (whoever started the requirement, to begin with). Cade asks them in the requirement thread, or in the task thread when there's none, to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress). Only they can click.</li>
-          <li>The client sees the team's own stages (To do, In review, In testing) as In progress.</li>
+          <li>Done unpins the task; moving it out of Done pins it again.</li>
+          <li>Client review shows whoever set it a private <b>Ask for approval</b> button (set it again to get it back): pick who approves, the client or whoever handles them. Cade asks them in the task's thread to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress). Only they can click.</li>
         </ul>
       </article>
 
@@ -154,7 +142,7 @@
       <article class="entry">
         <h3><code>@Cade release</code> <code>@Cade deliver</code></h3>
         <div class="tags"><span class="where">Dev channel</span></div>
-        <p>Sends some of the task's PRs to the client before the whole task is done. A private <b>Choose PRs</b> button opens a form that lists the ones not sent yet and asks what they complete and who approves them (whoever started the requirement, to begin with). The approver gets them with <b>Approve</b> and <b>Not approve</b>, which only they can click, in the requirement thread, or in the task thread when there's none. PRs that weren't approved can be sent again. The task's status doesn't change.</p>
+        <p>Sends some of the task's PRs to the client before the whole task is done. A private <b>Choose PRs</b> button opens a form that lists the ones not sent yet and asks what they complete and who approves them. The approver gets them in the task's thread with <b>Approve</b> and <b>Not approve</b>, which only they can click. PRs that weren't approved can be sent again. The task's status doesn't change.</p>
         <ul>
           <li>The task thread hears the decision, mentioning the developers.</li>
         </ul>
@@ -168,19 +156,19 @@
 <section id="details">
   <div class="wrap">
     <div class="eyebrow">Priority &amp; due date</div>
-    <h2>Set by whoever owns them</h2>
-    <p class="lede">In a requirement thread, the client sets these and the tracked task follows. In a task thread they work only for the team's own tasks. Incidents are always Urgent and due Immediate.</p>
+    <h2>Set in the task's thread</h2>
+    <p class="lede">Incidents are always Urgent and due Immediate, so theirs never change.</p>
     <div class="entries">
 
       <article class="entry">
         <h3><code>@Cade priority high</code></h3>
-        <div class="tags"><span class="where">Requirement thread</span><span class="where">Team's own task thread</span></div>
+        <div class="tags"><span class="where">Task thread</span></div>
         <p>One of <code>urgent</code>, <code>high</code>, <code>medium</code> or <code>low</code>. With a value Cade reacts ✅; without one it shows a menu. The card's colour strip follows the priority.</p>
       </article>
 
       <article class="entry">
         <h3><code>@Cade due 31/12/2026</code></h3>
-        <div class="tags"><span class="where">Requirement thread</span><span class="where">Team's own task thread</span></div>
+        <div class="tags"><span class="where">Task thread</span></div>
         <p>A date as <code>DD/MM/YYYY</code> (also with <code>.</code> or <code>-</code>, or as <code>YYYY-MM-DD</code>), or <code>none</code> to clear it. Without a value Cade shows a date picker.</p>
       </article>
 
@@ -196,25 +184,20 @@
 
       <article class="entry">
         <h3>Post a new message</h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">Top level</span><span class="where">Always on</span></div>
-        <p>A message posted on its own in a channel, not in a thread, gets a private question to whoever wrote it, so it lands in the right thread. This works even with the proactive agent off.</p>
-        <ul>
-          <li><b>Client channel:</b> <b>Start requirement</b>, <b>Report incident</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
-          <li><b>Dev channel:</b> <b>Track as task</b>, <b>Move to existing</b> or <b>Not now</b>.</li>
-          <li>Starting something from it names it from the message's first line and moves the message into the new thread.</li>
-        </ul>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span><span class="where">Always on</span></div>
+        <p>A message posted on its own in the dev channel, not in a thread, gets a private question to whoever wrote it, so it lands in the right thread: <b>New task</b>, <b>New incident</b>, <b>Move to existing</b> (when something's open) or <b>Not now</b>, the same as the <a href="#start">message shortcuts</a>, with the same forms. Starting something from it names it from the message's first line and moves the message into the new thread. This works even with the proactive agent off.</p>
       </article>
 
       <article class="entry">
         <h3><code>@Cade move</code> <code>@Cade move &lt;message link&gt;</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
-        <p>Moves a message into the right thread. Cade privately shows the open requirements and incidents (in the client channel) or open tasks (in the dev channel) to pick from. Messages only move within their own channel.</p>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">In a message's thread</span></div>
+        <p>Moves a message into the right thread. Cade privately shows the channel's open tasks and incidents to pick from.</p>
         <ul>
-          <li><b>Without typing:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to task</b> opens a form with the same choices, and nothing is posted until it moves. <b>Convert to task</b>, next to it, opens the Track task form for a message in the dev channel, or the Start requirement form for one in the client channel, named from the message, which then moves into the new thread. Both work on messages posted in the channel itself, not replies.</li>
-          <li><b>With an emoji, in one click:</b> add 🎫 <code>:ticket:</code> to a message to convert it, or 🔀 <code>:twisted_rightwards_arrows:</code> to move it. Cade answers only you: a <b>Track task</b> (or <b>Start requirement</b>) button, or the move picker. Add them to Slack's one-click reactions (Preferences → Messages &amp; media) and they sit in the bar you see when hovering over a message. Choose other emoji with <code>reactions</code> in <code>cade.config.json</code>.</li>
-          <li><b>With a link:</b> paste the link to a requirement's, incident's or task's message (Copy link on it, or on any reply in its thread) and Cade moves the message there straight away, with a ✅ on your command. Handy for bringing old threads in from before Cade, one after another: start with the oldest, so they land in order.</li>
+          <li><b>Without typing, from anywhere:</b> on the message itself, ⋯ → <b>More actions</b> → <b>Move to existing</b> opens a form with the same choices, and nothing is posted until it moves. Outside a dev channel it asks for the project first. See <a href="#start">message shortcuts</a>.</li>
+          <li><b>With an emoji, in one click:</b> add 🎫 <code>:ticket:</code> to a message in the dev channel to track it, or 🔀 <code>:twisted_rightwards_arrows:</code> to move it. Cade answers only you: a <b>New task</b> button, or the move picker. Add them to Slack's one-click reactions (Preferences → Messages &amp; media) and they sit in the bar you see when hovering over a message. Choose other emoji with <code>reactions</code> in <code>cade.config.json</code>.</li>
+          <li><b>With a link:</b> paste the link to a task's or incident's message (Copy link on it, or on any reply in its thread) and Cade moves the message there straight away, with a ✅ on your command. Handy for bringing old threads in from before Cade, one after another: start with the oldest, so they land in order.</li>
           <li>Slack can't move messages, so Cade copies it into the thread, quoted and credited to its author with a link back, replies under the original asking people to carry on there, and marks it with 📤 so it can be skipped.</li>
-          <li>Only the message is copied, not its replies or attachments, and a message is never moved twice.</li>
+          <li>Only the message is copied, not its replies or attachments, and a message in the dev channel is never moved twice.</li>
           <li>If the original was pinned, it's unpinned: its new thread is where it's followed now.</li>
         </ul>
       </article>
@@ -222,29 +205,16 @@
       <article class="entry">
         <h3><code>/cade resync &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Anywhere, with a link</span></div>
-        <p>Redraws a task's card from what Cade has stored, and sends it to the Sheet and summary again: for a card that's out of date, such as one posted before the ⋯ menu was added. Use Copy link on the task's message or any reply in its thread; several links at once work too. A requirement's or incident's link redraws its message. Nothing is posted, so no one is notified, and only you see the reply.</p>
+        <p>Redraws a task's card from what Cade has stored, and sends it to the Sheet and summary again: for a card that's out of date, such as one posted before the ⋯ menu was added. Use Copy link on the task's message or any reply in its thread; several links at once work too. Nothing is posted, so no one is notified, and only you see the reply.</p>
         <div class="example"><b>Example:</b> <code>/cade resync https://acme.slack.com/archives/C0DEV/p1700000000000100</code></div>
       </article>
 
       <article class="entry">
-        <h3><code>@Cade detach</code> <code>/cade detach &lt;link&gt;</code></h3>
-        <div class="tags"><span class="where">Task thread</span><span class="where">Anywhere, with a link</span></div>
-        <p>Unlinks a task from the requirement or incident it was tracked from, so the team owns it. Either form asks you first, privately, with <b>Cancel</b> and <b>Detach</b>, and Detach asks again. <code>@Cade detach</code> is sent from the task's thread, never the client's, and both threads are told. <code>/cade detach</code> with the task thread's link (Copy link on the task's message) does it quietly: nothing is posted in either thread, so no one is notified, and only you see the reply. Handy for detaching many at once.</p>
-        <ul>
-          <li><b>The task</b> stays where it is and still links to the thread it was tracked from, but no longer follows it: its priority and due date are changed from its own thread from then on, incidents' included.</li>
-          <li><b>The requirement's message</b> stays, unpinned, saying where the work went. Cade stops tracking it, so it leaves the summaries and <code>/cade brief</code>.</li>
-        </ul>
-      </article>
-
-      <article class="entry">
         <h3><code>@Cade delete</code> <code>@Cade remove</code> <code>/cade remove &lt;link&gt;</code></h3>
-        <div class="tags"><span class="where">Requirement thread</span><span class="where">Task thread</span><span class="where">Anywhere, with a link</span></div>
+        <div class="tags"><span class="where">Task thread</span><span class="where">Anywhere, with a link</span></div>
         <p>Asks first, with a prominent <b>Cancel</b> and a plain <b>Delete</b> that asks again. Only the person who asked can confirm. Cade deletes the root message and its own replies; people's replies stay under Slack's “This message was deleted”.</p>
         <ul>
-          <li><b>A requirement</b> takes its task with it, and the question names the task.</li>
-          <li><b>A requirement's task</b> is removed from the requirement thread instead, and Cade links to it. If the requirement has already gone, the task can be removed on its own.</li>
-          <li><b>The team's own task</b> is removed from its own thread.</li>
-          <li><b><code>/cade remove &lt;link&gt;</code></b> asks, and answers, only you, about whatever the link points at: a task or requirement, as above; a reply, which goes if Cade posted it; or any other message, whose thread loses Cade's replies, and the message too if Cade posted it. Slack only lets Cade remove its own messages.</li>
+          <li><b><code>/cade remove &lt;link&gt;</code></b> asks, and answers, only you, about whatever the link points at: a task, as above; a reply, which goes if Cade posted it; or any other message, whose thread loses Cade's replies, and the message too if Cade posted it. Slack only lets Cade remove its own messages.</li>
         </ul>
       </article>
 
@@ -261,7 +231,7 @@
       <article class="entry">
         <h3><code>/cade tasks</code></h3>
         <div class="tags"><span class="where">Any channel</span><span class="where">Only you see it</span></div>
-        <p>Your open tasks, grouped by what you do on each (developing, reviewing, testing), incidents first, then by priority and due date. In a channel pair's channel it shows that pair; elsewhere, every pair. Add any of:</p>
+        <p>Your open tasks, grouped by what you do on each (developing, reviewing, testing), incidents first, then by priority and due date. In a group's dev channel it shows that group; elsewhere, every group. Add any of:</p>
         <ul>
           <li><code>development</code>, <code>review</code> or <code>testing</code>: one role only</li>
           <li><code>@person</code>: their tasks instead of yours</li>
@@ -280,20 +250,20 @@
 
       <article class="entry">
         <h3><code>/cade summary</code></h3>
-        <div class="tags"><span class="where">Client channel</span><span class="where">Dev channel</span></div>
-        <p>Puts the channel's work in its canvas (making one if the channel has none) and keeps it up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done, most recent first. In the client channel it lists requirements and incidents (title, priority, due date, status, whether tracked); in the dev channel, the pair's tasks, incidents' too (title, status, priority, due date, dev, reviewer, tester). With a Google Sheet linked to the group, the dev channel's canvas also links to it, for every task. Each title opens its thread. The table replaces what the canvas held.</p>
+        <div class="tags"><span class="where">Dev channel</span></div>
+        <p>Puts the group's tasks in the channel's canvas (making one if the channel has none) and keeps it up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done, most recent first, each with its title, status, priority, due date, dev, reviewer and tester. With a Google Sheet linked to the group, the canvas also links to it, for every task. Each title opens its thread. The table replaces what the canvas held.</p>
       </article>
 
       <article class="entry">
         <h3><code>/cade brief</code> <code>/cade brief &lt;group&gt;</code></h3>
         <div class="tags"><span class="where">Any channel</span><span class="where">Only you see it</span><span class="where">Needs the group's Google Doc</span></div>
-        <p>Writes an executive summary with you, one step at a time, and adds it to the group's Google Doc (its <code>doc</code> in <code>cade.config.json</code>), at the top of its <b>Summary</b> tab, as a section headed with the day it was written. Nothing is posted in Slack. Without a linked doc it says how to link one. It covers the channel's group, or the only one, or the one named. First pick the period, <b>From</b> and <b>To</b> dates: from the day after the last summary's period (the past week, the first time) to today, unless you change them. Then what was completed from the start of From to the end of To: untick any not to mention as done. Then, for a group with a client channel, each open requirement and incident, most urgent first, or, for a group without one, each open task in its dev channel: how it's going (on track, at risk, delayed or blocked), its progress such as <code>3/5</code>, and any notes. <b>Peek at threads</b> shows the latest messages of its requirement thread and its dev thread, to help you write them. Health, progress and notes start as the last summary had them, to add to or change, and what the last summary said is shown above them, to compare. Last, the summary as it will read, with <b>Add to the Google Doc</b>. In the doc each title links to its thread, and notes are bullets under it. Back keeps your answers; nothing about the work itself changes.</p>
+        <p>Writes an executive summary with you, one step at a time, and adds it to the group's Google Doc (its <code>doc</code> in <code>cade.config.json</code>), at the top of its <b>Summary</b> tab, as a section headed with the day it was written. Nothing is posted in Slack. Without a linked doc it says how to link one. It covers the channel's group, or the only one, or the one named. First pick the period, <b>From</b> and <b>To</b> dates: from the day after the last summary's period (the past week, the first time) to today, unless you change them. Then what was completed from the start of From to the end of To: untick any not to mention as done. Then each open task, incidents first, then by urgency: how it's going (on track, at risk, delayed or blocked), its progress such as <code>3/5</code>, and any notes. <b>Peek at threads</b> shows the latest messages of its thread, to help you write them. Health, progress and notes start as the last summary had them, to add to or change, and what the last summary said is shown above them, to compare. Last, the summary as it will read, with <b>Add to the Google Doc</b>. In the doc each title links to its thread, and notes are bullets under it. Back keeps your answers; nothing about the work itself changes.</p>
       </article>
 
       <article class="entry">
         <h3><code>/cade debrief</code> <code>/cade debrief &lt;group&gt;</code></h3>
         <div class="tags"><span class="where">Any channel</span><span class="where">Only you see it</span><span class="where">Needs the group's Google Doc</span></div>
-        <p>After going through the last executive summary with the client, reads its section of the doc back and compares it with what Cade wrote. A bullet of its own with no link is a <b>new requirement</b>, with the lines under it as its details; lines added under a requirement or task are <b>points</b> for its thread. They're suggested one at a time, to <b>Apply</b> or <b>Discard</b>. Apply on a point opens a text box with it, to edit, then posts it in the thread its title links to. Apply on a new requirement opens the requirement form, named from it, with an <b>Initial message</b> posted in its thread in the client channel once it's started; track it from there as usual. For a group without a client channel, it opens the task form instead, for a task in the dev channel, with the Initial message in the task's thread. Each is suggested once: <code>/cade debrief</code> again goes on with the rest, and finds anything added since.</p>
+        <p>After going through the last executive summary with the client, reads its section of the doc back and compares it with what Cade wrote. A bullet of its own with no link is a <b>new task</b>, with the lines under it as its details; lines added under a task are <b>points</b> for its thread. They're suggested one at a time, to <b>Apply</b> or <b>Discard</b>. Apply on a point opens a text box with it, to edit, then posts it in the thread its title links to. Apply on a new task opens the task form, named from it, with an <b>Initial message</b> posted in the task's thread once it's tracked. Each is suggested once: <code>/cade debrief</code> again goes on with the rest, and finds anything added since.</p>
       </article>
 
       <article class="entry">
@@ -310,19 +280,18 @@
   <div class="wrap">
     <div class="eyebrow">Proactive agent</div>
     <h2>Plain words Cade picks up in its threads</h2>
-    <p class="lede">With the proactive agent on, Cade reads messages in the requirement, incident and task threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
+    <p class="lede">With the proactive agent on, Cade reads messages in the task and incident threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
     <p class="lede"><b>On by default.</b> Set <code>"suggestions": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
     <div class="entries">
 
       <article class="entry">
         <h3>Hand a task to someone</h3>
-        <div class="tags"><span class="where">Task thread</span><span class="where">Requirement thread</span></div>
+        <div class="tags"><span class="where">Task thread</span></div>
         <p>Mention someone with what you'd like them to do:</p>
         <ul>
           <li><b>Developer:</b> “start working”, “work on”, “look into”, “pick this up”, “take this”, “take care of”, “handle this”, “fix this”, “assign this to”, “over to you”, “implement”</li>
           <li><b>Reviewer:</b> “review” · <b>Tester:</b> “test”, “QA”, “verify”</li>
           <li>Cade suggests adding whoever that part of the message names. Someone only cc'd isn't added. Your own part is yours: “@udara can you implement this while I test it” suggests Udara as developer and you as tester.</li>
-          <li>In a requirement thread only developers are offered: <b>Track and assign</b> before it's tracked, <b>Assign as developer</b> after.</li>
         </ul>
         <div class="example"><b>Example:</b> “@Rex please start working on this, first cut by Friday?”</div>
       </article>
@@ -360,12 +329,11 @@
 
       <article class="entry">
         <h3>What it reads</h3>
-        <div class="tags"><span class="where">Task thread</span><span class="where">Requirement thread</span></div>
+        <div class="tags"><span class="where">Task thread</span></div>
         <ul>
           <li><b>People:</b> developers, reviewers and testers added or removed, several roles in one message. Only people the message mentions, or whoever wrote it, can be added. A mention that only informs (“cc @rex”, “thanks @mia”) changes nothing.</li>
           <li><b>Status:</b> when the message says the work moved on, never for a question or a plan.</li>
-          <li><b>Priority and due date:</b> “this is urgent”, “need it by Friday”, on the team's own tasks. A client's requirement keeps the client's.</li>
-          <li>In a requirement's thread, only developers and the status are read, and only whoever wrote the message can be added.</li>
+          <li><b>Priority and due date:</b> “this is urgent”, “need it by Friday”, but not an incident's.</li>
         </ul>
         <div class="example"><b>Example:</b> “@Rex can you take this over from @Bob? @Mia please review. Need it by Friday, it's blocking the release”</div>
       </article>
@@ -384,7 +352,7 @@
       <article class="entry">
         <h3>Falls back on its own</h3>
         <div class="tags"><span class="where">Always</span></div>
-        <p>If the model fails, or takes more than 8 seconds, the message is read by its phrases instead, as with AI off. Pasted PR links and new messages in a channel are always read without AI.</p>
+        <p>If the model fails, or takes more than 8 seconds, the message is read by its phrases instead, as with AI off. Pasted PR links and new messages in the dev channel are always read without AI.</p>
       </article>
 
     </div>
@@ -398,11 +366,9 @@
     <table class="ownership">
       <thead><tr><th>What</th><th>Who changes it</th><th>Where</th></tr></thead>
       <tbody>
-        <tr><td>A requirement's priority and due date</td><td>The client</td><td>The requirement thread; its task follows</td></tr>
-        <tr><td>A task's status, people and PRs</td><td>The team</td><td>The task thread</td></tr>
-        <tr><td>The team's own task's priority and due date</td><td>The team</td><td>The task thread</td></tr>
+        <tr><td>A task's status, people, PRs, priority and due date</td><td>The team</td><td>The task thread, or its card's ⋯ → Edit</td></tr>
         <tr><td>An incident's priority and due date</td><td>Nobody</td><td>Always Urgent, due Immediate</td></tr>
-        <tr><td>Accepting work in Client review, and partial releases</td><td>Whoever is picked to approve: the client, or whoever handles them</td><td>Approve / Not approve in the requirement thread, or the task thread when there's none</td></tr>
+        <tr><td>Accepting work in Client review, and partial releases</td><td>Whoever is picked to approve: the client, or whoever handles them</td><td>Approve / Not approve in the task thread</td></tr>
       </tbody>
     </table>
   </div>
@@ -429,7 +395,7 @@
 
 <footer>
   <div class="wrap">
-    <span>Cade: requirements to shipped, in Slack.</span>
+    <span>Cade: from any message to shipped, in Slack.</span>
     <a href="index.html">Home →</a>
   </div>
 </footer>

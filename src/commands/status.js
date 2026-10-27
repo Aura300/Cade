@@ -1,5 +1,4 @@
 import { isQuestion, phraseTest } from "../intents.js";
-import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
 import { oneMessage, request, statusChanged } from "../notify.js";
 import { CLOSE_ALL, acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
@@ -21,29 +20,18 @@ const REJECT_ACTION = "status:reject";
 const ASK_ACTION = "status:ask";
 const REVIEW_VIEW = "status:review";
 const STATUS_VIEW = "status:form";
-// The external thread only needs to hear when a task reaches one of these.
-const CLOSED_STATUSES = ["CLIENT_REVIEW", "DONE"];
 
 // `@Cade status` in a task thread replies with a menu of statuses; picking one
 // updates the task and replaces the menu with a confirmation. A status can
 // also be given directly, as `@Cade status IN_PROGRESS` or `@Cade status in
-// progress`; then Cade just reacts ✅ to the message. Moving a task to DONE unpins it from the channel; moving it out
-// of DONE pins it again. The same goes for the requirement it was tracked
-// from, in the external channel.
+// progress`; then Cade just reacts ✅ to the message. Moving a task to DONE
+// unpins it from the channel; moving it out of DONE pins it again.
 //
-// When a task reaches CLIENT_REVIEW or DONE, Cade tells the external thread
-// it was tracked from, and the requirement it was tracked from always shows
-// the current status.
-//
-// Only the dev channel sets statuses, and it can set Done directly. Client
-// review is an optional step for work the client should check first, and
-// the client decides whether that work is accepted. When a requirement's
-// task moves to Client review, Cade's post in the requirement thread has
-// Approve and Not approve buttons. Approve moves the task to Done; Not
-// approve moves it back to In progress. Either way the task's thread is told,
-// and nothing more is posted in the requirement thread, where the client just
-// decided. Slack cannot tell the team
-// from the client, so anyone in the external channel can click them.
+// Done can be set directly. Client review is an optional step for work the
+// client should check first: whoever moves a task there picks who approves
+// it, and Cade asks them in the task's thread, with Approve and Not approve
+// buttons that only they can click. Approve moves the task to Done; Not
+// approve moves it back to In progress.
 // The words that say how the work is going (see soundsLikeProgress): a
 // reviewer approving, a tester passing it, or anyone on the task finishing it.
 // See intents.js for how phrases match.
@@ -94,21 +82,11 @@ export default {
     }
 
     const previous = task.status;
-    const reached = await applyStatus(env, command.channel, command.threadTs, task, status);
+    await applyStatus(env, command.channel, command.threadTs, task, status);
     // A status typed in the command needs only a ✅, since the task card shows
-    // it, plus a note when the requirement thread was told, and the testers'
-    // request when it reached In testing.
-    const { told } = await afterChange(
-      env,
-      command.channel,
-      command.threadTs,
-      task,
-      status,
-      command.user,
-      reached,
-    );
-    const note = [told, testersAsked(task, previous)].filter(Boolean).join("\n");
-    return acknowledge(note || undefined);
+    // it, plus the testers' request when it reached In testing.
+    if (status === "CLIENT_REVIEW") await askApprover(env, command.channel, command.threadTs, command.user);
+    return acknowledge(testersAsked(task, previous) ?? undefined);
   },
   actions: {
     [SELECT_ACTION]: async (payload, context) => {
@@ -129,19 +107,16 @@ export default {
 // `status` to, given what `user` does on it and what they wrote, or []:
 //   - a reviewer approving a task In review: In testing;
 //   - a tester passing a task In testing, or anyone on the task (or whoever
-//     tracked it) saying it's finished: Client review, for a requirement's
-//     task or, in a group with a client (`hasClient`), the team's own, as
-//     whoever handles the client may still show it to them; and Done.
+//     tracked it) saying it's finished: Done.
 // A task in Client review waits for the client, and a Done one is done.
-export function progressOptions(task, user, message, hasClient = false) {
+export function progressOptions(task, user, message) {
   const { developer, reviewer, tester } = task.people;
   if (task.status === "IN_REVIEW" && reviewer.includes(user) && APPROVED(message)) return ["IN_TESTING"];
   const finishing =
     (task.status === "IN_TESTING" && tester.includes(user) && (PASSED(message) || APPROVED(message))) ||
     ([...developer, ...reviewer, ...tester, task.createdBy].includes(user) && FINISHED(message));
   if (!finishing || ["CLIENT_REVIEW", "DONE"].includes(task.status)) return [];
-  const forClient = task.source ? !task.source.incident : hasClient;
-  return forClient ? ["CLIENT_REVIEW", "DONE"] : ["DONE"];
+  return ["DONE"];
 }
 
 // Moves the task for `user` and tells its thread who did.
@@ -269,17 +244,19 @@ export async function setStatus(env, channel, ts, status, user) {
 }
 
 // Sets the task's status for `user`, and returns what the thread hears as {
-// log, notes } (see oneMessage): who set it and whether the requirement
-// thread was told, and, when it reached In testing, the request to its
-// testers. Null if it isn't a task. Shared with suggestions.
+// log, notes } (see oneMessage): who set it, and, when it reached In
+// testing, the request to its testers. Client review asks whoever set it,
+// privately, who approves it (see askApprover); setting it again asks
+// again, since a private message is easily lost. Null if it isn't a task.
+// Shared with suggestions.
 export async function statusChange(env, channel, ts, status, user) {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
   const previous = task.status;
-  const reached = await applyStatus(env, channel, ts, task, status);
-  const { text, told } = await afterChange(env, channel, ts, task, status, user, reached);
+  await applyStatus(env, channel, ts, task, status);
+  if (status === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
   const ask = testersAsked(task, previous);
-  return { log: [text, told].filter(Boolean), notes: ask ? [ask] : [] };
+  return { log: [statusChanged(user, status)], notes: ask ? [ask] : [] };
 }
 
 // The request to a task's testers when it has just reached In testing from
@@ -290,49 +267,15 @@ function testersAsked(task, previous) {
   return task.status === "IN_TESTING" && previous !== "IN_TESTING" && tester.length ? request(tester, "tester") : null;
 }
 
-// Saves the new status and returns whether the task just reached a status
-// the external thread hears about.
+// Saves the new status, pinning or unpinning the task as it leaves or
+// reaches Done.
 async function applyStatus(env, channel, ts, task, status) {
   const previous = task.status;
   task.status = status;
   if (status !== "DONE") task.completedAt = "";
   else if (previous !== "DONE") task.completedAt = new Date().toISOString();
   await saveTask(env, channel, ts, task);
-  await reflectOnRequirement(env, ts, task, { status: clientStatus(status) });
-  if ((previous === "DONE") !== (status === "DONE")) {
-    await setPinned(env, channel, ts, status !== "DONE");
-    // The requirement it was tracked from is pinned until it is Done too.
-    if (task.source) {
-      await setPinned(env, task.source.channel, task.source.threadTs, status !== "DONE");
-    }
-  }
-  return status !== previous && CLOSED_STATUSES.includes(status);
-}
-
-// After a change: Done is told to the requirement thread, if the task has
-// one. Client review asks whoever set it, privately, who approves it (see
-// askApprover); the request follows once they're chosen. Setting Client
-// review again asks again, since a private message is easily lost. Returns
-// the confirmation for the task's thread, `text`, and `told`, the line
-// saying the requirement thread was told, when it was.
-async function afterChange(env, channel, ts, task, status, user, reached) {
-  const text = statusChanged(user, status);
-  if (status === "CLIENT_REVIEW") {
-    await askApprover(env, channel, ts, user);
-    return { text, told: null };
-  }
-  if (!reached) return { text, told: null };
-  if (!task.source) return { text, told: null };
-  await callSlack(env, "chat.postMessage", {
-    channel: task.source.channel,
-    thread_ts: task.source.threadTs,
-    ...asMessage(`Great news! <@${user}> marked this as ${STATUSES.DONE}.`),
-  });
-  return { text, told: `I've let ${requirementThread(task)} know it's ${STATUSES.DONE}.` };
-}
-
-function requirementThread(task) {
-  return task.source.link ? `<${task.source.link}|the requirement thread>` : "the requirement thread";
+  if ((previous === "DONE") !== (status === "DONE")) await setPinned(env, channel, ts, status !== "DONE");
 }
 
 // A task reaching Client review asks whoever moved it, privately, who
@@ -366,8 +309,7 @@ async function askApprover(env, channel, ts, user) {
 const notInReview = (task) =>
   task ? `This task is ${STATUSES[task.status]} now, so there's nothing to approve.` : NOT_A_TASK;
 
-// The Ask for approval button opens the form, with whoever started the
-// requirement picked to begin with.
+// The Ask for approval button opens the form.
 async function openApproverForm(payload, env) {
   const { channel, ts } = JSON.parse(payload.actions[0].value);
   const task = await loadTask(env, channel, ts);
@@ -375,8 +317,6 @@ async function openApproverForm(payload, env) {
     await callSlack(env, "chat.postEphemeral", { channel, thread_ts: ts, user: payload.user.id, text: notInReview(task) });
     return;
   }
-  const requirement = task.source && (await loadRequirement(env, task.source.channel, task.source.threadTs));
-  const where = requirement ? "in the requirement thread" : "in this thread";
   await callSlack(env, "views.open", {
     trigger_id: payload.trigger_id,
     view: {
@@ -387,10 +327,7 @@ async function openApproverForm(payload, env) {
       title: plainText("Ask for approval"),
       submit: plainText("Ask"),
       close: plainText("Cancel"),
-      blocks: [
-        approverBlock(requirement?.createdBy),
-        { type: "context", elements: [mrkdwn(`They approve it ${where}.`)] },
-      ],
+      blocks: [approverBlock(), { type: "context", elements: [mrkdwn("They approve it in this thread.")] }],
     },
   });
 }
@@ -403,9 +340,8 @@ function submitApprover(payload, context) {
   return { response_action: "clear" };
 }
 
-// Asks the approver to review the task, with its PRs and the Approve and
-// Not approve buttons, in the requirement thread, and tells the task's
-// thread who was asked; or, with no requirement thread, in the task's own.
+// Asks the approver to review the task, in its thread, with its PRs and the
+// Approve and Not approve buttons.
 async function requestReview(env, origin, approver, user) {
   const { channel, ts, responseUrl } = origin;
   const task = await loadTask(env, channel, ts);
@@ -413,29 +349,16 @@ async function requestReview(env, origin, approver, user) {
     await callSlack(env, "chat.postEphemeral", { channel, thread_ts: ts, user, text: notInReview(task) });
     return;
   }
-  const requirement = task.source && (await loadRequirement(env, task.source.channel, task.source.threadTs));
   const ready = `Good news! <@${user}> says this is ready for review.`;
-  const { body, remaining } = reviewPrompt(ready, channel, ts, task, approver);
   await dismiss(responseUrl);
-  if (!requirement) {
-    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...body });
-    return;
-  }
-  await callSlack(env, "chat.postMessage", { channel: task.source.channel, thread_ts: task.source.threadTs, ...body });
-  const what = remaining ? `the remaining PRs, ${remaining.map(prLink).join(", ")},` : "it";
-  await callSlack(env, "chat.postMessage", {
-    channel,
-    thread_ts: ts,
-    ...asMessage(`<@${user}> asked <@${approver}> to review ${what} in ${requirementThread(task)}.`),
-  });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reviewPrompt(ready, channel, ts, task, approver) });
 }
 
 // The request with the task's linked pull requests (only those not sent
 // with `@Cade release`, if some were), and the approver's Approve and Not
 // approve buttons, mentioning them so they are notified. The buttons carry
 // the request, PRs included, to keep it when they are replaced, and who may
-// click them. Returns { body, remaining }, `remaining` being the PRs not sent
-// before, when some were.
+// click them.
 function reviewPrompt(text, channel, ts, task, approver) {
   const request = `<@${approver}>, could you take a look and approve it, or let us know what needs to change?`;
   const remaining = task.releases?.length ? unsentPrs(task) : null;
@@ -443,7 +366,7 @@ function reviewPrompt(text, channel, ts, task, approver) {
   const label = remaining ? "Remaining PRs" : "PRs";
   const announced = prs.length ? `${text}\n*${label}:* ${prs.map(prLink).join(", ")}` : text;
   const value = JSON.stringify({ channel, ts, text: announced, approver });
-  const body = {
+  return {
     // The mention is in the notification text too.
     text: `${announced}\n${request}`,
     blocks: [
@@ -468,12 +391,10 @@ function reviewPrompt(text, channel, ts, task, approver) {
       },
     ],
   };
-  return { body, remaining: remaining?.length ? remaining : null };
 }
 
 // Applies the approver's decision on a task in Client review, then replaces
-// the buttons with the decision and tells the task's thread, linking to the
-// requirement thread when it was made there.
+// the buttons with the decision and tells the task's thread.
 async function review(payload, env, approved) {
   const request = JSON.parse(payload.actions[0].value);
   if (await notTheApprover(env, payload, request.approver)) return;
@@ -489,17 +410,9 @@ async function review(payload, env, approved) {
   } else {
     const status = approved ? "DONE" : "IN_PROGRESS";
     await applyStatus(env, request.channel, request.ts, task, status);
-    let where = "";
-    if (payload.channel.id !== request.channel) {
-      const { permalink } = await callSlack(env, "chat.getPermalink", {
-        channel: payload.channel.id,
-        message_ts: payload.message.ts,
-      });
-      where = ` in <${permalink}|the requirement thread>`;
-    }
     const text = approved
-      ? `<@${user}> approved this${where}, so it's now ${STATUSES.DONE}. Nice work!`
-      : `<@${user}> didn't approve this${where}, so it's back to ${STATUSES.IN_PROGRESS}. Have a look at the thread for what needs to change.`;
+      ? `<@${user}> approved this, so it's now ${STATUSES.DONE}. Nice work!`
+      : `<@${user}> didn't approve this, so it's back to ${STATUSES.IN_PROGRESS}. Have a look at the thread for what needs to change.`;
     await callSlack(env, "chat.postMessage", {
       channel: request.channel,
       thread_ts: request.ts,

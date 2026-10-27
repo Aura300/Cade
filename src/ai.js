@@ -166,13 +166,10 @@ function answerOf(result) {
 //   - statuses and priorities must be known ones, and differ from the task's;
 //   - a due date must be a real date (YYYY-MM-DD, or "clear"), and differ.
 // `allowed` says which kinds may change: { roles, status, details }, and
-// `roles` which roles; and `fromMentions`, whether people the message
-// mentions may be added (not in a requirement's thread, where the client may
-// be among them, and only the author may be); and `author`, false when the
-// author may not be added either.
+// `roles` which roles; and `author`, false when the author may not be added.
 export function checkChanges(raw, { task, message, allowed }) {
   const changes = {};
-  const candidates = new Set([...(allowed.author === false ? [] : [message.user]), ...(allowed.fromMentions ? message.mentions : [])]);
+  const candidates = new Set([...(allowed.author === false ? [] : [message.user]), ...message.mentions]);
   for (const role of allowed.roles ?? []) {
     const current = task.people[role] ?? [];
     const add = unique(raw?.[role]?.add).filter((id) => candidates.has(id) && !current.includes(id));

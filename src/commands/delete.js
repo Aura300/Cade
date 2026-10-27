@@ -1,13 +1,4 @@
-import { roleOf } from "../channels.js";
-import {
-  getTask,
-  getTaskIncludingDeleted,
-  latestTaskFrom,
-  markRequirementDeleted,
-  markTaskDeleted,
-  markUnpostedTasksDeleted,
-} from "../db.js";
-import { NOT_A_REQUIREMENT, loadRequirement } from "../requirements.js";
+import { getTask, getTaskIncludingDeleted, markTaskDeleted } from "../db.js";
 import { callSlack, escapeSlack, linkedMessage, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, refreshSummary, syncTask } from "../tasks.js";
 
@@ -22,21 +13,15 @@ const NOT_OURS = /cant_delete_message/;
 const NO_LINK = "Paste the link to what to remove: `/cade remove <link>`, with the link from Copy link on its message.";
 
 // What the buttons say is deleted, by kind.
-const NOUNS = { task: "task", requirement: "requirement", message: "message", thread: "messages" };
+const NOUNS = { task: "task", message: "message", thread: "messages" };
 
-// `@Cade delete` (or `@Cade remove`) in a task or requirement thread replies
+// `@Cade delete` (or `@Cade remove`) in a task thread replies
 // with Delete and Cancel buttons. Delete opens a second "are you sure"
 // dialog, and only the person who asked for the deletion can confirm or
 // cancel it. Confirming deletes the root message and Cade's replies in its
 // thread.
 //
-// Whoever confirmed sees the messages go, so nothing more is said. A task
-// tracked from a requirement or incident is removed with it, from its
-// thread, so the two never part: removing a requirement deletes its task as
-// well, which the question says, and while the requirement is there the task
-// can't be removed from the dev channel on its own. Once the requirement is
-// gone, deleted from Cade or by hand in Slack, its task is an orphan, and
-// can be removed from its own thread.
+// Whoever confirmed sees the messages go, so nothing more is said.
 //
 // The task's messages go before it is marked deleted, so if a deletion fails
 // midway it can be tried again. A task marked deleted whose messages are
@@ -47,24 +32,19 @@ const NOUNS = { task: "task", requirement: "requirement", message: "message", th
 // stay behind under Slack's "This message was deleted" placeholder.
 //
 // `/cade remove <link>` (or `/cade delete <link>`) asks the same privately,
-// from anywhere, about whatever the link points at: a task or requirement,
-// as above; any other message's thread, whose root goes too if Cade posted
+// from anywhere, about whatever the link points at: a task, as above; any other message's thread, whose root goes too if Cade posted
 // it; or a single reply, if Cade posted it. The answer, too, is private.
 export default {
   name: "delete",
   aliases: ["remove"],
-  description: "Delete the task or requirement and Cade's messages in its thread, or what a link points at",
+  description: "Delete the task and Cade's messages in its thread, or what a link points at",
   usage: "@Cade delete",
   slashUsage: "/cade remove <link>",
   section: "thread",
-  channel: ["tasks", "external"],
+  channel: "tasks",
   slashChannel: [],
   inThread: true,
-  async run(command, { env }) {
-    return roleOf(env, command.channel) === "external"
-      ? askRequirement(env, command)
-      : askTask(env, command);
-  },
+  run: (command, { env }) => askTask(env, command),
   async slash(command, context) {
     const link = linkedMessage(command.text);
     if (!link) return NO_LINK;
@@ -78,8 +58,7 @@ export default {
     [DELETE_ACTION]: async (payload, context) => {
       const request = await authorize(payload, context.env);
       if (!request) return;
-      // Buttons from before requirements could be deleted have no kind.
-      const remove = REMOVERS[request.kind] ?? deleteTaskOnly;
+      const remove = REMOVERS[request.kind];
       context.waitUntil(
         (async () => {
           const result = await remove(context.env, request.channel, request.ts, payload.user.id);
@@ -106,8 +85,7 @@ export default {
 };
 
 const REMOVERS = {
-  task: deleteTaskOnly,
-  requirement: deleteRequirement,
+  task: deleteTask,
   message: deleteOne,
   thread: deleteThread,
 };
@@ -116,16 +94,14 @@ const REMOVERS = {
 async function askLinked(env, link, user) {
   const asked = { channel: link.channel, threadTs: link.ts, user, private: true };
   if (link.threadTs) {
-    return confirmation(asked, "message", "should I remove that message?", "", null, "I'll delete that message, if I posted it.");
+    return confirmation(asked, "message", "should I remove that message?", "", "I'll delete that message, if I posted it.");
   }
   if (await getTaskIncludingDeleted(env, link.channel, link.ts)) return askTask(env, asked);
-  if (await loadRequirement(env, link.channel, link.ts)) return askRequirement(env, asked);
   return confirmation(
     asked,
     "thread",
     "should I remove my messages in that thread?",
     "",
-    null,
     "I'll delete my replies in that thread, and the message itself if I posted it.",
   );
 }
@@ -133,44 +109,16 @@ async function askLinked(env, link, user) {
 async function askTask(env, command) {
   const task = await getTaskIncludingDeleted(env, command.channel, command.threadTs);
   if (!task) return NOT_A_TASK;
-  if (!task.source) {
-    return confirmation(command, "task", `should I delete the task *${escapeSlack(task.title)}*?`, task.title);
-  }
-  if ((await sourceState(env, task.source)).alive) return belongsToRequirement(task);
-  const noun = task.source.incident ? "incident" : "requirement";
-  return confirmation(
-    command,
-    "task",
-    `the ${noun} this task came from has been deleted, so should I delete the task *${escapeSlack(task.title)}* on its own?`,
-    task.title,
-  );
-}
-
-async function askRequirement(env, command) {
-  const requirement = await loadRequirement(env, command.channel, command.threadTs);
-  if (!requirement) return NOT_A_REQUIREMENT;
-  // A tracked requirement takes its task with it.
-  const task = await liveTaskOf(env, command.channel, command.threadTs, requirement);
-  const also = task ? ` and its task <${task.link}|${escapeSlack(task.title)}> in <#${task.channel}>` : "";
-  return confirmation(
-    command,
-    "requirement",
-    `should I delete the requirement *${escapeSlack(requirement.title)}*${also}?`,
-    requirement.title,
-    task,
-  );
+  return confirmation(command, "task", `should I delete the task *${escapeSlack(task.title)}*?`, task.title);
 }
 
 // The Delete and Cancel buttons, under `question`, which is put to whoever
-// asked. `title` is what's deleted, and `task` the task deleted with it;
-// `deleted` says what goes instead, for messages that are neither. A
-// `private` command, from `/cade remove`, is answered through its
-// response_url.
-function confirmation(command, kind, question, title, task, deleted) {
+// asked. `title` is what's deleted; `deleted` says what goes instead, for
+// messages that aren't tasks. A `private` command, from `/cade remove`, is
+// answered through its response_url.
+function confirmation(command, kind, question, title, deleted) {
   const text = `<@${command.user}>, ${question} There's no undo.`;
-  deleted ??= task
-    ? `I'll delete "${title}", its task "${task.title}", and my replies in both threads.`
-    : `I'll delete "${title}" and my replies in its thread.`;
+  deleted ??= `I'll delete "${title}" and my replies in its thread.`;
   const value = JSON.stringify({
     kind,
     channel: command.channel,
@@ -229,52 +177,6 @@ async function authorize(payload, env) {
   return null;
 }
 
-// The requirement's task that hasn't been deleted, if any: the one it links
-// to, or, if storing that link failed, the one that links to it.
-export async function liveTaskOf(env, channel, ts, requirement) {
-  const linked = requirement.task;
-  if (linked && (await getTask(env, linked.channel, linked.ts))) return linked;
-  const latest = await latestTaskFrom(env, { channel, threadTs: ts });
-  return latest && !latest.deleted ? latest : null;
-}
-
-// Whether the requirement or incident a task was tracked from is still
-// there: stored, and its root message not deleted in Slack. Returns
-// { alive, requirement }, with the requirement if it is stored.
-async function sourceState(env, source) {
-  const requirement = await loadRequirement(env, source.channel, source.threadTs);
-  if (!requirement) return { alive: false };
-  try {
-    const { messages } = await callSlack(env, "conversations.replies", {
-      channel: source.channel,
-      ts: source.threadTs,
-      limit: 1,
-    });
-    // A root deleted by hand that has replies stays as a tombstone.
-    return { alive: messages?.[0]?.subtype !== "tombstone", requirement };
-  } catch (error) {
-    if (GONE.test(error.message)) return { alive: false, requirement };
-    throw error;
-  }
-}
-
-// Deletes a task from its own thread: one with no requirement, or whose
-// requirement is gone. A requirement that is still stored but whose message
-// was deleted by hand is marked deleted too.
-async function deleteTaskOnly(env, channel, ts, user) {
-  const task = await getTaskIncludingDeleted(env, channel, ts);
-  if (!task) return;
-  if (task.source) {
-    const { alive, requirement } = await sourceState(env, task.source);
-    if (alive) return;
-    if (requirement) {
-      await markRequirementDeleted(env, task.source.channel, task.source.threadTs);
-      await refreshSummary(env, task.source.channel);
-    }
-  }
-  await deleteTask(env, channel, ts, user);
-}
-
 async function deleteTask(env, channel, ts, user) {
   const task = await getTaskIncludingDeleted(env, channel, ts);
   if (!task) return;
@@ -289,27 +191,6 @@ async function deleteTask(env, channel, ts, user) {
   console.log("Task deleted", { ts, user });
 }
 
-async function deleteRequirement(env, channel, ts, user) {
-  const requirement = await loadRequirement(env, channel, ts);
-  if (!requirement) return;
-  // Its tasks first, even if one was tracked after the question was asked:
-  // the one it links to and the one that links to it, which differ only if
-  // storing the link failed. Either may be a task whose deletion failed
-  // after it was marked deleted.
-  const source = { channel, threadTs: ts };
-  const tasks = [requirement.task, await latestTaskFrom(env, source)].filter(
-    (task, i, all) => task && all.findIndex((other) => other?.channel === task.channel && other?.ts === task.ts) === i,
-  );
-  for (const task of tasks) await deleteTask(env, task.channel, task.ts, user);
-  await markUnpostedTasksDeleted(env, source);
-
-  await deleteReplies(env, channel, ts);
-  await deleteMessage(env, channel, ts);
-  await markRequirementDeleted(env, channel, ts);
-  await refreshSummary(env, channel);
-  console.log("Requirement deleted", { ts, user });
-}
-
 // Deletes a single message, if Cade posted it, and says how it went.
 async function deleteOne(env, channel, ts, user) {
   try {
@@ -322,8 +203,7 @@ async function deleteOne(env, channel, ts, user) {
   return "Done, that message is gone.";
 }
 
-// Deletes Cade's replies in a thread that is neither a task nor a
-// requirement, and its root if Cade posted it, and says how it went.
+// Deletes Cade's replies in a thread that isn't a task's, and its root if Cade posted it, and says how it went.
 async function deleteThread(env, channel, ts, user) {
   await deleteReplies(env, channel, ts);
   let mine = true;
@@ -336,33 +216,12 @@ async function deleteThread(env, channel, ts, user) {
 }
 
 // Deletes from the task card menu's More panel (see menu.js), whose button
-// has already asked, as `@Cade delete` would: a task its requirement or
-// incident still holds is removed from there instead. Returns what to tell
-// whoever clicked.
+// has already asked, as `@Cade delete` would. Returns what to tell whoever
+// clicked.
 export async function deleteFromMenu(env, channel, ts, user) {
-  const task = await getTask(env, channel, ts);
-  if (!task) return NOT_A_TASK;
-  if (task.source && (await sourceState(env, task.source)).alive) return belongsToRequirement(task);
-  await deleteTaskOnly(env, channel, ts, user);
+  if (!(await getTask(env, channel, ts))) return NOT_A_TASK;
+  await deleteTask(env, channel, ts, user);
   return "Done, the task and my replies in its thread are gone.";
-}
-
-// Deletes from the requirement card menu's Delete panel (see menu.js), whose
-// button has already asked, as `@Cade delete` in its thread would: with its
-// task, if one was tracked. Returns what to tell whoever clicked.
-export async function deleteRequirementFromMenu(env, channel, ts, user) {
-  const requirement = await loadRequirement(env, channel, ts);
-  if (!requirement) return NOT_A_REQUIREMENT;
-  const noun = requirement.incident ? "incident" : "requirement";
-  const task = await liveTaskOf(env, channel, ts, requirement);
-  await deleteRequirement(env, channel, ts, user);
-  return task ? `Done, the ${noun}, its task and my replies in both threads are gone.` : `Done, the ${noun} and my replies in its thread are gone.`;
-}
-
-function belongsToRequirement(task) {
-  const noun = task.source.incident ? "incident" : "requirement";
-  const thread = task.source.link ? `<${task.source.link}|the ${noun} thread>` : `its ${noun} thread`;
-  return `This task is tracked by ${thread}, so please remove it from there with \`@Cade remove\`.`;
 }
 
 // Deletes a root message, unless it is gone already.

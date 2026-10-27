@@ -1,21 +1,14 @@
-import { roleOf } from "../channels.js";
-import { INCIDENT_IS_FIXED, NOT_A_REQUIREMENT, findDetails, saveDetails } from "../requirements.js";
 import { CLOSE_ALL, acknowledge, callSlack, escapeSlack, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, PRIORITIES, formatDueDate, pickerDate } from "../tasks.js";
+import { INCIDENT_IS_FIXED, NOT_A_TASK, PRIORITIES, formatDueDate, loadTask, pickerDate, saveTask } from "../tasks.js";
 
 const PRIORITY_ACTION = "priority:select";
 const DUE_ACTION = "due:select";
 const PRIORITY_VIEW = "priority:form";
 const DUE_VIEW = "due:form";
 
-// `@Cade priority` and `@Cade due` change a priority and due date. The client
-// decides these for a requirement, so they are changed in the thread of a
-// requirement started with `/cade requirement`, before and after a task is
-// tracked from it. A tracked task follows the requirement, and Cade notes the
-// change in the task's thread for the team. In that task's thread they cannot
-// be changed. Tasks with no requirement, such as the team's own work, have no
-// client, so their priority and due date are changed in the task's thread.
-// Incidents are always urgent and due immediately, so theirs never change.
+// `@Cade priority` and `@Cade due`, in a task's thread, change its priority
+// and due date. Incidents are always urgent and due immediately, so theirs
+// never change.
 //
 // With a value Cade just reacts ✅ to the message; without one they reply
 // with a menu or date picker, which becomes the confirmation. Like the status
@@ -24,14 +17,14 @@ const DUE_VIEW = "due:form";
 // `@Cade priority high`, or `@Cade priority` for a menu.
 export const priority = {
   name: "priority",
-  description: "Change the priority (in a requirement thread, or a task thread with no requirement)",
+  description: "Change the task's priority (in its thread)",
   usage: "@Cade priority high",
   section: "thread",
-  channel: ["external", "tasks"],
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
-    const found = await findDetails(env, command.channel, command.threadTs);
-    const problem = cannotChange(env, command.channel, found);
+    const found = await findTask(env, command.channel, command.threadTs);
+    const problem = cannotChange(found);
     if (problem) return problem;
 
     const input = command.text.trim();
@@ -62,14 +55,14 @@ export const priority = {
 // date picker.
 export const due = {
   name: "due",
-  description: "Change the due date (in a requirement thread, or a task thread with no requirement)",
+  description: "Change the task's due date (in its thread)",
   usage: "@Cade due 31/12/2026",
   section: "thread",
-  channel: ["external", "tasks"],
+  channel: "tasks",
   inThread: true,
   async run(command, { env }) {
-    const found = await findDetails(env, command.channel, command.threadTs);
-    const problem = cannotChange(env, command.channel, found);
+    const found = await findTask(env, command.channel, command.threadTs);
+    const problem = cannotChange(found);
     if (problem) return problem;
 
     const input = command.text.trim();
@@ -104,25 +97,27 @@ export const due = {
   },
 };
 
-// Explains why the thread's priority and due date cannot be changed here, if
-// they cannot.
-function cannotChange(env, channel, found) {
-  if (!found) return roleOf(env, channel) === "external" ? NOT_A_REQUIREMENT : NOT_A_TASK;
-  if (found.kind === "incident") return INCIDENT_IS_FIXED;
-  if (found.kind !== "client") return undefined;
-  const thread = found.item.source.link
-    ? `<${found.item.source.link}|the requirement thread>`
-    : "the requirement thread";
-  return `The client owns this task's priority and due date, so they're changed in ${thread}.`;
+// The task at `channel`/`ts`, as { channel, ts, item }, or null.
+async function findTask(env, channel, ts) {
+  const item = await loadTask(env, channel, ts);
+  return item && { channel, ts, item };
+}
+
+// Explains why the task's priority and due date cannot be changed, if they
+// cannot.
+function cannotChange(found) {
+  if (!found) return NOT_A_TASK;
+  if (found.item.incident) return INCIDENT_IS_FIXED;
+  return undefined;
 }
 
 // Changes the priority or due date, or both, of the task at `channel`/`ts`
-// for `user` when the team owns them (see cannotChange), and returns the
-// change log, as { log, notes } (see oneMessage in notify.js), or null when
-// they can't be changed there. Shared with suggestions.
+// for `user`, and returns the change log, as { log, notes } (see oneMessage
+// in notify.js), or null when they can't be changed (see cannotChange).
+// Shared with suggestions.
 export async function detailsChange(env, channel, ts, fields, user) {
-  const found = await findDetails(env, channel, ts);
-  if (cannotChange(env, channel, found)) return null;
+  const found = await findTask(env, channel, ts);
+  if (cannotChange(found)) return null;
   const log = [];
   for (const [name, value] of Object.entries(fields)) {
     if ((found.item[name] ?? "") !== value) log.push(await change(env, found, { [name]: value }, user));
@@ -130,23 +125,11 @@ export async function detailsChange(env, channel, ts, fields, user) {
   return { log, notes: [] };
 }
 
-// Saves the change and returns the confirmation. A change to a requirement
-// with a tracked task is also noted in the task's thread.
+// Saves the change and returns the confirmation.
 async function change(env, found, fields, user) {
-  await saveDetails(env, found, fields);
-  const text = changedText(user, fields);
-  if (found.task) {
-    const { permalink } = await callSlack(env, "chat.getPermalink", {
-      channel: found.channel,
-      message_ts: found.ts,
-    });
-    await callSlack(env, "chat.postMessage", {
-      channel: found.task.channel,
-      thread_ts: found.task.ts,
-      ...asMessage(`${text.replace(/\.$/, "")} in <${permalink}|the requirement thread>.`),
-    });
-  }
-  return text;
+  Object.assign(found.item, fields);
+  await saveTask(env, found.channel, found.ts, found.item);
+  return changedText(user, fields);
 }
 
 function changedText(user, { priority, dueDate }) {
@@ -160,8 +143,8 @@ function changedText(user, { priority, dueDate }) {
 // confirmation.
 async function select(payload, env, fields) {
   const channel = payload.channel.id;
-  const found = await findDetails(env, channel, payload.message.thread_ts);
-  const reply = cannotChange(env, channel, found) ?? (await change(env, found, fields, payload.user.id));
+  const found = await findTask(env, channel, payload.message.thread_ts);
+  const reply = cannotChange(found) ?? (await change(env, found, fields, payload.user.id));
   await callSlack(env, "chat.update", {
     channel,
     ts: payload.message.ts,
@@ -211,7 +194,7 @@ function datePicker(prompt, current) {
 }
 
 // The task card menu's Change priority and Change due date forms (see
-// menu.js), offered only on tasks with no requirement.
+// menu.js), from cards posted before the Edit form.
 export function priorityForm(origin, task) {
   const option = (name) => ({
     text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true },
@@ -267,8 +250,8 @@ function submitDetails(payload, context, fields) {
   context.waitUntil(
     (async () => {
       const { env } = context;
-      const found = await findDetails(env, channel, ts);
-      const problem = cannotChange(env, channel, found);
+      const found = await findTask(env, channel, ts);
+      const problem = cannotChange(found);
       if (problem) {
         await callSlack(env, "chat.postEphemeral", { channel, user, text: problem });
         return;

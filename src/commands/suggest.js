@@ -1,8 +1,7 @@
 import { aiModel, checkChanges } from "../ai.js";
-import { pairFor, roleOf } from "../channels.js";
+import { roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest, suggesting } from "../intents.js";
-import { loadRequirement, onTheTeam } from "../requirements.js";
-import { dismiss, escapeSlack, respondLater } from "../slack.js";
+import { dismiss, respondLater } from "../slack.js";
 import { ROLES, loadTask } from "../tasks.js";
 import { askToChange, suggestWithAi } from "./ai-suggest.js";
 import { applyChanges } from "./changes.js";
@@ -37,13 +36,8 @@ const STATUS_PICK = "suggest:status";
 //              the task, the developers picker
 //   progress   a reviewer approving, a tester passing it, or anyone on it
 //              saying it's finished: the next status (see progressOptions)
-//   details    with AI only: the priority and due date, on the team's own
-//              tasks
-//
-// In the thread of a requirement or incident tracked as a task, the
-// suggestions are for its task, and only the team gets them (see
-// onTheTeam): development and the work starting, as the client's thread
-// says nothing about review or testing.
+//   details    with AI only: the priority and due date, but not an
+//              incident's
 
 // The words that ask for each role (see intents.js for how phrases match).
 // Within a request they're checked in this order: "please review this fix"
@@ -214,21 +208,19 @@ export function rolesAskedIn(message) {
 // What a message suggests for `task`, as { roles, people, status }: the
 // roles it asks for, who to add to each ({ [role]: ids }), and the status to
 // suggest, or null. Only the kinds turned on are read.
-export function suggestionsFor(env, message, task, { place, hasClient }) {
+export function suggestionsFor(env, message, task) {
   const roles = new Set();
   const people = {};
   let status = null;
-  const external = place === "external";
   const asked = suggesting(env, "hand-offs", message.channel) ? handOffsIn(message) : {};
   for (const [role, ids] of Object.entries(asked)) {
-    if (external && role !== "developer") continue;
     roles.add(role);
     people[role] = ids;
   }
   const ownTesting = asked.own?.includes("tester") && people.tester?.every((id) => id === message.user);
 
-  if (suggesting(env, "progress", message.channel) && !external && soundsLikeProgress(message)) {
-    status = progressOptions(task, message.user, message, hasClient)[0] ?? null;
+  if (suggesting(env, "progress", message.channel) && soundsLikeProgress(message)) {
+    status = progressOptions(task, message.user, message)[0] ?? null;
   }
   const working = (STARTED(message) && !message.mentions.length) || (REPORTED(message) && message.mentions.length);
   if (!status && suggesting(env, "started", message.channel) && working && !isQuestion(message) && task.status !== "DONE") {
@@ -263,36 +255,23 @@ async function suggestWork(message, env) {
       console.warn("AI couldn't read the message, so its phrases are read instead", { error: error.message });
     }
   }
-  const { target, task, place } = about;
-  const hasClient = Boolean(pairFor(env, target.channel)?.external);
-  const { people, status } = suggestionsFor(env, message, task, { place, hasClient });
+  const { task } = about;
+  const { people, status } = suggestionsFor(env, message, task);
   // Checked as AI's are, so only real changes are suggested.
   const read = { status: status ?? "" };
   for (const role of Object.keys(ROLES)) read[role] = { add: people[role] ?? [], remove: [] };
-  const allowed = { roles: Object.keys(ROLES), fromMentions: true, status: true, details: false };
+  const allowed = { roles: Object.keys(ROLES), status: true, details: false };
   const changes = checkChanges(read, { task, message, allowed });
   if (changes) await askToChange(env, message, about, changes);
 }
 
-// The task a thread is about, or null when there is none: in a task's
-// thread, that task; in the thread of a requirement or incident tracked as a
-// task, that task, for the team only (see onTheTeam). Returns { target, of,
-// task, place }, `of` naming the task for a question asked in the
-// requirement's thread.
+// The task a thread in a dev channel is about, as { target, task }, or null
+// when it is not a task's.
 async function threadTask(env, message) {
-  const place = roleOf(env, message.channel);
-  let target = { channel: message.channel, ts: message.threadTs };
-  let of = "";
-  if (place === "external") {
-    const requirement = await loadRequirement(env, message.channel, message.threadTs);
-    if (!requirement?.task || !(await onTheTeam(env, message.channel, message.user))) return null;
-    target = { channel: requirement.task.channel, ts: requirement.task.ts };
-    of = ` <${requirement.task.link}|${escapeSlack(requirement.task.title)}>`;
-  } else if (place !== "tasks") {
-    return null;
-  }
+  if (roleOf(env, message.channel) !== "tasks") return null;
+  const target = { channel: message.channel, ts: message.threadTs };
   const task = await loadTask(env, target.channel, target.ts);
-  return task ? { target, of, task, place } : null;
+  return task ? { target, task } : null;
 }
 
 // For a suggestion posted with pickers: saves what they show: each role set to the people chosen, and the

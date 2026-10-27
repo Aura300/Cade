@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cade · Requirements to shipped, in Slack</title>
-<meta name="description" content="Cade is a Slack bot that turns client requests into tracked tasks and follows them through review, testing and client approval, without anyone leaving Slack.">
+<title>Cade · Any message to shipped, in Slack</title>
+<meta name="description" content="Cade is a Slack bot that turns any message, in any channel or DM, into a tracked task and follows it through review, testing and client approval, without anyone leaving Slack.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -31,12 +31,12 @@
 
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow">A Slack bot for client work</div>
-    <h1>From client request to shipped, <em>without leaving Slack.</em></h1>
+    <div class="eyebrow">A Slack bot for team work</div>
+    <h1>From any message to shipped, <em>without leaving Slack.</em></h1>
     <p class="lede">
-      Cade turns messages in your client's channel into requirements, tracks them as tasks in your
-      dev channel, and follows each one through PRs, review, testing and client approval, keeping both
-      sides and a Google Sheet in step.
+      Cade turns any message, in a client's channel, a DM or your own dev channel, into a task or an
+      incident in your dev channel, and follows each one through PRs, review, testing and client approval,
+      keeping a Google Sheet in step.
     </p>
     <div class="cta">
       <a class="btn primary" href="#walkthrough">▶ Watch the full walkthrough</a>
@@ -49,14 +49,14 @@
       "coming soon".
     -->
     <div class="video loop" id="hero-video">
-      <video autoplay muted loop playsinline preload="metadata" poster="videos/act-1-client-asks.jpg">
-        <source src="videos/act-1-client-asks.mp4" type="video/mp4">
+      <video autoplay muted loop playsinline preload="metadata" poster="videos/act-1-message-to-task.jpg">
+        <source src="videos/act-1-message-to-task.mp4" type="video/mp4">
       </video>
       <div class="placeholder">
         <div>
           <div class="play">▶</div>
           <p><strong>Demo video coming soon</strong></p>
-          <p>A client asks, the team ships, the client approves. All in Slack.</p>
+          <p>A message becomes a task, the team ships, the client approves. All in Slack.</p>
         </div>
       </div>
     </div>
@@ -67,7 +67,7 @@
   <div class="wrap">
     <div class="eyebrow">See it in action</div>
     <h2>The whole story, one act at a time.</h2>
-    <p class="lede">A client asks for a feature, the team builds, reviews and ships it, an incident lands in the middle, and everyone keeps track. Pick an act, or let them play through.</p>
+    <p class="lede">A client asks for a feature, the team tracks it, builds, reviews and ships it, an incident lands in the middle, and everyone keeps track. Pick an act, or let them play through.</p>
 
     <div class="player">
       <div>
@@ -94,21 +94,21 @@
 <section id="how">
   <div class="wrap">
     <div class="eyebrow">How it works</div>
-    <h2>One thread per request, from first message to done.</h2>
-    <p class="lede">Your client talks in their channel. Your team works in theirs. Cade links the two and keeps them in sync.</p>
+    <h2>One thread per task, from first message to done.</h2>
+    <p class="lede">Requests arrive anywhere. Your team works in its dev channel. Cade brings each one in and keeps it moving.</p>
 
     <ol class="stepper">
       <li class="stage">
         <div class="dot">1</div>
-        <h3>Client asks</h3>
-        <p>Any message, or <code>/cade requirement</code>, becomes a requirement thread. The client sets its priority and due date; stray messages are moved in.</p>
-        <span class="where">Client channel</span>
+        <h3>Someone asks</h3>
+        <p>On any message, in a client's channel or a DM: ⋯ → <b>New task</b>, pick the project, and the message is copied into the new task's thread.</p>
+        <span class="where">Anywhere</span>
       </li>
       <li class="stage">
         <div class="dot">2</div>
-        <h3>Track</h3>
-        <p><code>@Cade track</code>, or "@rex please start on this", creates the task in the dev channel, linked both ways.</p>
-        <span class="where">Both</span>
+        <h3>Pick it up</h3>
+        <p>"@rex please start on this" offers to make Rex the developer and move it to In progress.</p>
+        <span class="where">Dev channel</span>
       </li>
       <li class="stage">
         <div class="dot">3</div>
@@ -125,14 +125,14 @@
       <li class="stage">
         <div class="dot">5</div>
         <h3>Client approves</h3>
-        <p>Client review asks them to Approve or Not approve. Approving closes both threads.</p>
-        <span class="where">Client channel</span>
+        <p>Client review asks whoever you pick to Approve or Not approve, in the task's thread.</p>
+        <span class="where">Dev channel</span>
       </li>
     </ol>
 
     <div class="mocks" aria-hidden="true">
       <div class="channel">
-        <header># acme-client <span>· external</span></header>
+        <header># acme-client <span>· shared with the client</span></header>
         <div class="msg">
           <div class="avatar" style="background:#d6336c">S</div>
           <div class="body">
@@ -143,21 +143,17 @@
         <div class="msg">
           <div class="avatar" style="background:#3b5bdb">C</div>
           <div class="body">
-            <div class="private">Only visible to you</div>
+            <div class="private">New task · only you see it</div>
             <div class="who">Cade</div>
-            <p>Is this a new requirement, an incident, or part of one we're already on?</p>
-            <div class="buttons"><span class="go">Start requirement</span><span>Report incident</span><span>Move to existing</span><span>Not now</span></div>
+            <p><b>Project:</b> acme · <b>Task title:</b> Deposit payments at booking · <b>Priority:</b> 🟠 High</p>
+            <div class="buttons"><span class="go">Create</span><span>Cancel</span></div>
           </div>
         </div>
         <div class="msg">
           <div class="avatar" style="background:#3b5bdb">C</div>
           <div class="body">
             <div class="who">Cade <small>10:03</small></div>
-            <p>Requirement · <strong>Deposit payments at booking</strong></p>
-            <div class="card high">
-              <div class="meta"><span class="pill">▶️ In progress</span><span class="pill">🟠 High</span><span class="pill">Due 14/11/2026</span></div>
-              <div class="meta">Started by Sarah · tracked by Rex in the task thread</div>
-            </div>
+            <p>You moved this message to the task thread <strong>Deposit payments at booking</strong>. Please carry on the conversation there.</p>
           </div>
         </div>
       </div>
@@ -167,12 +163,12 @@
         <div class="msg">
           <div class="avatar" style="background:#3b5bdb">C</div>
           <div class="body">
-            <div class="who">Cade <small>10:05</small></div>
+            <div class="who">Cade <small>10:03</small></div>
             <p>High task: <strong>Deposit payments at booking</strong></p>
             <div class="card high">
               <div class="meta"><span class="pill">👀 In review</span><span class="pill">🟠 High</span><span class="pill">Due 14/11/2026</span></div>
               <div class="meta">PRs: booking-web#128 · booking-web#131</div>
-              <div class="meta">Developer Rex · Reviewer Mia · from the requirement thread</div>
+              <div class="meta">Developer Rex · Reviewer Mia · tracked by You</div>
             </div>
           </div>
         </div>
@@ -200,16 +196,16 @@
 <section id="features" class="alt">
   <div class="wrap">
     <div class="eyebrow">Features</div>
-    <h2>Everything a client project needs, in the channels you already use.</h2>
+    <h2>Everything a project needs, in the channels you already use.</h2>
 
     <div class="grid">
       <div class="feature">
         <div class="bar"></div>
-        <h3>Client channel</h3>
+        <h3>From anywhere</h3>
         <ul>
-          <li>Requirements from a form, an existing message, or a prompt on any new message</li>
-          <li>Client sets priority and due date; the task follows</li>
-          <li>Live status card, pinned until done</li>
+          <li>New task, New incident or Move to existing on any message, in any channel or DM</li>
+          <li>Pick the project; the message is copied into the task's thread</li>
+          <li>Works even where not everyone can see the original</li>
         </ul>
       </div>
       <div class="feature">
@@ -218,7 +214,7 @@
         <ul>
           <li>Tasks with developers, reviewers and testers</li>
           <li>Statuses: To do, In progress, In review, In testing, Client review, Done</li>
-          <li>The team's own work tracked the same way</li>
+          <li>Live status card, pinned until done, with a ⋯ menu to edit or delete</li>
         </ul>
       </div>
       <div class="feature">
@@ -234,7 +230,7 @@
       <div class="feature">
         <div class="bar"></div>
         <h3>Partial releases &amp; client review</h3>
-        <p>Send finished PRs to the client before the whole task is done. They approve or push back in their own thread.</p>
+        <p>Send finished PRs to the client before the whole task is done. Whoever you pick approves or pushes back in the task's thread.</p>
       </div>
       <div class="feature">
         <div class="bar"></div>
@@ -274,8 +270,8 @@
         <p>You say exactly what to do, and Cade does it.</p>
         <ul>
           <li><code>/cade …</code> and <code>@Cade …</code> commands</li>
-          <li>The ⋯ menu on task and requirement cards (Edit, Track task, Delete), message shortcuts and emoji</li>
-          <li>A message posted on its own in a channel gets a private question: start a requirement or task, or move it to an existing thread</li>
+          <li>The ⋯ menu on task cards (Edit, Delete), message shortcuts and emoji</li>
+          <li>A message posted on its own in the dev channel gets a private question: track it as a task or incident, or move it to an existing thread</li>
         </ul>
       </div>
       <div class="feature">
@@ -307,8 +303,8 @@
     <div class="cmds">
       <div class="cmd-group">
         <h3>Most used commands</h3>
-        <div class="cmd"><code>/cade requirement</code><span>Start a requirement thread</span></div>
-        <div class="cmd"><code>@Cade track</code><span>Track it as a task</span></div>
+        <div class="cmd"><code>/cade task</code><span>Track a task</span></div>
+        <div class="cmd"><code>/cade incident</code><span>Report an incident</span></div>
         <div class="cmd"><code>@Cade status in review</code><span>Move a task on</span></div>
       </div>
       <div class="cmd-group">
@@ -336,7 +332,7 @@
       <div class="principle">
         <div class="bar"></div>
         <h3>Clear ownership</h3>
-        <p>The client owns priority and due date. The team owns status. Neither can overwrite the other.</p>
+        <p>The team owns its tasks. The client approves only what they're asked to, and incidents stay urgent.</p>
       </div>
       <div class="principle">
         <div class="bar"></div>
@@ -346,7 +342,7 @@
       <div class="principle">
         <div class="bar"></div>
         <h3>One source of truth</h3>
-        <p>Task cards, requirement cards and the Sheet are rendered from the same record, so they never disagree.</p>
+        <p>Task cards, summaries and the Sheet are rendered from the same record, so they never disagree.</p>
       </div>
     </div>
   </div>
@@ -371,7 +367,7 @@
 
 <footer>
   <div class="wrap">
-    <span>Cade: requirements to shipped, in Slack.</span>
+    <span>Cade: from any message to shipped, in Slack.</span>
     <a href="commands.html">All commands →</a>
   </div>
 </footer>
@@ -380,11 +376,11 @@
   // The acts of the demo (see DEMO.md), each a clip in docs/videos/ with an
   // optional still of the same name as a .jpg.
   const CHAPTERS = [
-    { file: "act-1-client-asks", title: "The client asks", summary: "A stray message becomes a requirement; follow-ups are moved into its thread." },
-    { file: "act-2-team-picks-up", title: "The team picks it up", summary: "\"@rex please start on this\" tracks it as a task, linked both ways." },
+    { file: "act-1-message-to-task", title: "A message becomes a task", summary: "A client's message becomes a task in the dev channel; a follow-up in a DM is moved in." },
+    { file: "act-2-team-picks-up", title: "The team picks it up", summary: "\"@rex please start on this\" makes Rex the developer, In progress." },
     { file: "act-3-build-review-ship", title: "Build, review, test, ship", summary: "PRs, reviewers and QA in plain words; a partial release; the client approves." },
-    { file: "act-4-incident", title: "Something breaks", summary: "An incident goes straight to the dev channel, always urgent." },
-    { file: "act-5-own-work", title: "The team's own work", summary: "Dev messages become tasks; deleting asks twice." },
+    { file: "act-4-incident", title: "Something breaks", summary: "New incident: always urgent, at the top of everyone's list." },
+    { file: "act-5-own-work", title: "The team's own work", summary: "Dev messages become tasks or move into one; deleting asks twice." },
     { file: "act-6-everyones-view", title: "Everyone's view", summary: "/cade tasks, a standup in one screen, and the Google Sheet." },
   ];
   const clip = (chapter, ext) => `videos/${chapter.file}.${ext}`;

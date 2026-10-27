@@ -48,10 +48,10 @@ values).
 
 | Key | Required? | What it is | How to get it |
 | --- | --- | --- | --- |
-| `channels` | **Required** | One entry per group: `{ "name", "tasks", "external", "doc" }`. `name` is the group's name; `tasks` is the dev channel, where the team tracks its tasks and incidents; `external` (optional) is the client's channel; `doc` (optional) the address of the group's Google Doc, where `/cade brief` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet); `suggestions` and `ai` (optional) the group's own, replacing the ones below for that group only. `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
+| `channels` | **Required** | One entry per group: `{ "name", "tasks", "doc" }`. `name` is the group's name; `tasks` is the dev channel, where the team tracks its tasks and incidents; `doc` (optional) the address of the group's Google Doc, where `/cade brief` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet); `suggestions` and `ai` (optional) the group's own, replacing the ones below for that group only. `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work. | Set for you by `npm run google:create` (step 7). |
-| `suggestions` | Optional (on) | For every group, unless a group in `channels` sets its own. **The proactive agent**: whether Cade reads messages in the threads it manages (requirement, incident and task threads) and offers, privately, to act on them. `true`, `false` for **commands only** (nothing is read from messages in threads; slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work, and a message posted on its own in a channel is still asked about: start a requirement or task, report an incident, or move it to an existing thread), or a list of the kinds to keep: `pr-links` (a pasted PR link: link it, and pick a reviewer if there's none), `hand-offs` ("@mia can you review this?": a picker for that role, filled with who has it now), `started` ("on it": In progress), `progress` ("lgtm", "done": the next status) and `details` (with `ai` only: "this is urgent", "need it by Friday": the priority and due date, on the team's own tasks). Role and status suggestions come as one private message: a summary of what Cade read, with **Accept**, **Edit…** (the task's Edit form) and **Reject**. Without `ai`, a hand-off asks whoever the request names ("@mia can you review this?"), never someone only cc'd. | Edit by hand, then `npm run config`. |
+| `suggestions` | Optional (on) | For every group, unless a group in `channels` sets its own. **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them. `true`, `false` for **commands only** (nothing is read from messages in threads; slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work, and a message posted on its own in a dev channel is still asked about: track it as a task, report it as an incident, or move it to an existing thread), or a list of the kinds to keep: `pr-links` (a pasted PR link: link it, and pick a reviewer if there's none), `hand-offs` ("@mia can you review this?": a picker for that role, filled with who has it now), `started` ("on it": In progress), `progress` ("lgtm", "done": the next status) and `details` (with `ai` only: "this is urgent", "need it by Friday": the priority and due date, but not an incident's). Role and status suggestions come as one private message: a summary of what Cade read, with **Accept**, **Edit…** (the task's Edit form) and **Reject**. Without `ai`, a hand-off asks whoever the request names ("@mia can you review this?"), never someone only cc'd. | Edit by hand, then `npm run config`. |
 | `ai` | Optional (off) | For every group, unless a group in `channels` sets its own, such as `{ "name": "acme", …, "ai": true }`. **AI suggestions**: the proactive agent reads messages in a task's thread with [Workers AI](https://developers.cloudflare.com/workers-ai/) instead of by their phrases, so one message can change several roles, the status, the priority and the due date. `true` for the default model (`@cf/zai-org/glm-4.7-flash`, the quickest and cheapest that read messages well in our tests), a Workers AI text model's name, or `false`. Needs `suggestions` on: with `suggestions` false it does nothing. Cade asks whoever wrote the message, privately, with what it read: **Confirm**, **Change…** (a form with every role, the status, priority and due date) or **Not now**. If the model fails or takes over 8 seconds, the message is read by its phrases instead. PR links are always read by their phrases. Uses the `AI` binding in `wrangler.toml`; Workers AI's usage beyond its free daily allowance is billed to your Cloudflare account. | Edit by hand, then `npm run config`. |
 | `reactions` | Optional | The emoji that convert or move a message when someone adds them to it: `{ "convert": "ticket", "move": "twisted_rightwards_arrows" }`, by Slack name without colons. Those are the defaults. | Edit by hand, then `npm run config`. |
 
@@ -71,10 +71,10 @@ slack:update`, then reinstall the app, if it was made before them).
 Or give the settings at once:
 
 ```sh
-npm run group -- --name acme --tasks C… --external C… --doc new --sheet new
+npm run group -- --name acme --tasks C… --doc new --sheet new
 ```
 
-`--external` can be left out. `--doc` and `--sheet` take
+`--doc` and `--sheet` take
 `new` (made for you, named "acme executive summaries" and "acme tasks"),
 the address of one you have, or `none` to unlink; leave them out to keep
 what the group has. It checks and uploads the file, as `npm run config`
@@ -226,16 +226,13 @@ again. Details, doing it by hand, and troubleshooting are in
 
 ## 8. Set up your first group (person)
 
-A **group** is a team or project, with its own channels:
-
-- **Team only:** a **dev** channel (for example `#acme-dev`), where the team
-  tracks its work with `/cade track`, setting each task's priority and due
-  date. This is the simplest setup, and enough when no client works in
-  Slack with you.
-- **With a client:** the dev channel, plus a **client** (external) channel
-  shared with the client (`#acme-client`), where they start requirements and
-  report incidents that the team tracks as tasks in the dev channel.
-  Incidents' tasks are marked as incidents on their cards there.
+A **group** is a team or project, with its own **dev** channel (for example
+`#acme-dev`), where the team tracks its work: tasks with `/cade task`,
+setting each one's priority and due date, and incidents with `/cade
+incident`, always urgent and due immediately. Messages from anywhere else,
+a client's shared channel or a DM included, become tasks or incidents, or
+move into one, with the message shortcuts (⋯ → **More actions**); outside
+the dev channel they ask which project, as groups are called there.
 
 `npm run group` takes you through it. It asks questions, so run it in a
 terminal window of your own, in this folder:
@@ -247,21 +244,19 @@ npm run group
 1. Cade's bot token, hidden: the `xoxb-…` token from step 6 (or set
    `SLACK_BOT_TOKEN` first, to skip the question).
 2. The group's name, then your team's time zone (the first time only).
-3. For each channel, **existing or new**: an existing channel by its ID
+3. The dev channel, **existing or new**: an existing channel by its ID
    (the channel's name → **About** → **Channel ID**, `C…`), which Cade joins
    if it's public, or waits for `/invite @Cade` in it if it's private; or a
    new one by name, which Cade makes, public or private, and is then in.
-   The client channel can be left out (`-`), and added later.
-4. People to add to the channels, by email or Slack member ID.
+4. People to add to the channel, by email or Slack member ID.
 5. With the Google web app (step 7), the group's Doc and Sheet: `new`, the
    address of one you have, or none.
 6. What it will do, to confirm. It then does it, saves the group in
    `cade.config.json` (git ignores it) and uploads it as the Worker secrets
    `CHANNEL_PAIRS` and `TIMEZONE`.
 
-**Expect:** "Done", with each channel's link. Then, in Slack, share the
-client channel with the client (channel name → **Share channel**), and the
-group's Doc with them as **Editor**.
+**Expect:** "Done", with the channel's link. Then share the group's Doc
+with the client as **Editor**, if you go through its summaries with them.
 
 Run `npm run group` again for every other group, or to change one: Enter
 keeps what it has. To set the first group up later, skip this step and run
@@ -271,11 +266,11 @@ run config` works too (see [Settings](#settings)).
 ## 9. Check it works
 
 1. In any channel: `/cade help` → only you see the command list.
-2. In the dev channel: `/cade track` → a form; submitting posts the task.
+2. In the dev channel: `/cade task` → a form; submitting posts the task.
 3. In the task's thread: `@Cade status in progress` → ✅ on your message.
-4. With a client channel, in it: `/cade requirement` → a form; submitting
-   posts a **Requirement** card. In its thread, `@Cade track` → a **Track
-   task** button; tracking posts the task in the dev channel.
+4. On any message, in a DM too: ⋯ → **More actions** → **New task** →
+   the task form, with a **Project** picker outside the dev channel;
+   submitting posts the task and copies the message into its thread.
 
 **If nothing answers:** run `npx wrangler tail` and try again.
 `Invalid signature` means the signing secret is wrong (rerun step 5 or
@@ -300,10 +295,13 @@ npm run google:update                       # only if google/ changed
 If Slack says the app needs reinstalling after an update, reinstall it from
 the app's page (step 6); the bot token usually stays the same.
 
-Cade now reads who's in the team's channels (`channels:read` and
-`groups:read`), so that suggestions in a requirement thread only go to the
-team. After updating, run `npm run slack:update` and reinstall the app.
-Until then, everyone in the requirement thread gets them, as before.
+Groups no longer have a client or incidents channel: incidents are tracked
+in the dev channel, and the message shortcuts (**New task**, **New
+incident**, **Move to existing**) bring in messages from anywhere. After
+updating, run `npm run slack:update` for the new shortcuts, and `npm run
+group` once per group, which drops its old `external` and `incidents`
+channels from `cade.config.json`. Requirements already in a client channel
+are left as they were, and no longer tracked.
 
 ## Limits to know
 
@@ -311,7 +309,7 @@ Until then, everyone in the requirement thread gets them, as before.
   threads. The tasks themselves stay in the database (and the Sheet).
 - D1's free plan allows 100,000 row writes a day and 500 MB per database;
   each change to a task is a single row write.
-- If Slack won't take a new task, requirement or incident (for example
+- If Slack won't take a new task or incident (for example
   while it is rate limiting), Cade keeps it and tries again every five
   minutes, five times in all, telling whoever made it the first time and if
   it gives up.
@@ -323,9 +321,8 @@ Until then, everyone in the requirement thread gets them, as before.
   `slack/icon.png` (drawn from `slack/icon.svg`) under **Basic Information →
   Display Information** on the app's page at <https://api.slack.com/apps>.
 - **Test channels.** Several channel groups can run at once (see
-  [Settings](#settings)), so a pair of test channels can sit alongside the
-  real ones: work tracked from the test external channel goes to the test
-  dev channel.
+  [Settings](#settings)), so a test channel can sit alongside the real
+  one.
 - **Google Sheets and Docs**: each group's own spreadsheet records its
   tasks (filter its Status column to see completed ones), and its own doc
   holds its executive summaries. See [google/README.md](google/README.md);

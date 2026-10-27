@@ -1,4 +1,4 @@
-import { pairFor } from "./channels.js";
+import { channelPairs, pairFor } from "./channels.js";
 import { getTask, putTask } from "./db.js";
 import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js";
@@ -7,8 +7,8 @@ import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js"
 // and the task's row in the Google Sheet are rendered from the stored task.
 
 // Slack cannot colour text, so each value is shown with a coloured emoji
-// in menus and lists. Task and requirement messages show the priority as
-// the colour of the strip down their side instead, the same colours. Other
+// in menus and lists. Task messages show the priority as the colour of the
+// strip down their side instead, the same colours. Other
 // values use emoji that aren't coloured circles, so they can't be taken
 // for a priority.
 export const PRIORITY_COLORS = {
@@ -47,6 +47,13 @@ const SHORT_ROLES = { developer: "Dev", reviewer: "Review", tester: "Test" };
 
 export const NOT_A_TASK = "Hmm, I'm not tracking a task in this thread.";
 
+// An incident is a task reported with `/cade incident`. It is always urgent
+// and fixed as soon as possible, so its priority and due date never change.
+export const INCIDENT = { priority: "Urgent", dueDate: "Immediate" };
+
+export const INCIDENT_IS_FIXED =
+  "Incidents are always :red_circle: Urgent and due Immediate, so I can't change their priority or due date.";
+
 // The task's pull requests that are pending: not sent for approval, nor
 // approved.
 export function unsentPrs(task) {
@@ -54,7 +61,7 @@ export function unsentPrs(task) {
   return task.prs.filter((url) => !sent.has(url));
 }
 
-// The task's PRs for its card and its requirement's, a line each for those
+// The task's PRs for its card, a line each for those
 // approved, pending approval and pending, leaving out the empty ones:
 //   Approved: Login (cade/42, web/7) · Profile page (web/9)
 //   Pending approval: Search (web/11)
@@ -64,7 +71,7 @@ export function unsentPrs(task) {
 // approved by the client. Releases are named by what they complete; the
 // labels say where each PR is, so PRs have no emoji. Once the task is Done,
 // all of them are approved, with the PRs never sent as the rest of the
-// requirement.
+// task.
 export function prLines(task) {
   const done = task.status === "DONE";
   const releases = task.releases ?? [];
@@ -73,7 +80,7 @@ export function prLines(task) {
     releases.filter((release) => done || release.status === status).map((release) => group(release.prs, release.note));
   const approved = groups("APPROVED");
   const unsent = unsentPrs(task);
-  if (done && unsent.length) approved.push(group(unsent, releases.length ? "The rest of the requirement" : "The requirement"));
+  if (done && unsent.length) approved.push(group(unsent, releases.length ? "The rest of the task" : "The task"));
   const awaiting = done ? [] : groups("PENDING_APPROVAL");
   const pending = done ? [] : unsent;
   return [
@@ -103,10 +110,6 @@ export function noPeople() {
 }
 
 export function taskMessage(task) {
-  // A detached task still shows where it was tracked from.
-  const tracked = task.source ?? task.trackedFrom;
-  const thread = tracked?.incident ? "the incident thread" : "the requirement thread";
-  const from = tracked?.link ? ` from <${tracked.link}|${thread}>` : "";
   // The title, then in small text its status, priority and due date, its
   // linked pull requests (when it has any) by whether they're approved, and
   // who works on it and who tracked it. All but the title sit in an
@@ -119,13 +122,13 @@ export function taskMessage(task) {
   const card = [
     { type: "context", elements: [metaLine(STATUSES[task.status], task.priority, task.dueDate)] },
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
-    smallText([people || "_Unassigned_", `Tracked by <@${task.createdBy}>${from}`]),
+    smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>`]),
   ];
   // Incidents share the dev channel with the rest of the work, so their
-  // cards say which they are, as in the client channel.
-  const label = task.source?.incident ? "Incident  ·  " : "";
+  // cards say which they are.
+  const label = task.incident ? "Incident  ·  " : "";
   return {
-    text: `${task.priority} ${task.source?.incident ? "incident" : "task"}: ${task.title}`,
+    text: `${task.priority} ${task.incident ? "incident" : "task"}: ${task.title}`,
     blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`), accessory: taskMenu() }],
     attachments: [{ color: PRIORITY_COLORS[task.priority], blocks: card }],
   };
@@ -154,8 +157,7 @@ export function smallText(lines) {
 }
 
 // A card's line under its title, in small text: the status, priority and
-// due date, leaving out those not set. Shared by task and requirement
-// messages, so they read the same.
+// due date, leaving out those not set.
 export function metaLine(status, priority, dueDate) {
   return mrkdwn([status, priority, dueDate && `Due ${dueDate}`].filter(Boolean).join("  ·  "));
 }
@@ -231,7 +233,6 @@ export async function syncTask(env, channel, ts, task, { deleted = false } = {})
       "Tracked at": formatTime(env, new Date(Number(ts) * 1000)),
       "Completed at": task.completedAt ? formatTime(env, new Date(task.completedAt)) : "",
       "Task link": deleted ? "" : task.link,
-      "Request link": (task.source ?? task.trackedFrom)?.link ?? "",
     });
     console.log("Task synced to sheet", { ts, status: task.status, deleted });
   } catch (error) {
@@ -256,10 +257,9 @@ export async function setPinned(env, channel, ts, pinned) {
   }
 }
 
-// The title, due date and priority fields shared by the task and requirement
-// forms. `initial` fills them in: { title, dueDate (DD/MM/YYYY), priority }.
-// Without `details` the form asks only for the title, for a task whose
-// priority and due date come from its requirement.
+// The title, due date and priority fields of the task form. `initial` fills
+// them in: { title, dueDate (DD/MM/YYYY), priority }. Without `details` the
+// form asks only for the title, for an incident, whose are fixed.
 export function taskFormBlocks(titleLabel, initial = {}, { details = true } = {}) {
   const option = (priority) => ({
     text: { ...plainText(`${PRIORITIES[priority]} ${priority}`), emoji: true },
@@ -336,8 +336,36 @@ export function formatDueDate(selectedDate) {
   return `${day}/${month}/${year}`;
 }
 
+// The Project picker on forms opened outside a dev channel, such as from a
+// message shortcut in a DM: each group by name, its value the group's dev
+// channel. The only group is picked to begin with. With `actionId`,
+// choosing one sends that action, for a form that changes with it.
+export function projectBlock(env, { actionId, initial } = {}) {
+  const groups = channelPairs(env);
+  const option = (group) => ({ text: plainText(group.name.slice(0, 75)), value: group.tasks });
+  const picked = groups.find((group) => group.tasks === initial) ?? (groups.length === 1 ? groups[0] : null);
+  return {
+    type: "input",
+    block_id: "project",
+    label: plainText("Project"),
+    ...(actionId && { dispatch_action: true }),
+    element: {
+      type: "static_select",
+      action_id: actionId ?? "value",
+      placeholder: plainText("Choose a project"),
+      options: groups.map(option),
+      ...(picked && { initial_option: option(picked) }),
+    },
+  };
+}
+
+// The dev channel of the project chosen on a form, or undefined.
+export function chosenProject(values) {
+  return Object.values(values.project ?? {})[0]?.selected_option?.value;
+}
+
 // The approval forms' picker for who approves or rejects: the client, or
-// whoever handles them. A requirement's starter is picked to begin with.
+// whoever handles them.
 export function approverBlock(initialUser) {
   return {
     type: "input",

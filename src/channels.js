@@ -1,11 +1,9 @@
-// CHANNEL_PAIRS names each group's tasks channel, where the team tracks its
-// work, incidents included, and optionally its external channel, where a
-// client starts requirements and reports incidents. A group with only a
-// tasks channel uses `/cade track` alone. Several pairs can run side by
-// side, such as the real channels and a pair of test channels. Pairs set up
-// before incidents moved to the tasks channel may still name an `incidents`
-// channel; it is ignored.
-const ROLES = ["external", "tasks"];
+// CHANNEL_PAIRS names each group's tasks channel (the dev channel), where
+// the team tracks its work, incidents included. Several groups can run side
+// by side, such as the real channel and a test channel. Groups set up
+// before may still name an `external` (client) or `incidents` channel; they
+// are ignored.
+const ROLES = ["tasks"];
 
 // It is a Worker secret, so a JSON string; a list also works, as tests and
 // [vars] in wrangler.toml give it.
@@ -16,7 +14,7 @@ export function channelPairs(env) {
     !pairs.length ||
     pairs.some((pair) => !pair?.name || !pair?.tasks)
   ) {
-    throw new Error("CHANNEL_PAIRS must list { name, tasks } for each pair, with external if it has one");
+    throw new Error("CHANNEL_PAIRS must list { name, tasks } for each group");
   }
   return pairs;
 }
@@ -29,8 +27,7 @@ function parsePairs(json) {
   }
 }
 
-// Returns every channel ID with the given role: "external" or "tasks".
-// Pairs without an external channel have none.
+// Returns every channel ID with the given role: "tasks".
 export function channelsWithRole(env, role) {
   return channelPairs(env)
     .map((pair) => pair[role])
@@ -68,7 +65,3 @@ export function roleOf(env, channel) {
   return pair && ROLES.find((role) => pair[role] === channel);
 }
 
-// The pair's channel for the team's own tasks and for tracked requirements.
-export function tasksChannelFor(env, channel) {
-  return pairFor(env, channel).tasks;
-}

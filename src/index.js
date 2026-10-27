@@ -42,7 +42,7 @@ export default {
     return route(body, request, context);
   },
 
-  // The cron in wrangler.toml: posts tasks and requirements Slack refused.
+  // The cron in wrangler.toml: posts tasks Slack refused.
   async scheduled(controller, env, ctx) {
     ctx.waitUntil(retryUnposted(env));
   },

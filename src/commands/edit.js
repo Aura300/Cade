@@ -1,107 +1,68 @@
-import { oneMessage } from "../notify.js";
-import { findDetails } from "../requirements.js";
-import { CLOSE_ALL, callSlack, dismiss, mrkdwn, plainText } from "../slack.js";
-import { PRIORITIES, ROLES, STATUSES, formatDueDate, parsePullRequest, pickerDate } from "../tasks.js";
+import { CLOSE_ALL, dismiss, mrkdwn, plainText } from "../slack.js";
+import { PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, parsePullRequest, pickerDate } from "../tasks.js";
 import { applyChanges } from "./changes.js";
-import { detailsChange } from "./details.js";
 import { statusOption } from "./status.js";
 
 const EDIT_VIEW = "task:edit";
 
-// The Edit form: everything on a task or requirement in one place, its
-// developers, reviewers and testers, status, priority and due date, and
-// pull requests, showing only those that can be changed where it is opened
-// (see editable). The ⋯ → Edit on a task's card (see menu.js) and on a
-// requirement's opens it as it stands, and a suggestion's Edit filled in
-// with what was suggested (see ai-suggest.js). Saving applies what changed
-// as one change (see changes.js), so the thread hears it as one message.
+// The Edit form: everything on a task in one place, its developers,
+// reviewers and testers, status, priority and due date, and pull requests.
+// An incident's priority and due date never change, so its form leaves them
+// out. The task card's ⋯ → Edit opens it as the task stands (see menu.js),
+// and a suggestion's Edit filled in with what was suggested (see
+// ai-suggest.js). Saving applies what changed as one change (see
+// changes.js), so the thread hears it as one message.
 
-// What the form shows for the thread `found` (see findDetails), and what
-// to say about what it leaves out:
-//   team     the people, status and pull requests: the team's, on a task
-//   details  the priority and due date: on a task with no requirement, and
-//            on a requirement, as the client sets them and its task follows
-// An incident's priority and due date never change, so an incident's own
-// card has nothing to edit.
-function editable(found) {
-  if (found.kind === "requirement") {
-    return {
-      team: false,
-      details: true,
-      note: found.task && "Its task follows these. The team sets who works on it, its status and its pull requests in the dev channel.",
-    };
-  }
-  // Its task's thread; the incident's own has nothing to edit.
-  if (found.kind === "incident" && found.item.people) {
-    return { team: true, details: false, note: "Incidents are always :red_circle: Urgent and due Immediate." };
-  }
-  if (found.kind === "client") {
-    return { team: true, details: false, note: "Its priority and due date come from its requirement, and are changed there." };
-  }
-  if (found.kind === "task") return { team: true, details: true };
-  return { team: false, details: false };
-}
-
-// The form for the task or requirement at `channel`/`ts`, `item`, with
-// `changes` (as changes.js takes them) already applied to what it shows, or
-// why it can't be edited. `responseUrl` is the private suggestion to remove
-// once it's saved.
-export async function editForm(env, { channel, ts }, item, { changes = {}, responseUrl } = {}) {
-  const found = await findDetails(env, channel, ts);
-  const { team, details, note } = found ? editable(found) : {};
-  if (!team && !details) return "There's nothing here I can change.";
-  const isTask = Boolean(item.people);
+// The form for the task at `channel`/`ts`, with `changes` (as changes.js
+// takes them) already applied to what it shows. `responseUrl` is the private
+// suggestion to remove once it's saved.
+export function editForm({ channel, ts }, task, { changes = {}, responseUrl } = {}) {
+  const details = !task.incident;
   const peopleAfter = (role) => {
     const { add = [], remove = [] } = changes.people?.[role] ?? {};
-    return [...item.people[role].filter((id) => !remove.includes(id)), ...add];
+    return [...task.people[role].filter((id) => !remove.includes(id)), ...add];
   };
   const priorityOption = (name) => ({ text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true }, value: name });
-  const status = changes.status ?? item.status;
-  const priority = changes.priority ?? item.priority;
-  const dueDate = "dueDate" in changes ? changes.dueDate : item.dueDate;
+  const status = changes.status ?? task.status;
+  const priority = changes.priority ?? task.priority;
+  const dueDate = "dueDate" in changes ? changes.dueDate : task.dueDate;
   return {
     type: "modal",
     callback_id: EDIT_VIEW,
     // `opened` is the status as it was, so one left alone isn't applied over
     // a move linking a PR makes (see applyChanges).
-    private_metadata: JSON.stringify({ channel, ts, team, details, opened: item.status, responseUrl }),
-    title: plainText(isTask ? "Edit task" : "Edit requirement"),
+    private_metadata: JSON.stringify({ channel, ts, details, opened: task.status, responseUrl }),
+    title: plainText("Edit task"),
     submit: plainText("Save"),
     close: plainText("Cancel"),
     blocks: [
-      ...(team
-        ? Object.keys(ROLES).map((role) => {
-            const chosen = peopleAfter(role);
-            return {
-              type: "input",
-              block_id: role,
-              // Saving a role with no one clears it.
-              optional: true,
-              label: plainText(`${ROLES[role]}s`),
-              element: {
-                type: "multi_users_select",
-                action_id: "value",
-                placeholder: plainText(`Choose ${ROLES[role].toLowerCase()}s`),
-                ...(chosen.length && { initial_users: chosen }),
-              },
-            };
-          })
-        : []),
-      ...(team
-        ? [
-            {
-              type: "input",
-              block_id: "status",
-              label: plainText("Status"),
-              element: {
-                type: "static_select",
-                action_id: "value",
-                options: Object.keys(STATUSES).map(statusOption),
-                initial_option: statusOption(status),
-              },
-            },
-          ]
-        : []),
+      ...Object.keys(ROLES).map((role) => {
+        const chosen = peopleAfter(role);
+        return {
+          type: "input",
+          block_id: role,
+          // Saving a role with no one clears it.
+          optional: true,
+          label: plainText(`${ROLES[role]}s`),
+          element: {
+            type: "multi_users_select",
+            action_id: "value",
+            placeholder: plainText(`Choose ${ROLES[role].toLowerCase()}s`),
+            ...(chosen.length && { initial_users: chosen }),
+          },
+        };
+      }),
+      {
+        type: "input",
+        block_id: "status",
+        label: plainText("Status"),
+        element: {
+          type: "static_select",
+          action_id: "value",
+          options: Object.keys(STATUSES).map(statusOption),
+          initial_option: statusOption(status),
+        },
+      },
       ...(details
         ? [
             {
@@ -129,41 +90,29 @@ export async function editForm(env, { channel, ts }, item, { changes = {}, respo
               },
             },
           ]
-        : []),
-      ...(team
-        ? [
-            {
-              type: "input",
-              block_id: "prs",
-              // Saving with none unlinks them all.
-              optional: true,
-              label: plainText("Pull requests, one link per line"),
-              element: {
-                type: "plain_text_input",
-                action_id: "value",
-                multiline: true,
-                placeholder: plainText("https://github.com/acme/web/pull/12"),
-                initial_value: item.prs.join("\n") || undefined,
-              },
-            },
-          ]
-        : []),
-      ...(note ? [{ type: "context", elements: [mrkdwn(note)] }] : []),
+        : [{ type: "context", elements: [mrkdwn("Incidents are always :red_circle: Urgent and due Immediate.")] }]),
+      {
+        type: "input",
+        block_id: "prs",
+        // Saving with none unlinks them all.
+        optional: true,
+        label: plainText("Pull requests, one link per line"),
+        element: {
+          type: "plain_text_input",
+          action_id: "value",
+          multiline: true,
+          placeholder: plainText("https://github.com/acme/web/pull/12"),
+          initial_value: task.prs.join("\n") || undefined,
+        },
+      },
     ],
   };
 }
 
-// Saves the form as the changes from the task or requirement as it is now,
-// having removed the private suggestion it came from, if any. A task's
-// changes go through applyChanges; a requirement's priority and due date as
-// `@Cade priority` and `@Cade due` change them, noted in its task's thread,
-// with who changed what told in its own. Saving it unchanged posts nothing.
+// Saves the form as the changes from the task as it is now, having removed
+// the private suggestion it came from, if any.
 function saveEdit(payload, context) {
-  const { channel, ts, opened, responseUrl, ...shown } = JSON.parse(payload.view.private_metadata);
-  // Forms opened before the requirement's Edit always showed the team's
-  // fields, and the priority and due date as `details` says.
-  const team = shown.team ?? true;
-  const details = shown.details;
+  const { channel, ts, details, opened, responseUrl } = JSON.parse(payload.view.private_metadata);
   const { values } = payload.view.state;
   const lines = (values.prs?.value.value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
   const urls = lines.map((line) => parsePullRequest(line.replace(/^<|[|>].*$/g, ""))?.url);
@@ -174,23 +123,10 @@ function saveEdit(payload, context) {
   context.waitUntil(
     (async () => {
       const { env } = context;
-      const user = payload.user.id;
       await dismiss(responseUrl);
-      const found = await findDetails(env, channel, ts);
-      if (!found) return;
-      const changes = {};
-      if (details) {
-        changes.priority = values.priority.value.selected_option?.value ?? found.item.priority;
-        changes.dueDate = formatDueDate(values.due_date.value.selected_date);
-      }
-      if (!team) {
-        const changed = await detailsChange(env, channel, ts, changes, user);
-        const text = changed && oneMessage(changed);
-        if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
-        return;
-      }
-      const task = found.item;
-      changes.people = {};
+      const task = await loadTask(env, channel, ts);
+      if (!task) return;
+      const changes = { people: {} };
       for (const role of Object.keys(ROLES)) {
         const chosen = values[role]?.value.selected_users ?? [];
         changes.people[role] = {
@@ -200,9 +136,13 @@ function saveEdit(payload, context) {
       }
       const status = values.status.value.selected_option.value;
       if (status !== opened) changes.status = status;
+      if (details) {
+        changes.priority = values.priority.value.selected_option?.value ?? task.priority;
+        changes.dueDate = formatDueDate(values.due_date.value.selected_date);
+      }
       const wanted = [...new Set(urls)];
       changes.prs = { add: wanted.filter((url) => !task.prs.includes(url)), remove: task.prs.filter((url) => !wanted.includes(url)) };
-      await applyChanges(env, { channel, ts }, changes, user);
+      await applyChanges(env, { channel, ts }, changes, payload.user.id);
     })(),
   );
   return CLOSE_ALL;

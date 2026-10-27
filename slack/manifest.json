@@ -2,7 +2,7 @@
   "_comment": "The Slack app Cade runs as. npm run slack:create fills in {{WORKER_URL}}, {{APP_NAME}} and {{COMMAND}}; npm run slack:update applies changes to an existing app. See GETTING_STARTED.md.",
   "display_information": {
     "name": "{{APP_NAME}}",
-    "description": "C.A.D.E., the Central Assistant for Delivery & Execution: tracks client requirements, incidents and the team's tasks.",
+    "description": "C.A.D.E., the Central Assistant for Delivery & Execution: tracks the team's tasks and incidents.",
     "background_color": "#2c2d30"
   },
   "features": {
@@ -12,24 +12,30 @@
     },
     "shortcuts": [
       {
-        "name": "Convert to task",
+        "name": "New task",
         "type": "message",
         "callback_id": "convert",
-        "description": "Track this message as a task, or as a requirement in the client channel"
+        "description": "Track this message as a task, from any channel or DM"
       },
       {
-        "name": "Move to task",
+        "name": "New incident",
+        "type": "message",
+        "callback_id": "incident",
+        "description": "Report this message as an urgent incident, from any channel or DM"
+      },
+      {
+        "name": "Move to existing",
         "type": "message",
         "callback_id": "move",
-        "description": "Move this message into an open task's, requirement's or incident's thread"
+        "description": "Copy this message into an open task's or incident's thread, from any channel or DM"
       }
     ],
     "slash_commands": [
       {
         "command": "{{COMMAND}}",
         "url": "{{WORKER_URL}}/slack/commands",
-        "description": "Start a requirement, report an incident, track a task, list your tasks or summarise them",
-        "usage_hint": "requirement | incident | track | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | summary | brief | debrief",
+        "description": "Track a task, report an incident, list your tasks or summarise them",
+        "usage_hint": "task | incident | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | summary | brief | debrief",
         "should_escape": true
       }
     ]

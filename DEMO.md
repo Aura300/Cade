@@ -1,10 +1,11 @@
 # Cade demo script
 
-One story that touches **every feature**: a client asks for a feature, it
-becomes a tracked task, the team builds, reviews, tests and ships it, the
-client approves, an incident lands in the middle, and the team runs its own
-work and standup. ~12–15 minutes in full; each act also works as a short
-standalone clip. The checklist at the end maps every feature to its step.
+One story that touches **every feature**: a client asks for a feature in
+their channel, it becomes a task in the dev channel, the team builds,
+reviews, tests and ships it, the client approves, an incident lands in the
+middle, and the team runs its own work and standup. ~10–12 minutes in full;
+each act also works as a short standalone clip. The checklist at the end
+maps every feature to its step.
 
 ## Before you record
 
@@ -13,149 +14,99 @@ by side work well):
 
 | Role | Name in the script | Works in |
 |---|---|---|
-| Client PM | **Sarah** | `#acme-client` |
+| Client PM | **Sarah** | `#acme-client`, DMs with You |
 | Team lead | **You** | everywhere |
 | Developer | **Rex** | `#acme-dev` |
 | Reviewer | **Mia** | `#acme-dev` |
 | QA | **Tom** | `#acme-dev` |
 
-**Channels** (one pair in `CHANNEL_PAIRS`): `#acme-client` (external),
-`#acme-dev` (tasks and incidents).
+**Channels:** `#acme-dev` is the group's dev channel in `CHANNEL_PAIRS`,
+where tasks and incidents live. `#acme-client` is any channel you share
+with the client; Cade doesn't need to be in it.
 
 **Seed beforehand** (so pickers and lists aren't empty):
-- `#acme-client`: `/cade requirement` → **"Booking confirmation emails"**,
-  Medium, no due date.
-- `#acme-dev`: `/cade track` → **"Upgrade Node to 22 on staging"**, Medium,
+- `#acme-dev`: `/cade task` → **"Upgrade Node to 22 on staging"**, Medium,
   Rex as developer (`@Cade assign developer @Rex`).
-- `#acme-dev`: `/cade track` → **"Remove legacy coupon code"**, Low, nobody
+- `#acme-dev`: `/cade task` → **"Remove legacy coupon code"**, Low, nobody
   assigned (for standup `-unassigned`).
 - `#acme-dev`: a top-level message posted **before** the demo, then click
-  **Not now** on Cade's prompt (used for `@Cade track` in Act 5):
+  **Not now** on Cade's prompt (used for `@Cade task` in Act 5):
   > Flaky test: `booking.spec.ts` times out on CI about 1 run in 5.
+- A second group (say `test`) in `CHANNEL_PAIRS`, so the **Project** picker
+  has a choice.
 - Google Sheet open in a browser tab, if set up.
 
-**Do a full dry run.** The move / prompt / start-from-thread flows are new
-and haven't been tried in real Slack yet. Private (ephemeral) messages are
-only visible to the account they're for, so record from that account's
-screen at those moments.
+**Do a full dry run.** Private (ephemeral) messages and forms are only
+visible to the account they're for, so record from that account's screen
+at those moments.
 
 ---
 
-## Act 1 — The client asks · `#acme-client` · ~3 min
+## Act 1 — A message becomes a task · ~3 min
 
-### 1. A stray message becomes a requirement *(opener)*
-**Sarah**, top level:
+### 1. The client asks, in their channel *(opener)*
+**Sarah**, `#acme-client`:
 > Can guests pay a deposit when they book, instead of the full amount upfront?
 > We'd like 20% at booking and the rest 7 days before check-in.
 
-- Cade privately asks: **Start requirement · Report incident · Move to
-  existing · Not now**.
-- **Start requirement** → the name is prefilled from the first line. Shorten
-  to **"Deposit payments at booking"**, priority **High**, due ~3 weeks out.
-- **Show:** the requirement card (pinned, "Started by Sarah… not tracked
-  yet"), Sarah's message copied into its thread, the original marked
-  :outbox_tray: with "moved this message to the requirement thread… Please
-  carry on the conversation there."
+- **You**: ⋯ on Sarah's message → **More actions** → **New task**.
+- The form asks for the **Project** (pick *acme*), with the title prefilled
+  from the first line. Shorten it to **"Deposit payments at booking"**,
+  priority **High**, due ~3 weeks out → **Create**.
+- **Show:** the task posted and pinned in `#acme-dev`, Sarah's message copied
+  into its thread with a link back, and, if Cade is in `#acme-client`, the
+  original marked :outbox_tray: with "moved this message to the task
+  thread… Please carry on the conversation there."
+- *Everyone on the task can read Sarah's words, even without access to the
+  client's channel; only the link back needs it.*
 
-### 2. A follow-up lands in the wrong place → Move to existing
-**Sarah**, top level:
+### 2. A follow-up in a DM → Move to existing
+**Sarah**, in a DM with You:
 > Also — the deposit % should be configurable per property, some owners want 30%.
 
-- **Move to existing** → pick *Deposit payments at booking* → **Move**.
-- *"Anything with the tray is handled — skip it."*
+- **You**: ⋯ → **More actions** → **Move to existing** → **Project** *acme*
+  → the open tasks appear → *Deposit payments at booking* → **Move**.
+- **Show:** the DM message copied into the task's thread.
 
-### 3. `@Cade move` after the fact
-**Sarah**, top level, then click **Not now** on the prompt:
-> Refunds for cancelled deposits should go back to the original card.
+---
 
-- Then reply in that message's thread: `@Cade move` → pick the requirement →
-  **Move**.
-- Try `@Cade move` again in the same thread → *"This message was already
-  moved: see it there."*
+## Act 2 — The team picks it up · `#acme-dev` · ~2 min
 
-### 4. Start a requirement from an existing thread
-**Sarah**, top level, **Not now** on the prompt:
-> Could we get a monthly occupancy report as a PDF, emailed to each owner?
+### 3. Hand it to a developer
+In the **Deposit payments** task thread, **You**:
+> @Rex please start working on this — first cut by Friday?
 
-- Reply in its thread: `@Cade requirement` → **Start requirement** →
-  prefilled → **"Monthly owner occupancy report"**, Low → submit.
-- *(`@Cade incident` works the same way for an existing message.)*
+- Cade privately offers to add Rex as developer → **Accept** → Rex is asked
+  in the thread to pick it up; the task stays 📝 To do.
 
-### 5. The client owns priority and due date
-In the **Deposit payments** thread, **Sarah**:
+### 4. The developer says they've started
+**Rex**:
+> Okay, started working on this
+
+- **Accept** → ▶️ In progress.
+- *Assigning never starts the work; the developer saying so does.*
+
+### 5. The team owns priority and due date
+**You**, in the task thread:
 > `@Cade priority urgent`
 
 > `@Cade due 14/11/2026`
 
-- **Show:** the card updates; the colour strip follows the priority.
-
----
-
-## Act 2 — The team picks it up · ~3 min
-
-### 6. Hand it to a developer before it's tracked → Track and assign
-In the **Deposit payments** thread, **You**:
-> @Rex please start working on this — first cut by Friday?
-
-- Cade privately offers **Track and assign** → keep the title → **Create**.
-- **Show:** task posted and pinned in `#acme-dev` with Rex as developer,
-  📝 To do, priority/due from the requirement, "from the requirement
-  thread" link; the requirement card now says "tracked by You in the task
-  thread"; Rex is asked in the task thread to pick it up.
-
-### 6b. The developer says they've started
-In the **Deposit payments** task thread, **Rex**:
-> Okay, started working on this
-
-- Cade privately offers **Move to In progress** → click → ▶️ In progress.
-- *Assigning never starts the work; the developer saying so does. Someone
-  who isn't a developer gets **Assign me and move** or **Choose developers
-  and move** instead.*
-
-### 7. Classic tracking with `@Cade track`
-In the **Monthly owner occupancy report** thread, **You**:
-> `@Cade track`
-
-- **Track task** button → the form shows the requirement's priority and due
-  date as the client set them → title **"Owner occupancy PDF report"** →
-  **Create**.
-- **Show:** the button turns into "@You tracked this as a task: …".
-- Try `@Cade track` again → *"Good news: this requirement is already tracked
-  as …"*.
-
-### 8. Priority stays with the client
-In the **Deposit payments** *task* thread in `#acme-dev`, **Rex**:
-> `@Cade priority low`
-
-- **Show:** Cade explains the client sets it in the requirement thread.
-  Then, as **Sarah**, `@Cade priority high` in the requirement thread → the
-  dev task follows.
-
-### 9. Assigning after tracking, from the client thread
-In the **Occupancy report** requirement thread, **You**:
-> @Rex can you pick this up after the deposits work?
-
-- Cade privately offers **Assign as developer** → Rex is asked in the task
-  thread; the task stays 📝 To do.
-- *(Optional)* **Rex**, in the same requirement thread:
-  > I've started working on this
-
-  → **Move to In progress** for its task. Said in a requirement thread that
-  isn't tracked yet, it offers **Track and assign me** or **Track and choose
-  developers**, and the task starts ▶️ In progress.
+- **Show:** the card updates; the colour strip follows the priority. Or use
+  the card's ⋯ → **Edit**, one form for everything.
 
 ---
 
 ## Act 3 — Build, review, test, ship · `#acme-dev` · ~4 min
 
-### 10. Paste a PR, mention a reviewer → Cade offers both
+### 6. Paste a PR, mention a reviewer → Cade offers both
 **Deposit payments** task thread, **Rex**:
 > First pass is up: https://github.com/acme/booking-web/pull/128 — @Mia can you review this?
 
-- **Link and add reviewer** → PR shown on the card as `booking-web#128`, Mia
+- **Link and add reviewer** → PR shown on the card as `booking-web/128`, Mia
   as reviewer, 👀 In review.
 
-### 11. Explicit commands for PRs
+### 7. Explicit commands for PRs
 **Rex**:
 > `@Cade pr add https://github.com/acme/booking-web/pull/131`
 
@@ -163,22 +114,19 @@ In the **Occupancy report** requirement thread, **You**:
 
 > `@Cade pr remove https://github.com/acme/booking-web/pull/999`
 
-### 12. Hand-off to QA in plain words
+### 8. Hand-off to QA in plain words
 **Mia**:
 > Approved ✅ small nit on rounding, fixed in a follow-up. @Tom please test this on staging
 
-- Accept the suggestion → 🧪 In testing, Tom as tester.
+- **Accept** → 🧪 In testing, Tom as tester.
 
-### 12b. Handing work on
-**Tom**, who was asked to test:
+### 9. Handing work on
+**Tom**:
 > I'm out tomorrow — @Mia can you test this instead?
 
-- Cade privately offers **Assign as tester** or **Hand it over**. **Hand it
-  over** → Mia is the tester, Tom isn't.
-- *(Optional: undo with `@Cade assign tester @Tom` and `@Cade unassign tester
-  @Mia`.)*
+- **Accept** → Mia is the tester, Tom isn't.
 
-### 13. Explicit assign / unassign / role picker
+### 10. Explicit assign / unassign / role picker
 **You**:
 > `@Cade assign reviewer @Rex`
 
@@ -186,115 +134,105 @@ In the **Occupancy report** requirement thread, **You**:
 
 > `@Cade assign`
 
-- The last one shows a button per role → **Tester** → the people form with
-  Tom already there.
+- The last one shows a button that opens one form with every role.
 
-### 14. Ship part of it early → partial release
+### 11. Ship part of it early → partial release
 **Rex**:
 > `@Cade release`
 
 - **Choose PRs** → tick #128 → note **"Deposit checkout flow (20% default)"**
-  → **Who approves** is already Sarah.
-- **Show:** the requirement thread gets it with **Approve / Not approve**,
-  which only Sarah can click.
-  **Sarah** clicks **Not approve** and replies:
-  > The deposit line is missing on the confirmation email.
-- **Rex** fixes it and sends again with `@Cade deliver` (same command) →
-  **Sarah** clicks **Approve**. Both cards show #128 approved.
+  → **Who approves**: whoever handles the client, here **You**.
+- **Show:** the task thread gets it with **Approve / Not approve**, which
+  only You can click. After checking with Sarah, **Not approve** → Rex
+  fixes it and sends again with `@Cade deliver` → **Approve**. The card
+  shows #128 approved.
 
-### 15. Status: menu and typed
+### 12. Status: menu and typed
 **Tom**:
 > `@Cade status`
 
-- Pick 🧪 In testing from the menu (already set — show the menu anyway), then:
+- Pick a status from the menu, then:
 > `@Cade status client review`
 
-- Cade reacts ✅ and shows Tom a private **Ask for approval** → keep Sarah → the
-  requirement thread mentions her with the remaining PRs and
-  **Approve / Not approve**.
+- Cade reacts ✅ and shows Tom a private **Ask for approval** → pick You →
+  the task thread mentions You with the remaining PRs and **Approve / Not
+  approve**.
 
-### 15b. Progress in plain words
+### 13. Progress in plain words
 In a task that's 👀 In review, the reviewer (**Mia**):
 > LGTM
 
-→ **Move to In testing**, and the testers are asked. In testing, the tester
+→ offers In testing, and the testers are asked. In testing, the tester
 (**Tom**):
 > QA passed on staging
 
-→ **Move to Client review** or **Move to Done**. Anyone on the task saying
-"done", "merged" or "deployed" gets the same. Questions ("done?") and
-"not done yet" ask nothing.
+→ offers Done. Anyone on the task saying "done", "merged" or "deployed"
+gets the same. Questions ("done?") and "not done yet" ask nothing.
 
-### 16. The client decides
-**Sarah** clicks **Not approve** once → the task goes back to ▶️ In progress
-and the task thread is told. **Tom** sends `@Cade status client review`
-again → **Ask for approval** → **Sarah** clicks **Approve** → ✅ Done, the task and requirement are
-unpinned, and the requirement card shows Done.
+### 14. The client decides
+**Not approve** once → back to ▶️ In progress, and the thread is told. Tom
+sets Client review again → **Approve** → ✅ Done, and the task is unpinned.
 
 ---
 
 ## Act 4 — Something breaks · ~1.5 min
 
-### 17. Report an incident
+### 15. Report an incident from the client's message
 **Sarah**, `#acme-client`:
-> `/cade incident` → **"Card payments failing at checkout for EU customers"**
+> Card payments are failing at checkout for EU customers!
 
-- **Show:** the incident card (🔴 Urgent, Immediate) and a task already in
-  `#acme-dev`, marked *Incident* — no tracking step.
-- **Sarah** tries `@Cade priority low` in the incident thread → *"Incidents
-  are always 🔴 Urgent and due Immediate…"*.
+- **You**: ⋯ → **More actions** → **New incident** → *acme* →
+  **Report**.
+- **Show:** the card in `#acme-dev` reads **Incident · Card payments are
+  failing…**, 🔴 Urgent, due Immediate, with Sarah's message in its thread.
+- **Rex** tries `@Cade priority low` in it → *"Incidents are always 🔴
+  Urgent and due Immediate…"*. Its ⋯ → **Edit** has no priority or due
+  date.
+- *(`/cade incident` in `#acme-dev` does the same from scratch.)*
 
-### 18. Work the incident
-In the incident's task thread in `#acme-dev`, **You**:
+### 16. Work the incident
+In the incident's thread, **You**:
 > @Rex please look into this ASAP, Stripe dashboard shows 3DS failures.
 
-- Accept → Rex assigned (still 📝 To do). **Rex**: `on it` → **Move to In
-  progress**. Then `@Cade status done` → the incident thread hears it.
+- Accept → Rex assigned. **Rex**: `on it` → In progress. Then `@Cade status
+  done`.
 
 ---
 
 ## Act 5 — The team's own work · `#acme-dev` · ~2 min
 
-### 19. A dev message becomes a task
+### 17. A dev message becomes a task
 **Rex**, top level:
 > Staging DB is running out of disk again — we should add log rotation before the release.
 
-- Prompt: **Track as task · Move to existing · Not now** → **Track as task**
-  → title prefilled → Medium → **Create**.
+- Prompt: **New task · New incident · Move to existing · Not now**
+  → **New task** → title prefilled → Medium → **Create**.
 - **Show:** the task is posted; the message is copied into its thread with
   :outbox_tray:.
 
-### 20. Move to an existing task
+### 18. Move to an existing task
 **Mia**, top level:
 > FYI the Node 22 upgrade also needs the Docker base image bumped.
 
-- **Move to existing** → *Upgrade Node to 22 on staging* → **Move**.
+- **Move to existing** → the same form as the shortcut → *Upgrade Node to 22
+  on staging* → **Move**.
+- *(Or add 🔀 to the message for the same picker, or 🎫 to track it.)*
 
-### 21. Track an older message
-In the thread of the seeded *"Flaky test…"* message: `@Cade track` → **Track
-task** → **Create**.
+### 19. Track an older message
+In the thread of the seeded *"Flaky test…"* message: `@Cade task` → **New
+task** → **Create**. `@Cade move` there again → *"This message was already
+moved: see it there."*
 
-### 22. The team owns its own priority and due date
-In the **Log rotation** task thread, **Rex**:
-> `@Cade priority high`
-
-> `@Cade due 07/11/2026`
-
-### 23. Deleting safely
-- In the **Log rotation** task thread: `@Cade delete` → **Cancel** stands
-  out; **Delete task** asks again → confirm. Cade's messages go and the pin
-  is removed.
-- In the **Deposit payments** task thread: `@Cade remove` → *"This task is
-  tracked by the requirement thread, so please remove it from there…"*.
-- *(Optional finale)* In the **Monthly owner occupancy report** requirement
-  thread: `@Cade remove` → the question names its task too → confirm → both
-  go.
+### 20. Deleting safely
+In the **Log rotation** task thread: `@Cade delete` → **Cancel** stands out;
+**Delete task** asks again → confirm. Cade's messages go and the pin is
+removed.
 
 ---
 
 ## Act 6 — Everyone's view · ~1.5 min
 
-### 24. My tasks, with filters
+### 21. My tasks, with filters
 > `/cade tasks`
 
 > `/cade tasks -all`
@@ -305,17 +243,17 @@ In the **Log rotation** task thread, **Rex**:
 
 > `/cade tasks -status=in-progress,in-testing -due<@tomorrow`
 
-### 25. Standup
+### 22. Standup
 - `/cade standup` in `#acme-dev` → **Next** through each developer, change a
   status from the menu (it's posted in the task's thread).
 - `/cade standup -unassigned` → give *Remove legacy coupon code* a developer.
 
-### 26. The Google Sheet
+### 23. The Google Sheet
 Switch tabs: every task with status, priority, due date, people, tracked /
-completed times, task and request links, including the deleted one marked
+completed times and task links, including the deleted one marked
 **Deleted**.
 
-### 27. Help
+### 24. Help
 > `@Cade help`
 
 ---
@@ -324,51 +262,41 @@ completed times, task and request links, including the deleted one marked
 
 | Feature | Step |
 |---|---|
-| `/cade requirement` form | seed, 4 |
-| Prompt on top-level external messages | 1, 2 |
-| Prompt on top-level dev messages | 19, 20 |
-| Start requirement / incident from a thread (`@Cade requirement`, `@Cade incident`) | 4 |
-| `@Cade move` + already-moved guard + :outbox_tray: | 2, 3, 20 |
-| Client-owned priority / due date (task follows) | 5, 8 |
-| Incident priority is fixed | 17 |
-| Track and assign from the requirement thread | 6 |
-| `@Cade track` in a requirement thread + already tracked | 7 |
-| `@Cade track` on a dev message thread | 21 |
-| `/cade track` | seed |
-| Assign suggestion after tracking (from the client thread) | 9 |
-| Hand-offs in plain words (develop / review / test) | 6, 10, 12, 18 |
-| "Started working on this" → In progress (task and requirement threads) | 6b, 9, 18 |
-| "@Rex has started on this" → assign and move | 9 (say it instead) |
-| Handing work on ("@Mia can you take over?") | 12b |
-| "LGTM" / "QA passed" / "done" → next status | 15b |
-| PR pasted in the requirement thread → link to its task | 10 (paste it there instead) |
-| Suggestions in the requirement thread go only to the team | voice-over |
-| `@Cade assign` / `unassign` / role picker form | 13 |
-| PR paste suggestion, `pr add`, `pr remove`, → In review | 10, 11 |
-| Partial release, approve / not approve, `deliver` alias | 14 |
-| `@Cade status` menu and typed status ✅ | 15 |
-| Client review approve / not approve | 15, 16 |
-| Pins follow open / done | 1, 6, 16 |
-| `/cade incident` → auto-tracked incident task | 17, 18 |
-| Team-owned priority / due date | 22 |
-| `@Cade delete` with double confirm, requirement-task guard | 23 |
-| Removing a requirement removes its task | 23 |
-| `/cade tasks` + filters | 24 |
-| `/cade standup`, `-unassigned` | 25 |
-| Google Sheet sync | 26 |
-| `@Cade help` | 27 |
+| New task from another channel, with the Project picker | 1 |
+| Move to existing from a DM, project then open tasks | 2 |
+| New incident from a message | 15 |
+| `/cade task`, `/cade incident` | seed, 15 |
+| Prompt on top-level dev messages | 17, 18 |
+| `@Cade task` / `@Cade incident` on a message's thread | 19 |
+| `@Cade move` + already-moved guard + :outbox_tray: | 18, 19 |
+| 🎫 / 🔀 emoji | 18 |
+| Hand-offs in plain words (develop / review / test) | 3, 6, 8, 16 |
+| "Started working on this" → In progress | 4, 16 |
+| Handing work on | 9 |
+| "LGTM" / "QA passed" / "done" → next status | 13 |
+| `@Cade assign` / `unassign` / role picker form | 10 |
+| PR paste suggestion, `pr add`, `pr remove`, → In review | 6, 7 |
+| Partial release, approve / not approve, `deliver` alias | 11 |
+| `@Cade status` menu and typed status ✅ | 12 |
+| Client review approve / not approve | 12, 14 |
+| Priority / due date, and the card's ⋯ → Edit | 5 |
+| Incident priority is fixed | 15 |
+| Pins follow open / done | 1, 14 |
+| `@Cade delete` with double confirm | 20 |
+| `/cade tasks` + filters | 21 |
+| `/cade standup`, `-unassigned` | 22 |
+| Google Sheet sync | 23 |
+| `@Cade help` | 24 |
 
 Not shown on camera (mention in voice-over): posts that Slack refuses are
-retried automatically every few minutes; an orphaned task (its requirement
-deleted by hand) can be removed from its own thread; a deleted incident's
-task can be tracked again with `@Cade track` in the incident thread.
+retried automatically every few minutes.
 
 ## Talking points
-- **Nobody leaves Slack** — client, devs and QA all work in threads.
-- **Clear ownership** — the client sets priority and due date; the team owns status.
+- **Nobody leaves Slack** — requests come from anywhere; the team works in threads.
+- **Everyone can read the request** — it's copied into the task, even from a DM.
 - **Cade only asks, privately** — suggestions never change anything without a click.
 - **Tidy channels** — stray messages get moved; the tray shows what's handled.
-- **One source of truth** — task cards, requirement cards and the Sheet update together.
+- **One source of truth** — task cards, summaries and the Sheet update together.
 
 ## Recording tips
 - 1080p, Slack zoom ~110%, hide unrelated channels in the sidebar.

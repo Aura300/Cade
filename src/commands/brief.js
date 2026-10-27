@@ -3,17 +3,14 @@ import {
   claimExport,
   exportItems,
   getExport,
-  getTask,
   insertExport,
   lastExport,
-  postedRequirements,
   putExportItem,
   recordExportDoc,
   releaseExport,
   setExportPeriod,
 } from "../db.js";
 import { docId, docsEnabled, writeSection } from "../doc.js";
-import { REQUIREMENT_STATUSES } from "../requirements.js";
 import { formatTime } from "../sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, statusName } from "../tasks.js";
@@ -53,18 +50,16 @@ const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 // `/cade brief` writes an executive summary of a group with whoever runs it,
 // one step at a time, shown only to them. The group is the channel's own,
 // the only one, or the one named: `/cade brief acme`. It goes through the
-// group's work as the client sees it: with a client channel, its
-// requirements and incidents; without one, the team's tasks:
+// group's tasks, incidents included:
 //   0. the period it covers, from one day to another, counted in TIMEZONE:
 //      from the day after the last summary's period (the past week, for
 //      the first) to today, unless changed;
 //   1. what was completed in the period, from the start of its first day
 //      to the end of its last, each ticked to be mentioned as done;
-//   2. each requirement or incident (or task) not done, most urgent first,
-//      to say how it's going (on track, at risk, delayed or
-//      blocked), its progress, such as 3/5, and any notes; health and
-//      progress start as the last summary had them. Peek at threads shows
-//      the latest messages of its requirement thread and its task thread;
+//   2. each task not done, most urgent first, to say how it's going (on
+//      track, at risk, delayed or blocked), its progress, such as 3/5, and
+//      any notes; health and progress start as the last summary had them.
+//      Peek at threads shows the latest messages of its thread;
 //   3. the summary as it will read, to add to the group's Google Doc.
 // What's chosen is saved as a draft (see migrations/0007) whenever a step
 // is left, so Back shows it again. Nothing about the work itself changes.
@@ -76,7 +71,7 @@ const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 // So `/cade brief` only works for a group with a doc.
 export default {
   name: "brief",
-  description: "Write an executive summary step by step, then add it to the group's Google Doc: what's done since the last one, then how each requirement and task is going",
+  description: "Write an executive summary step by step, then add it to the group's Google Doc: what's done since the last one, then how each task is going",
   slashUsage: "/cade brief",
   section: "work",
   async slash(command, context) {
@@ -187,64 +182,24 @@ async function move(payload, env, at) {
   await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at)) });
 }
 
-// The group's work as entries for the walk: with a client channel, its
-// requirements and incidents, as `requirements`; without one, its tasks, as
-// `own`. Each is { kind, channel, ts, title,
-// incident, link, done, completedAt, status, priority, dueDate, people,
-// threads }. A requirement's people and status are its tracked task's, and
-// it is completed when that task is. `threads` are the threads to peek at,
-// as { c, t, n } (channel, ts, name). `task` holds the priority and due date
-// byUrgency sorts by.
+// The group's tasks as entries for the walk: { channel, ts, title,
+// incident, link, done, completedAt, status, task, people, threads }.
+// `threads` are the threads to peek at, as { c, t, n } (channel, ts, name),
+// and `task` holds the priority and due date byUrgency sorts by.
 async function entries(env, group, url) {
-  if (!group.external) return { requirements: [], own: await ownEntries(env, group, url) };
-  const requirements = await Promise.all(
-    (group.external ? await postedRequirements(env, group.external) : []).map(async ({ ts, requirement, updatedAt }) => {
-      const tracked = requirement.task;
-      const task = tracked ? await getTask(env, tracked.channel, tracked.ts) : null;
-      const noun = requirement.incident ? "Incident" : "Requirement";
-      const threads = [{ c: group.external, t: ts, n: `${noun} thread` }];
-      if (task) threads.push({ c: tracked.channel, t: tracked.ts, n: "Dev thread" });
-      return {
-        kind: "requirement",
-        channel: group.external,
-        ts,
-        title: requirement.title,
-        incident: requirement.incident,
-        link: threadLink(url, group.external, ts),
-        done: requirement.status === "DONE",
-        completedAt: task?.completedAt || isoTime(updatedAt),
-        status: task ? statusName(task.status) : label(REQUIREMENT_STATUSES[requirement.status]),
-        task: { priority: requirement.priority, dueDate: requirement.dueDate },
-        people: task?.people,
-        threads,
-      };
-    }),
-  );
-  return { requirements, own: [] };
-}
-
-// The group's tasks as entries for the walk.
-async function ownEntries(env, group, url) {
   return (await groupTasks(env, group, Object.keys(STATUSES), url)).map(({ channel, ts, task, link, incident }) => ({
-      kind: "task",
-      channel,
-      ts,
-      title: task.title,
-      incident,
-      link,
-      done: task.status === "DONE",
-      completedAt: task.completedAt,
-      status: statusName(task.status),
-      task,
-      people: task.people,
-      threads: [{ c: channel, t: ts, n: "Dev thread" }],
-    }));
-}
-
-// SQLite's CURRENT_TIMESTAMP (UTC, "YYYY-MM-DD HH:MM:SS") as an ISO
-// timestamp, as tasks' completion times are.
-export function isoTime(timestamp) {
-  return new Date(`${timestamp.replace(" ", "T")}Z`).toISOString();
+    channel,
+    ts,
+    title: task.title,
+    incident,
+    link,
+    done: task.status === "DONE",
+    completedAt: task.completedAt,
+    status: statusName(task.status),
+    task,
+    people: task.people,
+    threads: [{ c: channel, t: ts, n: "Dev thread" }],
+  }));
 }
 
 // The instant a day (YYYY-MM-DD) starts in TIMEZONE, or with `end` the
@@ -308,19 +263,15 @@ export function label(text) {
 
 // The summary's work, read afresh: { done, active, steps }. `done` is what
 // was completed in the summary's period, oldest first; `active` what isn't
-// done: requirements most urgent first, then tasks. The steps are the
-// period, pages of done work, each active entry, then the review.
+// done, most urgent first. The steps are the period, pages of done work,
+// each active entry, then the review.
 async function walk(env, summary, url) {
   const group = channelPairs(env).find((pair) => pair.name === summary.group);
-  const { requirements, own } = group ? await entries(env, group, url) : { requirements: [], own: [] };
-  const all = [...requirements, ...own];
+  const all = group ? await entries(env, group, url) : [];
   const done = all
     .filter((entry) => entry.done && entry.completedAt >= summary.since && (!summary.until || entry.completedAt <= summary.until))
     .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
-  const active = [
-    ...requirements.filter((entry) => !entry.done).sort(byUrgency),
-    ...own.filter((entry) => !entry.done).sort(byUrgency),
-  ];
+  const active = all.filter((entry) => !entry.done).sort(byUrgency);
   const pages = [];
   for (let start = 0; start < done.length; start += MAX_SHOWN) {
     pages.push({ done: done.slice(start, start + MAX_SHOWN), first: start });
@@ -482,10 +433,8 @@ async function render(env, at, notice) {
     const choice = chosen(entry);
     const healthOption = (health) => ({ text: { ...plainText(HEALTH[health]), emoji: true }, value: health });
     const include = { text: plainText("Mention in the summary"), value: "yes" };
-    const kind = entry.kind === "requirement" ? "Requirements and incidents" : "The team's own tasks";
-    const ofKind = active.filter((other) => other.kind === entry.kind);
     blocks.push(
-      { type: "context", elements: [mrkdwn(`*${kind}*  ·  ${ofKind.indexOf(entry) + 1} of ${ofKind.length}`)] },
+      { type: "context", elements: [mrkdwn(`*Open tasks*  ·  ${active.indexOf(entry) + 1} of ${active.length}`)] },
       {
         type: "section",
         text: mrkdwn(entryLine(entry)),

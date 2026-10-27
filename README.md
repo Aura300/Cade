@@ -1,10 +1,10 @@
 # Cade
 
 **C.A.D.E.**, the Central Assistant for Delivery & Execution, is a Slack
-app for tracking a team's work as tasks in its own channel. A group can
-also have a channel shared with a client, where the client starts
-requirements and reports incidents that the team tracks as tasks. It runs as a single
-Cloudflare Worker, with its tasks in a D1 database.
+app for tracking a team's work, tasks and incidents, in its own channel.
+Messages from anywhere in Slack, a DM included, can be made into tasks or
+moved into one. It runs as a single Cloudflare Worker, with its tasks in a
+D1 database.
 
 - **Start here:** [the Cade website](https://xteclk.github.io/Cade/)
   shows what it does, [how to set it up](https://xteclk.github.io/Cade/setup.html)
@@ -37,7 +37,7 @@ Other scripts:
 | Script | Does |
 | --- | --- |
 | `npm run setup` | Starts Claude Code with `scripts/setup-prompt.md`, to be taken through the setup |
-| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, makes or links its Doc and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--external C…] [--doc new\|<address>] [--sheet new\|<address>]` it takes them at once |
+| `npm run group` | Takes you through adding or changing a group: makes or links its Slack channels, adds people, makes or links its Doc and Sheet, then saves and uploads `cade.config.json`. With `-- --name acme --tasks C… [--doc new\|<address>] [--sheet new\|<address>]` it takes them at once |
 | `npm run config` | Checks `cade.config.json` and uploads it as Worker secrets (`CHANNEL_PAIRS`, `TIMEZONE`, `GOOGLE_URL`) |
 | `npm run db:migrate` | Applies `migrations/` to the deployed D1 database; `npm run deploy` does this after deploying, and `npm run dev` for the local one |
 | `npm run slack:create -- <url>` | Creates the Slack app from `slack/manifest.json` |
@@ -85,44 +85,40 @@ it, what it needs (a thread, a mention), an `order`, and what to do;
 
 | Order | Intent | In | Signals |
 | --- | --- | --- | --- |
-| 10 | `pr-link` | `pr.js` | a pull request link, in a task's thread or a tracked requirement's |
+| 10 | `pr-link` | `pr.js` | a pull request link, in a task's thread |
 | 20, 30 | `hand-off:reviewer`, `hand-off:tester` | `assign.js` (`HANDOFFS`) | someone mentioned, asked to review or test |
 | 38 | `started:reported` | `assign.js` (`REPORTED`) | someone mentioned, said to have started |
 | 40 | `hand-off:developer` | `assign.js` (`HANDOFFS`) | someone mentioned, asked to work on it, or to take it over |
 | 45 | `started` | `assign.js` (`STARTED`) | the writer saying they, or the team, have started |
 | 46 | `progress` | `status.js` | "LGTM", "QA passed", "done", "merged" |
-| 50 | `new-thread` | `move.js` | a message posted on its own, not in a thread |
+| 50 | `new-thread` | `move.js` | a message posted on its own in a dev channel, not in a thread |
 
 Each only asks the writer, privately, before changing anything, since a
 phrase can match a message that didn't mean it. Questions ("done?") and
-hedged messages ("not done yet") don't count as progress. In a requirement's
-thread, the team's suggestions only go to members of the pair's tasks
-channel, since Slack can't otherwise tell the team from the
-client.
+hedged messages ("not done yet") don't count as progress.
 
 ### Where things are kept
 
-Tasks and requirements are stored in D1, the `DB` binding (`db.js`, with
-the tables in `migrations/`). A new one is stored before its root message is
-posted (`createTask` in `commands/track.js`, `createRequirement` in
-`commands/requirement.js`), with `ts` empty until Slack takes the post; if
-Slack refuses it, the cron in `wrangler.toml` posts it again every five
-minutes (`retry.js`, through `publishTask` and `publishRequirement`), up to
-five tries in all. Once posted, a row is found by its channel and `ts`.
-`loadTask` and `saveTask` in `tasks.js` read and write a
-task; `saveTask` stores the row first, then renders it to the root message
-in the dev channel (`taskMessage`) and to its row in the Google Sheet
-(`syncTask`). A requirement or incident works the same way in the external
-channel (`requirements.js`). Slack and the Sheet are only written to, never
-read back: `/cade tasks` is a query of open tasks. A task with
-`source_channel` set was tracked from a requirement or incident thread; the
-team's own tasks have none. A requirement task's PRs sent to the client
-with `@Cade release` are rows of `releases`, one per release, with its PRs
-and what it completes; a task is loaded with them (`getTask`), and its
-message and its requirement's show which PRs shipped with which release.
-Deleted tasks and requirements keep their rows,
-with `deleted_at` set. Open tasks and requirements are still pinned, for
-people to find in Slack.
+Tasks are stored in D1, the `DB` binding (`db.js`, with the tables in
+`migrations/`). A new one is stored before its root message is posted
+(`createTask` in `commands/track.js`), with `ts` empty until Slack takes the
+post; if Slack refuses it, the cron in `wrangler.toml` posts it again every
+five minutes (`retry.js`, through `publishTask`), up to five tries in all.
+Once posted, a row is found by its channel and `ts`. `loadTask` and
+`saveTask` in `tasks.js` read and write a task; `saveTask` stores the row
+first, then renders it to the root message in the dev channel
+(`taskMessage`) and to its row in the Google Sheet (`syncTask`). Slack and
+the Sheet are only written to, never read back: `/cade tasks` is a query of
+open tasks. An incident is a task with `source_incident` set: always urgent
+and due immediately. A task's PRs sent to the client with `@Cade release`
+are rows of `releases`, one per release, with its PRs and what it
+completes; a task is loaded with them (`getTask`), and its message shows
+which PRs shipped with which release. Deleted tasks keep their rows, with
+`deleted_at` set. Open tasks are pinned, for people to find in Slack.
+
+The `requirements` table, and tasks' `source_channel`, `source_thread_ts`
+and `source_link`, are left from when a group could have a client channel,
+and are no longer read.
 
 The database isn't named in `wrangler.toml`, so nothing account-specific is
 committed: the first `wrangler deploy` creates one for the Worker, named
@@ -137,12 +133,11 @@ a numbered file to `migrations/`; `npm run deploy` applies it.
 | `src/commands/parse.js` | Turns a message or slash command into a command |
 | `src/commands/dispatch.js` | Finds the handler, checks where it may run, runs it, builds help |
 | `src/commands/registry.js` | The list of handlers, and the handler shape |
-| `src/commands/*.js` | One module per command: `track`, `requirement` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `detach`, `tasks`, `standup`, `delete`, `summary`, `brief`, `debrief` |
-| `src/db.js` | Reading and writing tasks and requirements in D1 |
-| `src/retry.js` | The cron's job: posting tasks and requirements Slack refused |
+| `src/commands/*.js` | One module per command: `track` (and `incident`), `assign`, `unassign`, `status`, `details` (`priority`, `due`), `pr`, `release`, `move` (and the message shortcuts), `tasks`, `standup`, `delete`, `summary`, `brief`, `debrief` |
+| `src/db.js` | Reading and writing tasks in D1 |
+| `src/retry.js` | The cron's job: posting tasks Slack refused |
 | `src/tasks.js` | The task message: layout, saving, the Sheet row, pins |
-| `src/requirements.js` | The requirement message, and finding a thread's task or requirement |
-| `src/channels.js` | `CHANNEL_PAIRS`: which channel plays which role |
+| `src/channels.js` | `CHANNEL_PAIRS`: each group's dev channel |
 | `src/intents.js` | Recognising intents in plain messages |
 | `src/slack.js` | Calling Slack, Block Kit helpers, acknowledgements |
 | `src/google.js` | Calling the Google web app |
@@ -174,6 +169,5 @@ or event, add it to `slack/manifest.json` and run `npm run slack:update`.
 replaced by a fake Slack API: `mockSlack` returns canned results and records
 every call, so tests check exactly what Cade would send. Like Slack, the
 fake rejects a message whose buttons share an action ID. Shared fixtures,
-such as `rootMessage` (a task from a requirement), `ownTask` (the team's own
-task), `requirementRoot` and `incidentRoot`, build the messages Slack would
-return.
+such as `storedTask` and `incidentTask`, build the records Cade would have
+stored.

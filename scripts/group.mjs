@@ -4,7 +4,7 @@
 //
 //   npm run group                      asks for each setting, and can make
 //                                      the group's Slack channels too
-//   npm run group -- --name acme --tasks C… [--external C…]
+//   npm run group -- --name acme --tasks C…
 //                    [--doc new | <address>] [--sheet new | <address>]
 //
 // --doc and --sheet link the group's Google Doc (for executive summaries)
@@ -29,7 +29,7 @@ const KINDS = {
   sheet: { path: "spreadsheets", noun: "Google Sheet" },
 };
 
-const FIELDS = ["tasks", "external", "doc", "sheet"];
+const FIELDS = ["tasks", "doc", "sheet"];
 
 // What each file is called when `new` makes it.
 const NEW_TITLES = { doc: (name) => `${name} executive summaries`, sheet: (name) => `${name} tasks` };
@@ -49,7 +49,7 @@ export function readArgs(args) {
 }
 
 const USAGE =
-  "Use: npm run group -- --name acme --tasks C… [--external C…] [--doc new|<address>] [--sheet new|<address>]";
+  "Use: npm run group -- --name acme --tasks C… [--doc new|<address>] [--sheet new|<address>]";
 
 // cade.config.json with the group `name` added or changed: `fields` are its
 // settings, a value of "none" removing one. A new group needs `tasks`.
@@ -63,8 +63,9 @@ export function withGroup(configJson, name, fields) {
     else group[field] = value;
   }
   if (!group.tasks) throw new Error(`${name} needs a --tasks channel.`);
-  // Incidents are tracked in the tasks channel now, so a group's old
+  // Groups have only their tasks channel now, so an old client or
   // incidents channel goes.
+  delete group.external;
   delete group.incidents;
   // Settings in a steady order, as the file shows them, then those set by
   // hand, such as `suggestions` and `ai`.
@@ -145,9 +146,8 @@ export async function group(args) {
     if (given[field]) fields[field] = await fileAddress(field, given[field], name, config);
   }
   const saved = await saveGroup(json, name, fields);
-  const channels = ["external", "tasks"].filter((field) => saved[field]).map((field) => `${field} ${saved[field]}`);
   console.log(`
-Done. In Slack, invite Cade to each channel (${channels.join(", ")}) with /invite @Cade, if it isn't there.`);
+Done. In Slack, invite Cade to the tasks channel (${saved.tasks}) with /invite @Cade, if it isn't there.`);
   if (saved.doc) console.log(`Doc: ${saved.doc}\n  Share it with the client as Editor.`);
   if (saved.sheet) console.log(`Sheet: ${saved.sheet}`);
 }
@@ -155,7 +155,6 @@ Done. In Slack, invite Cade to each channel (${channels.join(", ")}) with /invit
 // The group's channels, as the guided setup asks for them.
 const ROLES = [
   { field: "tasks", what: "Dev channel, where the team tracks its tasks and incidents", suffix: "dev", required: true },
-  { field: "external", what: "Client channel, shared with the client for requirements and incidents", suffix: "client" },
 ];
 
 // A channel name as Slack keeps it: no #, lower case.
@@ -397,7 +396,6 @@ async function guided() {
     for (const role of ROLES) {
       if (saved[role.field]) console.log(`  ${role.what.split(",")[0]}: ${url}archives/${saved[role.field]}`);
     }
-    if (saved.external) console.log("Share the client channel with the client from Slack (channel name → Share channel), if it isn't shared yet.");
     if (saved.doc) console.log(`Doc: ${saved.doc}\n  Share it with the client as Editor.`);
     if (saved.sheet) console.log(`Sheet: ${saved.sheet}`);
   } finally {

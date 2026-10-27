@@ -1,7 +1,7 @@
 // Most commands are messages that start by mentioning the bot, such as
 // `@Cade assign @person`, because Slack does not allow custom slash commands
 // in threads and most commands are sent from a task's thread. Commands that
-// start something new, such as `/cade track`, also work as slash commands.
+// start something new, such as `/cade task`, also work as slash commands.
 const MESSAGE_PREFIX = /^\s*<@([A-Z0-9]+)>(?:\s+(.*))?$/s;
 const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 

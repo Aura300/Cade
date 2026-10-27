@@ -1,6 +1,6 @@
 # Google Sheets and Docs
 
-Each group (channel pair) can have its own **Google Sheet**, a record of its
+Each group can have its own **Google Sheet**, a record of its
 tasks (Slack's free plan only keeps recent history), and its own **Google
 Doc**, where `/cade brief` writes its executive summaries to go through
 with the client and `/cade debrief` reads back what was added. A free Google
@@ -50,8 +50,8 @@ another spreadsheet, copy them into the tab under its header row.
 ## The Doc
 
 Cade writes in the doc's **Summary** tab, and adds the tab if the doc has
-none. A group with a client channel's summaries cover its requirements and
-incidents; one without, its tasks. Each summary is a section of its own, newest at the top: a heading
+none. A group's summaries cover its tasks, incidents first. Each summary is
+a section of its own, newest at the top: a heading
 with the day it was written and the group, the period, then **Completed**,
 **Incidents** and each health (**Blocked**, **Delayed**, **At risk**, **On
 track**). Every line is a bullet whose title links to its Slack thread, with
@@ -59,11 +59,9 @@ its notes as bullets under it.
 
 During the call, add to the section:
 
-- **A bullet of its own, with no link**: a new requirement, started in the
-  client channel, or, for a group without one, a task in the dev channel.
+- **A bullet of its own, with no link**: a new task in the dev channel.
   Bullets under it are its details, which become its thread's first message.
-- **Bullets (or lines) under a linked one**: points for that requirement's
-  or task's thread.
+- **Bullets (or lines) under a linked one**: points for that task's thread.
 
 `/cade debrief` suggests each, one at a time. Leave the section's heading as
 it is: it's how Cade finds the section again (through a named range).
