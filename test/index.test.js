@@ -714,7 +714,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     for (const usage of ["assign dev @person", "unassign dev @person", "status in review", "priority high", "due 31/12/2026", "pr add <link>", "delete"]) {
       assert.ok(lines[2].includes(`\`@Cade ${usage}\``), usage);
     }
-    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade summary` · `/cade brief` · `/cade debrief`");
+    assert.equal(lines[3], "*Your work:* `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade summary` · `/cade brief` · `/cade debrief`");
   }
 });
 
@@ -4027,6 +4027,79 @@ test("a release someone decided on at the same moment isn't decided again", asyn
   await send("/slack/interactions", releaseClick("release:approve"), {}, raced);
   const update = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.9").args;
   assert.match(update.text, /Someone's already decided on these PRs\./);
+});
+
+// Clicks the syncup button `actionId` on `message`.
+const syncupClick = (message, actionId) => {
+  const button = message.blocks.at(-1).elements.find((element) => element.action_id === actionId);
+  assert.ok(button, `no ${actionId} button`);
+  return interaction({ type: "block_actions", user: { id: "UACTOR" }, response_url: RESPONSE_URL, actions: [{ action_id: actionId, value: button.value }] });
+};
+
+test("/cade syncup goes through the open tasks one at a time, most urgent first, each linking to its thread", async (t) => {
+  const stored = {
+    CDEV: [
+      historyTask("100.1", { title: "Low task", priority: "Low", developers: ["UALICE"] }),
+      historyTask("100.2", { title: "High task", priority: "High", reviewers: ["UBOB"], prs: [PR] }),
+      historyTask("100.3", { title: "Done task", status: "DONE" }),
+      incidentHistoryTask("100.8", { title: "Checkout is down" }),
+    ],
+    // Another group's task is left out.
+    CTESTDEV: [historyTask("100.9", { title: "Test task" })],
+  };
+  const { now, later: first } = await tasksCommand(t, "syncup", "CDEV", stored);
+  assert.equal(now, "");
+  const title = (message) => blockText(message.blocks[1]);
+  const buttons = (message) => message.blocks.at(-1).elements.map((button) => button.text.text);
+  const thread = (ts) => `https://acme.slack.com/archives/CDEV/p${ts.replace(".", "")}?thread_ts=${ts}&cid=CDEV`;
+
+  // The incident first; its title opens its thread.
+  assert.match(blockText(first.blocks[0]), /^\*Syncup: acme\*  ·  1 of 3$/);
+  assert.equal(title(first), `*Incident:* *<${thread("100.8")}|Checkout is down>*`);
+  assert.equal(blockText(first.blocks[2]), ":memo: To do  ·  :red_circle: Urgent  ·  Due Immediate\n_Unassigned_");
+  assert.deepEqual(buttons(first), ["Next ▶", "Last ⏭", "End"]);
+
+  const sent = recordResponses(t);
+  await send("/slack/interactions", syncupClick(first, "syncup:next"));
+  const second = sent.at(-1);
+  assert.equal(second.replace_original, true);
+  assert.equal(title(second), `*<${thread("100.2")}|High task>*`);
+  assert.equal(blockText(second.blocks[2]), `:memo: To do  ·  :large_orange_circle: High  ·  Due 31/10/2026\nReviewers <@UBOB>\n*Pending:* <${PR}|cade/42>`);
+  assert.deepEqual(buttons(second), ["⏮ First", "◀ Previous", "Next ▶", "Last ⏭", "End"]);
+
+  await send("/slack/interactions", syncupClick(second, "syncup:last"));
+  const last = sent.at(-1);
+  assert.match(blockText(last.blocks[0]), /3 of 3$/);
+  assert.equal(title(last), `*<${thread("100.1")}|Low task>*`);
+  assert.deepEqual(buttons(last), ["⏮ First", "◀ Previous", "End"]);
+
+  await send("/slack/interactions", syncupClick(last, "syncup:first"));
+  assert.match(blockText(sent.at(-1).blocks[0]), /1 of 3$/);
+
+  await send("/slack/interactions", syncupClick(last, "syncup:previous"));
+  assert.equal(title(sent.at(-1)), `*<${thread("100.2")}|High task>*`);
+
+  await send("/slack/interactions", syncupClick(last, "syncup:end"));
+  assert.deepEqual(sent.at(-1), { response_type: "ephemeral", delete_original: true });
+});
+
+test("/cade syncup stays within the tasks still open, and says when there are none", async (t) => {
+  const { later } = await tasksCommand(t, "syncup", "CDEV", {});
+  assert.equal(later.text, "There are no open acme tasks right now.");
+
+  // The last task was closed since: Next shows the one now last.
+  const { later: first } = await tasksCommand(t, "syncup", "CDEV", {
+    CDEV: [historyTask("100.1", { title: "One" }), historyTask("100.2", { title: "Two" })],
+  });
+  await DB.prepare("UPDATE tasks SET status = 'DONE' WHERE ts = '100.2'").run();
+  const sent = recordResponses(t);
+  await send("/slack/interactions", syncupClick(first, "syncup:last"));
+  assert.match(blockText(sent.at(-1).blocks[0]), /1 of 1$/);
+  assert.match(blockText(sent.at(-1).blocks[1]), /\|One>\*$/);
+
+  // Only in a dev channel.
+  const { now } = await tasksCommand(t, "syncup", "COTHER", {});
+  assert.match(JSON.parse(now).text, /That one works with `\/cade syncup` in <#CDEV> or <#CTESTDEV>/);
 });
 
 test("a standup step with more tasks than fit says how many more", async (t) => {
