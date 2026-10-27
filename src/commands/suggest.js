@@ -1,10 +1,11 @@
 import { pairFor, roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest, suggesting } from "../intents.js";
 import { loadRequirement, onTheTeam } from "../requirements.js";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
-import { REQUESTS, ROLES, STATUSES, loadTask, saveTask } from "../tasks.js";
+import { oneMessage } from "../notify.js";
+import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
+import { ROLES, STATUSES, loadTask, saveTask } from "../tasks.js";
 import { teamChanges } from "./assign.js";
-import { progressOptions, setStatus, soundsLikeProgress, statusOption } from "./status.js";
+import { progressOptions, soundsLikeProgress, statusChange, statusOption } from "./status.js";
 
 const SAVE_ACTION = "suggest:save";
 const SKIP_ACTION = "suggest:skip";
@@ -272,19 +273,17 @@ async function save(payload, env) {
       task.people[role] = chosen;
       return change;
     });
-    const lines = teamChanges(user, task, changes);
-    if (lines.length) await saveTask(env, channel, ts, task);
+    const team = teamChanges(user, task, changes);
+    if (team.log.length) await saveTask(env, channel, ts, task);
+    let moved = { log: [], notes: [] };
 
     const status = values[STATUS_PICK]?.[STATUS_PICK]?.selected_option?.value ?? suggested;
     const stale = status === suggested && task.status !== from;
-    if (status && status !== task.status && !stale) {
-      lines.push(await setStatus(env, channel, ts, status, user));
-      // Testers just added were asked already.
-      const added = changes.find((change) => change.role === "tester")?.added ?? [];
-      const testers = task.people.tester.filter((id) => !added.includes(id));
-      if (status === "IN_TESTING" && testers.length) lines.push(`${mentions(testers)} ${REQUESTS.tester}`);
-    }
-    if (lines.length) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
+    // Testers just added to a task moving to In testing are asked with the
+    // rest, by the status change.
+    if (status && status !== task.status && !stale) moved = await statusChange(env, channel, ts, status, user);
+    const text = oneMessage(team, moved);
+    if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
   }
   // An ephemeral message can only be changed through its response_url.
   await respondLater(payload.response_url, { delete_original: true });

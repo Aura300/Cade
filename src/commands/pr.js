@@ -1,8 +1,9 @@
 import { roleOf } from "../channels.js";
 import { intent } from "../intents.js";
 import { loadRequirement, onTheTeam, reflectOnRequirement } from "../requirements.js";
+import { assigned, linked as linkedText, movedTo, oneMessage, request, unlinked as unlinkedText } from "../notify.js";
 import { CLOSE_ALL, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
-import { NOT_A_TASK, STATUSES, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
+import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 import { teamChanges } from "./assign.js";
 
 const REVIEWERS_ACTION = "pr:reviewers";
@@ -29,9 +30,9 @@ const HOW = "Try `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 // recognised.
 //
 // Linking moves a task that is To do or In progress to In review, and asks
-// the task's reviewers to review it. With no reviewer yet, the
-// reply asks who should review it, with a people picker; choosing assigns
-// them as reviewers and asks them.
+// the task's reviewers, on the next line, to review it (see notify.js). With
+// no reviewer yet, the reply asks who should review it, with a people
+// picker; choosing assigns them as reviewers and asks them.
 //
 // People also paste pull requests into a task's thread without `@Cade pr
 // add`. Then Cade asks them, privately, whether to link them, with Link PRs
@@ -62,11 +63,10 @@ export default {
     if (adding) {
       const linked = await addPullRequests(env, command.channel, command.threadTs, task, urls);
       if (!linked) return "Those pull requests are already linked to this task, so we're all set.";
-      const status = linked.moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
-      const text = `<@${command.user}> linked ${linked.added.map(prLink).join(", ")}${status}.`;
+      const text = linkedText(command.user, linked.added, linked.moved);
       const reviewers = task.people.reviewer;
-      if (reviewers.length) return `${text}\n${reviewRequest(reviewers, linked.added)}`;
-      return reviewerPicker(text, linked.added);
+      if (!reviewers.length) return reviewerPicker(text, linked.added);
+      return `${text}\n${request(reviewers, "reviewer", linked.added)}`;
     }
 
     const removed = urls.filter((url) => task.prs.includes(url));
@@ -74,7 +74,7 @@ export default {
     task.prs = task.prs.filter((url) => !removed.includes(url));
     await saveTask(env, command.channel, command.threadTs, task);
     await reflectOnRequirement(env, command.threadTs, task, {});
-    return `<@${command.user}> unlinked ${removed.map(prLink).join(", ")}.`;
+    return unlinkedText(command.user, removed);
   },
   // Checked before hand-offs: a message with PR links gets only this question.
   intents: [
@@ -270,7 +270,8 @@ function suggestion(unlinked, urls, reviewers) {
 // Applies the chosen suggestion, adding the reviewers and linking the pull
 // requests, and removes the private question. The thread only hears what's
 // new to it: the task moving to In review, a review request for reviewers
-// the message didn't mention, or, with no reviewer at all, who should review.
+// the message didn't mention, or, with no reviewer at all, who should
+// review.
 async function acceptSuggestion(payload, env) {
   const { channel, ts, urls = [], mentioned = [], ...fields } = JSON.parse(payload.actions[0].value);
   // Reviewers chosen on the question's picker, when it had one.
@@ -287,9 +288,9 @@ async function acceptSuggestion(payload, env) {
     if (!linked && added.length) await saveTask(env, channel, ts, task);
 
     const lines = [];
-    if (linked?.moved) lines.push(`<@${user}> moved the task to ${STATUSES.IN_REVIEW}.`);
+    if (linked?.moved) lines.push(movedTo(user, "IN_REVIEW"));
     const unasked = task.people.reviewer.filter((id) => !mentioned.includes(id));
-    if (linked && unasked.length) lines.push(reviewRequest(unasked, linked.added));
+    if (linked && unasked.length) lines.push(request(unasked, "reviewer", linked.added));
     if (linked && !task.people.reviewer.length) reply = reviewerPicker(lines.join("\n"), linked.added);
     else if (lines.length) reply = lines.join("\n");
   }
@@ -349,7 +350,8 @@ export function pullRequestForm({ channel, ts }, task) {
 // Links and unlinks the PRs as the form now lists them, as `@Cade pr add`
 // and `remove` would, and sets the reviewers as the Assign people form
 // would; then tells the thread who changed what. Reviewers already on the
-// task are asked to review the new PRs. Saving it unchanged posts nothing.
+// task are asked to review the new PRs, and new ones every pending PR.
+// Saving it unchanged posts nothing.
 function savePullRequests(payload, context) {
   const { channel, ts } = JSON.parse(payload.view.private_metadata);
   const { values } = payload.view.state;
@@ -387,24 +389,17 @@ function savePullRequests(payload, context) {
       await saveTask(env, channel, ts, task);
       await reflectOnRequirement(env, ts, task, {});
 
-      const said = [];
-      if (added.length) {
-        const status = moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
-        said.push(`<@${user}> linked ${added.map(prLink).join(", ")}${status}.`);
-      }
-      if (removed.length) said.push(`<@${user}> unlinked ${removed.map(prLink).join(", ")}.`);
-      if (added.length && kept.length) said.push(reviewRequest(kept, added));
-      said.push(...teamChanges(user, task, [reviewers]));
+      const prs = { log: [], notes: [] };
+      if (added.length) prs.log.push(linkedText(user, added, moved));
+      if (removed.length) prs.log.push(unlinkedText(user, removed));
+      if (added.length && kept.length) prs.notes.push(request(kept, "reviewer", added));
+      const said = oneMessage(prs, teamChanges(user, task, [reviewers]));
       // Still no one to review the new PRs: the thread asks who should.
-      const reply = added.length && !chosen.length ? reviewerPicker(said.join("\n"), added) : { text: said.join("\n") };
+      const reply = added.length && !chosen.length ? reviewerPicker(said, added) : { text: said };
       await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...reply });
     })(),
   );
   return CLOSE_ALL;
-}
-
-function reviewRequest(reviewers, urls) {
-  return `${mentions(reviewers)}, could you review ${urls.map(prLink).join(", ")} when you get a chance? Thanks!`;
 }
 
 // Asks who should review the pull requests, after `lead` (what happened, if
@@ -431,8 +426,10 @@ function reviewerPicker(lead, urls) {
   };
 }
 
-// Assigns the chosen people as reviewers and replaces the picker with the
-// request to review. The picker is a reply in the task's thread.
+// Assigns the chosen people as reviewers, and posts who did with the request
+// to review, as a new reply, since an edited message notifies no one. The
+// picker keeps what happened before its question, or goes if there was
+// nothing. It is a reply in the task's thread.
 async function chooseReviewers(payload, env) {
   const channel = payload.channel.id;
   const ts = payload.message.thread_ts;
@@ -440,25 +437,28 @@ async function chooseReviewers(payload, env) {
   if (!chosen.length) return;
 
   const task = await loadTask(env, channel, ts);
-  let reply = NOT_A_TASK;
-  if (task) {
-    task.people.reviewer = [...new Set([...task.people.reviewer, ...chosen])];
-    await saveTask(env, channel, ts, task);
-    // The pull requests the picker asked about, or all of the task's when the
-    // list did not fit in the block.
-    let urls;
-    try {
-      urls = JSON.parse(payload.actions[0].block_id);
-    } catch {
-      urls = task.prs;
-    }
-    // Whoever chose them sees the picker become the request.
-    reply = reviewRequest(chosen, urls);
+  if (!task) {
+    await callSlack(env, "chat.update", { channel, ts: payload.message.ts, ...asSection(NOT_A_TASK) });
+    return;
   }
-  await callSlack(env, "chat.update", {
-    channel,
-    ts: payload.message.ts,
-    text: reply,
-    blocks: [{ type: "section", text: mrkdwn(reply) }],
-  });
+  task.people.reviewer = [...new Set([...task.people.reviewer, ...chosen])];
+  await saveTask(env, channel, ts, task);
+  // The pull requests the picker asked about, or all of the task's when the
+  // list did not fit in the block.
+  let urls;
+  try {
+    urls = JSON.parse(payload.actions[0].block_id);
+  } catch {
+    urls = task.prs;
+  }
+  const lead = (payload.message.text ?? "").split("\n").slice(0, -1).join("\n");
+  if (lead) await callSlack(env, "chat.update", { channel, ts: payload.message.ts, ...asSection(lead) });
+  else await callSlack(env, "chat.delete", { channel, ts: payload.message.ts });
+  const text = [assigned(payload.user.id, chosen, "reviewer"), request(chosen, "reviewer", urls)].join("\n");
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
+}
+
+// chat.update keeps a message's old blocks unless new ones are sent.
+function asSection(text) {
+  return { text, blocks: [{ type: "section", text: mrkdwn(text) }] };
 }

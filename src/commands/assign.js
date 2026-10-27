@@ -1,5 +1,6 @@
-import { CLOSE_ALL, callSlack, dismiss, mentions, mrkdwn, plainText } from "../slack.js";
-import { NOT_A_TASK, REQUESTS, ROLES, loadTask, parseRole, prLink, saveTask } from "../tasks.js";
+import { CLOSE_ALL, callSlack, dismiss, mrkdwn, plainText } from "../slack.js";
+import { assigned, noLongerIfDue, oneMessage, requestIfDue, unassigned } from "../notify.js";
+import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
 
 // A button per role opens a form to choose that role's people.
 const CHOOSE_ACTIONS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `assign:choose:${role}`]));
@@ -9,14 +10,15 @@ const TEAM_ACTION = "assign:open-team";
 
 // `@Cade assign developer @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way, and short words
-// do too: `dev`, `review`, `test` or `qa`. The reply mentions them with what
-// to do next. Without anyone mentioned, `@Cade assign` asks privately, with
-// a button that opens the form with every role, filled in with who's
-// assigned now, to add or remove people.
+// do too: `dev`, `review`, `test` or `qa`. The thread hears who assigned
+// whom, and on the next line asks them to do their part.
+// Without anyone mentioned, `@Cade assign` asks privately, with a button
+// that opens the form with every role, filled in with who's assigned now,
+// to add or remove people.
 //
-// There is nothing to review until a pull request is linked, so reviewers
-// can be added ahead of time: until then the reply names no one, so they are
-// not notified, and `@Cade pr add` asks them to review once there is a PR.
+// People are only asked when there's something for them to do: reviewers
+// added ahead of a PR are asked by `@Cade pr add` once there is one, and
+// testers when the task moves to In testing (see notify.js).
 //
 // People also ask for roles in their own words, such as "@mia can you
 // review this?". Then Cade asks whoever wrote it, privately, with a picker
@@ -29,6 +31,7 @@ export default {
   channel: ["tasks", "incidents"],
   inThread: true,
   async run(command, { env }) {
+    const { channel, threadTs, user } = command;
     const role = parseRole(command.text);
     // No one mentioned: a private button that opens the form with every role.
     if (!command.mentions.length) return askTeam(env, command);
@@ -40,15 +43,8 @@ export default {
     const task = await loadTask(env, command.channel, command.threadTs);
     if (!task) return NOT_A_TASK;
     task.people[role] = [...new Set([...task.people[role], ...command.mentions])];
-    await saveTask(env, command.channel, command.threadTs, task);
-    if (role === "reviewer") {
-      if (!task.prs.length) {
-        const count = command.mentions.length === 1 ? "a reviewer" : `${command.mentions.length} reviewers`;
-        return `<@${command.user}> added ${count}. I'll ask them to review once a PR is linked.`;
-      }
-      return `${mentions(command.mentions)}, could you review ${task.prs.map(prLink).join(", ")} when you get a chance? Thanks!`;
-    }
-    return `${mentions(command.mentions)} ${REQUESTS[role]}`;
+    await saveTask(env, channel, threadTs, task);
+    return oneMessage(teamChanges(user, task, [{ role, added: command.mentions, removed: [] }]));
   },
   views: { [PEOPLE_VIEW]: savePeople, [TEAM_VIEW]: saveTeam },
   actions: {
@@ -133,12 +129,12 @@ async function openPeopleForm(env, triggerId, { channel, ts, role, promptTs }) {
   });
 }
 
-// Sets the role to the people saved, then removes the buttons. Those newly
-// added are asked as `@Cade assign` would ask them, and those removed are
-// told they no longer need to do it.
+// Sets the role to the people saved, tells the thread as the Assign people
+// form does (see teamChanges), then removes the buttons.
 function savePeople(payload, context) {
   const { channel, ts, role, promptTs } = JSON.parse(payload.view.private_metadata);
   const chosen = payload.view.state.values.people.value.selected_users ?? [];
+  const user = payload.user.id;
   context.waitUntil(
     (async () => {
       const { env } = context;
@@ -149,13 +145,8 @@ function savePeople(payload, context) {
       task.people[role] = chosen;
       await saveTask(env, channel, ts, task);
 
-      const lines = [];
-      if (added.length && REQUESTS[role]) lines.push(`${mentions(added)} ${REQUESTS[role]}`);
-      if (added.length && role === "reviewer" && task.prs.length) {
-        lines.push(`${mentions(added)}, could you review ${task.prs.map(prLink).join(", ")} when you get a chance? Thanks!`);
-      }
-      if (removed.length) lines.push(noLonger(removed, role));
-      if (lines.length) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
+      const text = oneMessage(teamChanges(user, task, [{ role, added, removed }]));
+      if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
       if (promptTs) await callSlack(env, "chat.delete", { channel, ts: promptTs });
     })(),
   );
@@ -242,49 +233,28 @@ function saveTeam(payload, context) {
         task.people[role] = chosen;
         return change;
       });
-      const lines = teamChanges(user, task, changes);
-      if (!lines.length) return;
+      const text = oneMessage(teamChanges(user, task, changes));
+      if (!text) return;
       await saveTask(env, channel, ts, task);
-      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text: lines.join("\n") });
+      await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
     })(),
   );
   return CLOSE_ALL;
 }
 
-// The thread's record of `user` changing who's on the task: those added are
-// asked what `@Cade assign` asks them, and those removed told they no longer
-// need to do it. Reviewers are only named once there's a PR to review.
-// Shared with the Link PRs form, which sets reviewers too.
+// The thread's record of `user` changing who's on the task, as { log,
+// notes } for oneMessage: the change log, a line per role for who was
+// assigned and who was removed, and what it means for them, a line each,
+// only when there's something for them to do now (see notify.js). Shared
+// with `@Cade assign`, the Link PRs form, which sets reviewers too, and
+// suggestions.
 export function teamChanges(user, task, changes) {
-  return changes.flatMap(({ role, added, removed }) => {
-    const lines = [];
-    if (added.length && role === "reviewer" && !task.prs.length) {
-      const count = added.length === 1 ? "a reviewer" : `${added.length} reviewers`;
-      lines.push(`<@${user}> added ${count}. I'll ask them to review once a PR is linked.`);
-    } else if (added.length) {
-      const ask =
-        role === "reviewer"
-          ? `could you review ${task.prs.map(prLink).join(", ")} when you get a chance? Thanks!`
-          : REQUESTS[role];
-      lines.push(`<@${user}> assigned ${mentions(added)} as ${role}: ${ask}`);
-    }
-    if (removed.length) {
-      lines.push(`<@${user}> removed ${mentions(removed)} as ${role}, so there's no need to ${ASKED[role]} anymore. Thanks!`);
-    }
-    return lines;
-  });
+  const log = [];
+  const notes = [];
+  for (const { role, added, removed } of changes) {
+    if (added.length) log.push(assigned(user, added, role));
+    if (removed.length) log.push(unassigned(user, removed, role));
+    notes.push(added.length && requestIfDue(task, added, role), removed.length && noLongerIfDue(task, removed, role));
+  }
+  return { log, notes: notes.filter(Boolean) };
 }
-
-// Tells people removed from a role, or from every role (`role` null), that
-// they no longer need to do it.
-export function noLonger(people, role) {
-  return `${mentions(people)}, you don't need to ${ASKED[role] ?? ASKED.developer} anymore. Thanks!`;
-}
-
-// What each role does, for questions about a hand-off and for telling people
-// they no longer need to.
-export const ASKED = {
-  developer: "work on this",
-  reviewer: "review this",
-  tester: "test this",
-};

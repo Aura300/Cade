@@ -1,9 +1,9 @@
 import { isQuestion, phraseTest } from "../intents.js";
 import { clientStatus, loadRequirement, reflectOnRequirement } from "../requirements.js";
-import { CLOSE_ALL, acknowledge, callSlack, dismiss, escapeSlack, mentions, mrkdwn, plainText } from "../slack.js";
+import { oneMessage, request, statusChanged } from "../notify.js";
+import { CLOSE_ALL, acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
   NOT_A_TASK,
-  REQUESTS,
   STATUSES,
   approverBlock,
   loadTask,
@@ -93,9 +93,11 @@ export default {
       return statusPicker(prompt, task.status);
     }
 
+    const previous = task.status;
     const reached = await applyStatus(env, command.channel, command.threadTs, task, status);
     // A status typed in the command needs only a ✅, since the task card shows
-    // it, plus a note when the requirement thread was told.
+    // it, plus a note when the requirement thread was told, and the testers'
+    // request when it reached In testing.
     const { told } = await afterChange(
       env,
       command.channel,
@@ -105,7 +107,8 @@ export default {
       command.user,
       reached,
     );
-    return acknowledge(told);
+    const note = [told, testersAsked(task, previous)].filter(Boolean).join("\n");
+    return acknowledge(note || undefined);
   },
   actions: {
     [SELECT_ACTION]: async (payload, context) => {
@@ -141,14 +144,10 @@ export function progressOptions(task, user, message, hasClient = false) {
   return forClient ? ["CLIENT_REVIEW", "DONE"] : ["DONE"];
 }
 
-// Moves the task for `user` and tells its thread who did, asking testers to
-// test a task moved to In testing.
-async function moveAndTell(env, channel, ts, task, status, user) {
+// Moves the task for `user` and tells its thread who did.
+async function moveAndTell(env, channel, ts, status, user) {
   const text = await setStatus(env, channel, ts, status, user);
-  const ask = status === "IN_TESTING" && task.people.tester.length
-    ? `\n${mentions(task.people.tester)} ${REQUESTS.tester}`
-    : "";
-  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(`${text}${ask}`) });
+  await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(text) });
 }
 
 // The task card menu's Change status form (see menu.js).
@@ -190,7 +189,7 @@ function submitStatus(payload, context) {
         await callSlack(env, "chat.postEphemeral", { channel, user, text: NOT_A_TASK });
         return;
       }
-      if (task.status !== status) await moveAndTell(env, channel, ts, task, status, user);
+      if (task.status !== status) await moveAndTell(env, channel, ts, status, user);
     })(),
   );
   return CLOSE_ALL;
@@ -240,12 +239,20 @@ function statusPicker(prompt, current) {
   };
 }
 
-// The picker is a reply in the task's thread, so the thread identifies the task.
+// The picker is a reply in the task's thread, so the thread identifies the
+// task. It becomes what happened; but an edited message notifies no one, so
+// when the testers are asked, it goes and the thread gets a new reply.
 async function selectStatus(payload, env) {
   const channel = payload.channel.id;
   const ts = payload.message.thread_ts;
   const status = payload.actions[0].selected_option.value;
-  const reply = (await setStatus(env, channel, ts, status, payload.user.id)) ?? NOT_A_TASK;
+  const change = await statusChange(env, channel, ts, status, payload.user.id);
+  const reply = change ? oneMessage(change) : NOT_A_TASK;
+  if (change?.notes.length) {
+    await callSlack(env, "chat.delete", { channel, ts: payload.message.ts });
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, ...asMessage(reply) });
+    return;
+  }
   await callSlack(env, "chat.update", {
     channel,
     ts: payload.message.ts,
@@ -253,15 +260,34 @@ async function selectStatus(payload, env) {
   });
 }
 
-// Sets the task's status as the picker does, for `user`, and returns what the
-// picker then says: who set it, and whether the requirement thread was told.
-// Null if it isn't a task. Shared with `/cade standup`.
+// Sets the task's status as the picker does, for `user`, and returns what
+// the thread then hears, as one message (see statusChange). Null if it isn't
+// a task. Shared with `/cade standup`.
 export async function setStatus(env, channel, ts, status, user) {
+  const change = await statusChange(env, channel, ts, status, user);
+  return change && oneMessage(change);
+}
+
+// Sets the task's status for `user`, and returns what the thread hears as {
+// log, notes } (see oneMessage): who set it and whether the requirement
+// thread was told, and, when it reached In testing, the request to its
+// testers. Null if it isn't a task. Shared with suggestions.
+export async function statusChange(env, channel, ts, status, user) {
   const task = await loadTask(env, channel, ts);
   if (!task) return null;
+  const previous = task.status;
   const reached = await applyStatus(env, channel, ts, task, status);
   const { text, told } = await afterChange(env, channel, ts, task, status, user, reached);
-  return told ? `${text}\n${told}` : text;
+  const ask = testersAsked(task, previous);
+  return { log: [text, told].filter(Boolean), notes: ask ? [ask] : [] };
+}
+
+// The request to a task's testers when it has just reached In testing from
+// `previous`, or null. Testers assigned once it's In testing are asked then
+// (see notify.js).
+function testersAsked(task, previous) {
+  const { tester } = task.people;
+  return task.status === "IN_TESTING" && previous !== "IN_TESTING" && tester.length ? request(tester, "tester") : null;
 }
 
 // Saves the new status and returns whether the task just reached a status
@@ -290,7 +316,7 @@ async function applyStatus(env, channel, ts, task, status) {
 // the confirmation for the task's thread, `text`, and `told`, the line
 // saying the requirement thread was told, when it was.
 async function afterChange(env, channel, ts, task, status, user, reached) {
-  const text = changedText(user, status);
+  const text = statusChanged(user, status);
   if (status === "CLIENT_REVIEW") {
     await askApprover(env, channel, ts, user);
     return { text, told: null };
@@ -488,10 +514,6 @@ async function review(payload, env, approved) {
     ts: payload.message.ts,
     ...asMessage(`${request.text}\n${outcome}`),
   });
-}
-
-function changedText(user, status) {
-  return `<@${user}> set the status to ${STATUSES[status]}.`;
 }
 
 // chat.update keeps a message's old blocks unless new ones are sent, so text

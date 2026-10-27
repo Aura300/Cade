@@ -110,13 +110,13 @@
   <div class="wrap">
     <div class="eyebrow">In a task thread</div>
     <h2>People, status, PRs and releases</h2>
-    <p class="lede">These work in a task's thread in the dev channel or the incidents channel. The ⋯ menu on a task's card does the same without a command in the thread: <b>Assign people</b>, <b>Change status</b>, <b>Link PRs</b> and <b>Send PRs for approval</b>, and under <b>More</b> the priority and due date (on the team's own tasks), <b>Detach</b> and <b>Delete</b>. Pick one, save the form, and Cade notes who changed what in the thread.</p>
+    <p class="lede">These work in a task's thread in the dev channel or the incidents channel. The ⋯ menu on a task's card does the same without a command in the thread: <b>Assign people</b>, <b>Change status</b>, <b>Link PRs</b> and <b>Send PRs for approval</b>, and under <b>More</b> the priority and due date (on the team's own tasks), <b>Detach</b> and <b>Delete</b>. Pick one, save the form, and Cade notes who changed what in the thread, then asks the people it names to do their part: see <a href="notifications.html">who hears what</a>.</p>
     <div class="entries">
 
       <article class="entry">
         <h3><code>@Cade assign dev @person</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
-        <p>Adds people to a role: <code>developer</code> (or <code>dev</code>), <code>reviewer</code> (or <code>review</code>) or <code>tester</code> (or <code>test</code>, <code>qa</code>), several at once if you like. Cade mentions them with what to do next. Without anyone mentioned, <code>@Cade assign</code> asks you privately, with a button that opens one form with every role, filled in with who's on it now, to add or remove people.</p>
+        <p>Adds people to a role: <code>developer</code> (or <code>dev</code>), <code>reviewer</code> (or <code>review</code>) or <code>tester</code> (or <code>test</code>, <code>qa</code>), several at once if you like. Cade notes who assigned whom, and on the next line asks them to start (see <a href="notifications.html">notifications</a>). Without anyone mentioned, <code>@Cade assign</code> asks you privately, with a button that opens one form with every role, filled in with who's on it now, to add or remove people.</p>
         <ul>
           <li>Reviewers can be added before there's a PR. They're asked to review once one is linked.</li>
         </ul>
@@ -126,7 +126,7 @@
       <article class="entry">
         <h3><code>@Cade unassign dev @person</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
-        <p>Removes people from a role, and tells them they no longer need to do it. <code>@Cade unassign @person</code> removes them from every role. The same short words work. Without anyone mentioned it shows a button per role, each opening a form with that role's people.</p>
+        <p>Removes people from a role. Cade notes who removed whom, and on the next line tells them there's no need to do it anymore (see <a href="notifications.html">notifications</a>). <code>@Cade unassign @person</code> removes them from every role. The same short words work. Without anyone mentioned it shows a button per role, each opening a form with that role's people.</p>
       </article>
 
       <article class="entry">
@@ -144,7 +144,7 @@
       <article class="entry">
         <h3><code>@Cade pr add &lt;link&gt;</code> <code>@Cade pr remove &lt;link&gt;</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Incidents channel</span></div>
-        <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and shown on the card as <code>repo#number</code>. Linking moves a task that's To do or In progress to In review and asks its reviewers; with no reviewer yet, Cade asks who should review, with a people picker.</p>
+        <p>Links or unlinks pull requests, one or several. GitHub, GitLab and Bitbucket links are recognised, and shown on the card as <code>repo#number</code>. Linking moves a task that's To do or In progress to In review, and asks its reviewers to review it; with no reviewer yet, Cade asks who should review, with a people picker.</p>
         <div class="example"><b>Example:</b> <code>@Cade pr add https://github.com/acme/booking-web/pull/131</code></div>
       </article>
 

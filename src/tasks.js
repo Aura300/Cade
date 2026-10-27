@@ -83,18 +83,6 @@ export function prLines(task) {
   ].filter(Boolean);
 }
 
-// What Cade asks of people when they are assigned to a role, after their
-// names. Reviewers are asked once there's a pull request to review instead
-// (see pr.js).
-export const REQUESTS = {
-  developer: "could you pick this up when you get a chance? Thanks!",
-  tester: "could you give this a test when you get a chance? Thanks!",
-};
-
-// What Cade tells developers added to a task whose work has started, after
-// their names: there's nothing to ask, only to let them know.
-export const STARTED_NOTE = `you're down as developer on this, and it's ${STATUSES.IN_PROGRESS}.`;
-
 // Short words for each role, besides its name: `@Cade assign dev @rex`.
 const ROLE_WORDS = { dev: "developer", review: "reviewer", rev: "reviewer", test: "tester", qa: "tester" };
 

@@ -1,7 +1,8 @@
 import { channelPairs, findPair } from "../channels.js";
 import { userNames } from "../sheet.js";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
-import { REQUESTS, STATUSES, loadTask, saveTask } from "../tasks.js";
+import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
+import { assigned, request } from "../notify.js";
+import { STATUSES, loadTask, saveTask } from "../tasks.js";
 import { setStatus, statusOption } from "./status.js";
 import { OPEN, byUrgency, groupTasks, line } from "./tasks.js";
 
@@ -21,7 +22,7 @@ const ASSIGN_ACTIONS = Array.from({ length: MAX_SHOWN }, (_, i) => `standup:assi
 // first, then everyone else by name, then the tasks with no developer. Each
 // developer's step lists their tasks, most urgent first, each with a status
 // menu that works as `@Cade status` does; the tasks with no developer each
-// have a menu to pick one, which asks them to start as `@Cade assign` does.
+// have a menu to pick one, which assigns them as `@Cade assign` does.
 // Changes are posted in each task's thread, for the team to see.
 //
 // `/cade standup -unassigned` goes through just the tasks with no developer,
@@ -93,8 +94,8 @@ async function changeStatus(payload, env) {
   await show(payload, env, walk);
 }
 
-// A task's developer menu: assigns them, asks them to start in the task's
-// thread, and shows the step again, where the task no longer is.
+// A task's developer menu: assigns them, tells the task's thread and asks
+// them to start, and shows the step again, where the task no longer is.
 async function assignDeveloper(payload, env) {
   const action = payload.actions[0];
   const { c: channel, t: ts, ...walk } = JSON.parse(action.block_id);
@@ -103,11 +104,9 @@ async function assignDeveloper(payload, env) {
   if (task && developer && !task.people.developer.includes(developer)) {
     task.people.developer = [...task.people.developer, developer];
     await saveTask(env, channel, ts, task);
-    await callSlack(env, "chat.postMessage", {
-      channel,
-      thread_ts: ts,
-      text: `<@${payload.user.id}> assigned this to ${mentions([developer])}.\n${mentions([developer])} ${REQUESTS.developer}`,
-    });
+    const user = payload.user.id;
+    const text = [assigned(user, [developer], "developer"), request([developer], "developer")].join("\n");
+    await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
   }
   await show(payload, env, walk);
 }

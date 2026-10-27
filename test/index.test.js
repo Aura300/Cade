@@ -516,22 +516,63 @@ test("@Cade assign adds people to a role on the root message", async (t) => {
   assert.deepEqual(calls[1].args, {
     channel: "CDEV",
     thread_ts: "100.1",
-    text: "<@UBOB>, <@UALICE> could you pick this up when you get a chance? Thanks!",
+    // The record, then on the next line what it asks of them.
+    text: "<@UACTOR> assigned <@UBOB>, <@UALICE> as developer.\n<@UBOB>, <@UALICE>, could you pick this up when you get a chance? Thanks!",
   });
 });
 
 test("@Cade assign works for each role, in any word order", async (t) => {
   for (const [text, role, reply] of [
-    // No PR yet, so the reviewer isn't named, and isn't notified.
-    ["<@UBOT> assign reviewer <@UBOB>", "reviewer", "<@UACTOR> added a reviewer. I'll ask them to review once a PR is linked."],
-    ["<@UBOT> assign tester <@UBOB>", "tester", "<@UBOB> could you give this a test when you get a chance? Thanks!"],
-    ["<@UBOT> assign <@UBOB> as Tester", "tester", "<@UBOB> could you give this a test when you get a chance? Thanks!"],
-    ["<@UBOT> assign developers <@UBOB>", "developer", "<@UBOB> could you pick this up when you get a chance? Thanks!"],
+    // No PR yet, so there's nothing to ask the reviewer.
+    ["<@UBOT> assign reviewer <@UBOB>", "reviewer", "<@UACTOR> assigned <@UBOB> as reviewer."],
+    // Not In testing yet, so nothing to ask the tester either.
+    ["<@UBOT> assign tester <@UBOB>", "tester", "<@UACTOR> assigned <@UBOB> as tester."],
+    ["<@UBOT> assign <@UBOB> as Tester", "tester", "<@UACTOR> assigned <@UBOB> as tester."],
+    ["<@UBOT> assign developers <@UBOB>", "developer", "<@UACTOR> assigned <@UBOB> as developer.\n<@UBOB>, could you pick this up when you get a chance? Thanks!"],
   ]) {
     const calls = mockSlack(t, { stored: [storedTask()] });
     await send("/slack/events", threadEvent(text));
     assert.deepEqual((await savedTask()).people[role], ["UBOB"], text);
     assert.equal(calls[1].args.text, reply, text);
+  }
+});
+
+test("people are asked only when there's something for them to do now", async (t) => {
+  const task = (status, prs = [], releases = []) => {
+    const root = storedTask();
+    Object.assign(root.task, { status, prs, releases });
+    return root;
+  };
+  const ask = (role) =>
+    ({
+      developer: "<@UBOB>, could you pick this up when you get a chance? Thanks!",
+      reviewer: `<@UBOB>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+      tester: "<@UBOB>, could you give this a test when you get a chance? Thanks!",
+    })[role];
+  for (const [role, root, asked] of [
+    ["developer", task("TODO"), true],
+    ["developer", task("DONE"), false],
+    // Reviewers review the PRs not yet sent for approval.
+    ["reviewer", task("IN_REVIEW", [PR]), true],
+    ["reviewer", task("IN_REVIEW", [PR, MR], [{ prs: [MR], note: "Search", status: "PENDING_APPROVAL", sentBy: "UACTOR" }]), true],
+    ["reviewer", task("IN_REVIEW", [PR], [{ prs: [PR], note: "All", status: "PENDING_APPROVAL", sentBy: "UACTOR" }]), false],
+    // Testers test it once it's In testing.
+    ["tester", task("IN_REVIEW"), false],
+    ["tester", task("IN_TESTING"), true],
+  ]) {
+    const calls = mockSlack(t, { stored: [root] });
+    await send("/slack/events", threadEvent(`<@UBOT> assign ${role} <@UBOB>`));
+    const record = `<@UACTOR> assigned <@UBOB> as ${role}.`;
+    const label = `${role} on ${root.task.status} with ${root.task.prs.length} PRs`;
+    assert.equal(calls[1].args.text, asked ? `${record}\n${ask(role)}` : record, label);
+
+    // Those removed are told only when they would have been asked.
+    root.task.people[role] = ["UBOB"];
+    const again = mockSlack(t, { stored: [root] });
+    await send("/slack/events", threadEvent(`<@UBOT> unassign ${role} <@UBOB>`));
+    const removed = `<@UACTOR> removed <@UBOB> as ${role}.`;
+    const note = `<@UBOB>, there's no need to ${{ developer: "work on", reviewer: "review", tester: "test" }[role]} this anymore. Thanks!`;
+    assert.equal(again.at(-1).args.text, asked ? `${removed}\n${note}` : removed, label);
   }
 });
 
@@ -609,7 +650,10 @@ test("@Cade unassign with a role removes people from that role only", async (t) 
   const { people } = await savedTask();
   assert.deepEqual(people.developer, ["UBOB"]);
   assert.deepEqual(people.reviewer, ["UALICE"]);
-  assert.equal(calls[1].args.text, "<@UALICE>, you don't need to work on this anymore. Thanks!");
+  assert.equal(
+    calls[1].args.text,
+    "<@UACTOR> removed <@UALICE> as developer.\n<@UALICE>, there's no need to work on this anymore. Thanks!",
+  );
 });
 
 test("@Cade unassign without a role removes people from every role", async (t) => {
@@ -622,7 +666,10 @@ test("@Cade unassign without a role removes people from every role", async (t) =
     footerLines(calls[0].args)[0],
     "Dev <@UBOB>",
   );
-  assert.equal(calls[1].args.text, "<@UALICE>, you don't need to work on this anymore. Thanks!");
+  assert.equal(
+    calls[1].args.text,
+    "<@UACTOR> removed <@UALICE> from this task.\n<@UALICE>, there's no need to work on this anymore. Thanks!",
+  );
 });
 
 test("@Cade unassign without anyone mentioned offers the same role buttons as assign", async (t) => {
@@ -1253,7 +1300,7 @@ test("a sheet failure does not stop the command", async (t) => {
     stored: [storedTask()],
   });
   await sendWithSheet("/slack/events", threadEvent("<@UBOT> assign tester <@UBOB>"));
-  assert.equal(calls.at(-1).args.text, "<@UBOB> could you give this a test when you get a chance? Thanks!");
+  assert.equal(calls.at(-1).args.text, "<@UACTOR> assigned <@UBOB> as tester.");
 });
 
 // Apps Script answers a POST with a redirect to a page holding its reply.
@@ -1956,12 +2003,13 @@ test("saving the card's status form records who changed it in the thread, and no
   await send("/slack/interactions", cardFormSubmission("status:form", { status: { value: { selected_option: { value: "IN_TESTING" } } } }));
   assert.equal((await savedTask()).status, "IN_TESTING");
   assert.deepEqual(threadPosts(calls), [
-    "<@UACTOR> set the status to :test_tube: In testing.\n<@UTOM> could you give this a test when you get a chance? Thanks!",
+    "<@UACTOR> set the status to :test_tube: In testing.\n<@UTOM>, could you give this a test when you get a chance? Thanks!",
   ]);
 
   calls = mockSlack(t, { stored: [ownTask()] });
   await send("/slack/interactions", cardFormSubmission("status:form", { status: { value: { selected_option: { value: "TODO" } } } }));
   assert.deepEqual(calls, []);
+
 });
 
 test("saving the card's priority and due date forms records who changed them in the thread", async (t) => {
@@ -1996,13 +2044,16 @@ test("saving the card's assign form records who was added and removed in the thr
     tester: { value: { selected_users: tester } },
   });
   let calls = mockSlack(t, { stored: [ownTask({ testers: ["UTOM"] })] });
-  await send("/slack/interactions", cardFormSubmission("assign:team", people(["UREX"], ["UMIA"], [])));
-  assert.deepEqual((await savedTask()).people, { developer: ["UREX"], reviewer: ["UMIA"], tester: [] });
+  await send("/slack/interactions", cardFormSubmission("assign:team", people(["UREX", "UBOB"], ["UMIA"], [])));
+  assert.deepEqual((await savedTask()).people, { developer: ["UREX", "UBOB"], reviewer: ["UMIA"], tester: [] });
+  // One message: the change log, a line per role, then what it means for them.
   assert.deepEqual(threadPosts(calls), [
     [
-      "<@UACTOR> assigned <@UREX> as developer: could you pick this up when you get a chance? Thanks!",
-      "<@UACTOR> added a reviewer. I'll ask them to review once a PR is linked.",
-      "<@UACTOR> removed <@UTOM> as tester, so there's no need to test this anymore. Thanks!",
+      "<@UACTOR> assigned <@UREX>, <@UBOB> as developer.",
+      "<@UACTOR> assigned <@UMIA> as reviewer.",
+      "<@UACTOR> removed <@UTOM> as tester.",
+      "<@UREX>, <@UBOB>, could you pick this up when you get a chance? Thanks!",
+      // Not In testing, so the tester removed had nothing to do.
     ].join("\n"),
   ]);
 
@@ -2040,7 +2091,7 @@ test("saving the card's Link PRs form links and unlinks them, and asks the revie
   assert.deepEqual(threadPosts(calls), [
     [
       "<@UACTOR> linked <https://github.com/acme/web/pull/12|web/12> and moved the task to :eyes: In review.",
-      "<@UACTOR> assigned <@UREX> as reviewer: could you review <https://github.com/acme/web/pull/12|web/12> when you get a chance? Thanks!",
+      "<@UACTOR> assigned <@UREX> as reviewer.\n<@UREX>, could you review <https://github.com/acme/web/pull/12|web/12> when you get a chance? Thanks!",
     ].join("\n"),
   ]);
 
@@ -2911,7 +2962,7 @@ test("linking a PR with no reviewer asks who should review it", async (t) => {
   assert.deepEqual(JSON.parse(block.block_id), [PR]);
 });
 
-test("choosing reviewers assigns them and asks them to review", async (t) => {
+test("choosing reviewers assigns them and asks them to review, in a new reply", async (t) => {
   const root = storedTask();
   root.task.prs = [PR];
   const calls = mockSlack(t, { stored: [root] });
@@ -2921,21 +2972,49 @@ test("choosing reviewers assigns them and asks them to review", async (t) => {
       type: "block_actions",
       user: { id: "UCLICKER" },
       channel: { id: "CDEV" },
-      message: { ts: "100.8", thread_ts: "100.1" },
+      message: {
+        ts: "100.8",
+        thread_ts: "100.1",
+        text: `<@UACTOR> linked <${PR}|cade/42>.\nThere's no reviewer yet. Who should review it?`,
+      },
       actions: [{ action_id: "pr:reviewers", block_id: JSON.stringify([PR]), selected_users: ["URIA"] }],
     }),
   );
   assert.deepEqual(calls.map((call) => [call.method, call.args.ts]), [
     ["chat.update", "100.1"],
     ["chat.update", "100.8"],
+    ["chat.postMessage", undefined],
   ]);
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA"]);
-  assert.equal(
-    calls[1].args.text,
-    // Just the request; whoever chose sees the picker become it.
-    `<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
-  );
+  // The picker keeps what came before its question.
+  assert.equal(calls[1].args.text, `<@UACTOR> linked <${PR}|cade/42>.`);
   assert.equal(calls[1].args.blocks.length, 1, "the picker is gone");
+  // A new reply, since an edited message notifies no one.
+  assert.deepEqual(calls[2].args, {
+    channel: "CDEV",
+    thread_ts: "100.1",
+    text: `<@UCLICKER> assigned <@URIA> as reviewer.\n<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+  });
+});
+
+test("choosing reviewers on a picker with nothing before its question removes it", async (t) => {
+  const root = storedTask();
+  root.task.prs = [PR];
+  const calls = mockSlack(t, { stored: [root] });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "block_actions",
+      user: { id: "UCLICKER" },
+      channel: { id: "CDEV" },
+      message: { ts: "100.8", thread_ts: "100.1", text: "There's no reviewer yet. Who should review it?" },
+      actions: [{ action_id: "pr:reviewers", block_id: JSON.stringify([PR]), selected_users: ["URIA"] }],
+    }),
+  );
+  assert.deepEqual(calls.slice(1).map((call) => [call.method, call.args.ts]), [
+    ["chat.delete", "100.8"],
+    ["chat.postMessage", undefined],
+  ]);
 });
 
 test("assigning a reviewer once a PR is linked asks them to review it", async (t) => {
@@ -2946,16 +3025,18 @@ test("assigning a reviewer once a PR is linked asks them to review it", async (t
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA"]);
   assert.equal(
     calls[1].args.text,
-    `<@URIA>, could you review <${PR}|cade/42>, <${MR}|web-app/118> when you get a chance? Thanks!`,
+    `<@UACTOR> assigned <@URIA> as reviewer.\n<@URIA>, could you review <${PR}|cade/42>, <${MR}|web-app/118> when you get a chance? Thanks!`,
   );
 });
 
-test("reviewers added before a PR are not named, so not notified", async (t) => {
+test("reviewers added before a PR are recorded, and asked nothing yet", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UBOT> assign reviewer <@URIA> <@UREX>"));
-  const reply = calls[1].args.text;
-  assert.equal(reply, "<@UACTOR> added 2 reviewers. I'll ask them to review once a PR is linked.");
-  assert.ok(!reply.includes("URIA") && !reply.includes("UREX"));
+  assert.equal(
+    calls[1].args.text,
+    "<@UACTOR> assigned <@URIA>, <@UREX> as reviewer.",
+  );
+  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
 });
 
 // A plain (non-command) reply in the task's thread, as UACTOR.
@@ -3325,7 +3406,7 @@ test("a task tracked as started is In progress, and its other developers are tol
   assert.deepEqual((await savedTask()).people.developer, ["UCREATOR", "UREX"]);
   assert.deepEqual((await savedTask()).status, "IN_PROGRESS");
   const told = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").args;
-  assert.equal(told.text, "<@UREX> you're down as developer on this, and it's :arrow_forward: In progress.");
+  assert.equal(told.text, "<@UREX>, you're down as developer on this, and it's :arrow_forward: In progress.");
 });
 
 test("tracking yourself as started tells no one", async (t) => {
@@ -3811,7 +3892,7 @@ test("Track and assign asks the developers in the new task's thread", async (t) 
   );
   const ask = calls.find((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").args;
   assert.equal(ask.channel, "CDEV");
-  assert.equal(ask.text, "<@UREX>, <@UBOB> could you pick this up when you get a chance? Thanks!");
+  assert.equal(ask.text, "<@UREX>, <@UBOB>, could you pick this up when you get a chance? Thanks!");
 });
 
 
@@ -3862,18 +3943,28 @@ test("saving the form sets the role, tells those added and removed, and removes 
   const ask = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(ask.thread_ts, "100.1");
   // UREX is asked to start; UBOB, removed, is told they no longer need to.
-  assert.equal(ask.text, "<@UREX> could you pick this up when you get a chance? Thanks!\n<@UBOB>, you don't need to work on this anymore. Thanks!");
+  assert.equal(
+    ask.text,
+    [
+      "<@UPICKER> assigned <@UREX> as developer.",
+      "<@UPICKER> removed <@UBOB> as developer.",
+      "<@UREX>, could you pick this up when you get a chance? Thanks!",
+      "<@UBOB>, there's no need to work on this anymore. Thanks!",
+    ].join("\n"),
+  );
   assert.deepEqual(calls.at(-1).args, { channel: "CDEV", ts: "100.8" });
   assert.equal(calls.at(-1).method, "chat.delete");
 });
 
 test("saving with people only removed tells them", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ testers: ["UTESS"] })] });
+  const root = storedTask({ testers: ["UTESS"] });
+  root.task.status = "IN_TESTING";
+  const calls = mockSlack(t, { stored: [root] });
   await send("/slack/interactions", savePeopleForm("tester", []));
   assert.deepEqual((await savedTask()).people.tester, []);
   assert.equal(
     calls.find((call) => call.method === "chat.postMessage").args.text,
-    "<@UTESS>, you don't need to test this anymore. Thanks!",
+    "<@UPICKER> removed <@UTESS> as tester.\n<@UTESS>, there's no need to test this anymore. Thanks!",
   );
   assert.equal(calls.at(-1).method, "chat.delete");
 });
@@ -3881,7 +3972,11 @@ test("saving with people only removed tells them", async (t) => {
 test("reviewers saved are asked to review only once a PR is linked", async (t) => {
   let calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/interactions", savePeopleForm("reviewer", ["URIA"]));
-  assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
+  // Nothing to review yet: the record names no one, so it notifies no one.
+  assert.equal(
+    calls.find((call) => call.method === "chat.postMessage").args.text,
+    "<@UPICKER> assigned <@URIA> as reviewer.",
+  );
 
   const root = storedTask();
   root.task.prs = [PR];
@@ -3889,7 +3984,7 @@ test("reviewers saved are asked to review only once a PR is linked", async (t) =
   await send("/slack/interactions", savePeopleForm("reviewer", ["URIA"]));
   assert.equal(
     calls.find((call) => call.method === "chat.postMessage").args.text,
-    `<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+    `<@UPICKER> assigned <@URIA> as reviewer.\n<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
 });
 
@@ -3907,9 +4002,14 @@ test("@Cade unassign of someone not assigned changes nothing", async (t) => {
 });
 
 test("removed reviewers are told they no longer need to review", async (t) => {
-  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
+  const root = storedTask({ reviewers: ["URIA"] });
+  root.task.prs = [PR];
+  const calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent("<@UBOT> unassign reviewer <@URIA>"));
-  assert.equal(calls.at(-1).args.text, "<@URIA>, you don't need to review this anymore. Thanks!");
+  assert.equal(
+    calls.at(-1).args.text,
+    "<@UACTOR> removed <@URIA> as reviewer.\n<@URIA>, there's no need to review this anymore. Thanks!",
+  );
 });
 
 test("assign-style words without a mention are left alone", async (t) => {
@@ -4755,7 +4855,10 @@ test("/cade standup -unassigned goes through tasks with no developer, one at a t
   assert.deepEqual((await savedTask("CDEV", "100.2")).people.developer, ["UALICE"]);
   const post = calls.find((call) => call.method === "chat.postMessage").args;
   assert.equal(post.thread_ts, "100.2");
-  assert.equal(post.text, "<@UACTOR> assigned this to <@UALICE>.\n<@UALICE> could you pick this up when you get a chance? Thanks!");
+  assert.equal(
+    post.text,
+    "<@UACTOR> assigned <@UALICE> as developer.\n<@UALICE>, could you pick this up when you get a chance? Thanks!",
+  );
   // Assigned, it leaves the walk: the next one takes its place.
   const next = sent.at(-1);
   assert.equal(next.blocks[0].text.text, "*Unassigned acme tasks*  ·  1 of 1");
@@ -5844,9 +5947,10 @@ test("Save applies what the pickers show and tells the thread who changed what",
   assert.equal(
     post.text,
     [
-      "<@UACTOR> assigned <@UTESS> as tester: could you give this a test when you get a chance? Thanks!",
+      "<@UACTOR> assigned <@UTESS> as tester.",
       "<@UACTOR> set the status to :test_tube: In testing.",
-      "<@UTOM> could you give this a test when you get a chance? Thanks!",
+      // Moving to In testing asks every tester at once, the new one too.
+      "<@UTOM>, <@UTESS>, could you give this a test when you get a chance? Thanks!",
     ].join("\n"),
   );
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
@@ -5862,7 +5966,7 @@ test("Save with a different status picked applies it, and removing someone tells
   const saved = await savedTask();
   assert.deepEqual(saved.people.reviewer, ["UMIA"]);
   const post = calls.find((call) => call.method === "chat.postMessage").args.text;
-  assert.match(post, /^<@UACTOR> added a reviewer\. I'll ask them to review once a PR is linked\.\n<@UACTOR> removed <@URIA> as reviewer/);
+  assert.match(post, /^<@UACTOR> assigned <@UMIA> as reviewer\.\n<@UACTOR> removed <@URIA> as reviewer/);
 });
 
 test("Save leaves a suggested status alone once the task has moved, and Not now changes nothing", async (t) => {
@@ -6153,7 +6257,10 @@ test("choosing reviewers whose PR list didn't fit asks about all the task's PRs"
       actions: [{ action_id: "pr:reviewers", block_id: "not json", selected_users: ["URIA"] }],
     }),
   );
-  assert.equal(calls[1].args.text, `<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`);
+  assert.equal(
+    calls.at(-1).args.text,
+    `<@UCLICKER> assigned <@URIA> as reviewer.\n<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+  );
 });
 
 test("a move stands without its reaction, and a thread that's gone can't be moved", async (t) => {

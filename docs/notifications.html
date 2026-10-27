@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cade · Notifications</title>
+<meta name="description" content="What Cade posts in a task's thread when people, PRs or status change, and what it asks you first.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html"><span class="logo">C</span>Cade</a>
+    <ul>
+      <li><a href="index.html#walkthrough">Demo</a></li>
+      <li><a href="index.html#how">How it works</a></li>
+      <li><a href="index.html#features">Features</a></li>
+      <li><a href="commands.html">Commands</a></li>
+    </ul>
+    <div class="nav-right">
+      <a class="btn primary nav-cta" href="setup.html">Set up</a>
+      <button class="theme" id="theme" type="button" aria-label="Toggle dark mode">◐</button>
+    </div>
+  </div>
+</nav>
+
+<header class="guide-head">
+  <div class="wrap">
+    <div class="eyebrow">Notifications</div>
+    <h1>Who hears what.</h1>
+    <p class="lede">
+      When someone changes a task's people, pull requests or status, Cade posts one message in the task's thread:
+      what changed, then what it means for the people it names. There's nothing to confirm, and one change is one
+      message, so everyone is notified once.
+    </p>
+    <div class="kinds">
+      <div class="box">
+        <h3>First, the change log</h3>
+        <p>A line per change, who made it and what it was: “@ann assigned @rex, @bob as developer.” The thread keeps a log of every change.</p>
+      </div>
+      <div class="box">
+        <h3>Then, what it means for them</h3>
+        <p>A line each: “@rex, @bob, could you pick this up when you get a chance? Thanks!” or “@tom, there's no need to test this anymore. Thanks!”</p>
+      </div>
+    </div>
+    <h3 class="rules-head">Only when there's something to do now</h3>
+    <ul class="rules">
+      <li><b>Reviewers</b> are asked when a PR is linked, or when they're assigned and there are pending PRs (not yet sent for approval). They're asked about those PRs.</li>
+      <li><b>Testers</b> are asked when the task moves to In testing, or when they're assigned and it's In testing already.</li>
+      <li><b>Developers</b> are asked when they're assigned, unless the task is Done.</li>
+      <li><b>Those removed</b> are told there's no need anymore only if they'd have been asked.</li>
+    </ul>
+    <ul class="toc">
+      <li><a href="#assign">Assigning people</a></li>
+      <li><a href="#prs">Linking pull requests</a></li>
+      <li><a href="#status">Changing status</a></li>
+    </ul>
+  </div>
+</header>
+
+<main class="guide">
+
+<section id="assign">
+  <div class="wrap">
+    <div class="eyebrow">Assigning people</div>
+    <h2>Developers, reviewers and testers</h2>
+    <div class="entries">
+
+      <article class="entry">
+        <h3><code>@Cade assign dev @rex</code></h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann assigned @rex as developer.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>A reviewer is asked about the pending PRs: “@mia, could you review web/12 when you get a chance? Thanks!” A tester is asked to “give this a test” once the task is In testing.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Assigned before there's anything to do</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann assigned @mia as reviewer.<br>@ann assigned @tom as tester.</dd>
+        </dl>
+        <p>No pending PRs, and not In testing yet, so there's nothing to ask. Linking a PR asks the reviewers, and moving to In testing asks the testers.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Task card ⋯ → Assign people, or a role's button</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann assigned @rex, @bob as developer.<br>@ann assigned @mia as reviewer.<br>@ann removed @tom as tester.<br><span class="note">@rex, @bob, could you pick this up when you get a chance? Thanks!</span><br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>However many people and roles you change, it's one message: a line per role, then what it means for them. Here @tom isn't told, as the task wasn't In testing.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Said in your own words: “@tess can you test this?”</h3>
+        <dl class="flow">
+          <dt>Private</dt><dd>The role and status pickers <span class="btns"><span class="go">Save</span><span>Not now</span></span></dd>
+          <dt>Thread</dt><dd>@ann assigned @tess as tester.<br>@ann set the status to In testing.<br><span class="note">@tom, @tess, could you give this a test when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>As the Assign people form, with the status change in the log. Moving to In testing asks every tester at once.</p>
+      </article>
+
+      <article class="entry">
+        <h3><code>/cade standup -unassigned</code>, picking a developer</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann assigned @rex as developer.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
+        </dl>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade unassign dev @rex</code></h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann removed @rex as developer. <span class="if-note">without a role: from this task</span><br><span class="note">@rex, there's no need to work on this anymore. Thanks!</span></dd>
+        </dl>
+        <p>Only if they'd have been asked: removing a tester before In testing just records it.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Track and assign <span class="where">Older buttons</span></h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span><br>Or, for work already started: <span class="note">@rex, you're down as developer on this, and it's In progress.</span></dd>
+        </dl>
+        <p>Cade no longer offers these buttons, but ones posted before still work.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="prs" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">Linking pull requests</div>
+    <h2>Asking reviewers</h2>
+    <div class="entries">
+
+      <article class="entry">
+        <h3><code>@Cade pr add &lt;link&gt;</code>, on a task with reviewers</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann linked web/12 and moved the task to In review.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+        </dl>
+      </article>
+
+      <article class="entry">
+        <h3><code>@Cade pr add &lt;link&gt;</code>, on a task with no reviewer</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann linked web/12 and moved the task to In review.<br>There's no reviewer yet. Who should review it? <span class="btns"><span>Choose reviewers ▾</span></span></dd>
+          <dt>Picked</dt><dd>The picker keeps “@ann linked web/12 …”, and a new reply follows:<br>@bob assigned @mia as reviewer.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>A new reply, because Slack doesn't notify anyone about an edited message.</p>
+      </article>
+
+      <article class="entry">
+        <h3>A PR pasted into the thread</h3>
+        <dl class="flow">
+          <dt>Private</dt><dd>I see you posted web/12. Should I link it to this task? <span class="btns"><span class="go">Link PR</span><span>Not now</span></span><br><span class="if-note">with no reviewer yet, a reviewer picker too</span></dd>
+          <dt>Thread</dt><dd>@ann moved the task to In review.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>Your message already posted the link, so it isn't repeated. Reviewers your message mentioned aren't asked again.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Task card ⋯ → Link PRs</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann linked web/12 and moved the task to In review.<br>@ann unlinked web/11.<br>@ann assigned @rex as reviewer.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span><br><span class="note">@rex, could you review web/10, web/12 when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>Reviewers already on the task are asked about the new PRs. New reviewers are asked about every pending PR.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <div class="eyebrow">Changing status</div>
+    <h2>Asking testers</h2>
+    <div class="entries">
+
+      <article class="entry">
+        <h3>Moving to In testing, however it's done</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann set the status to In testing.<br><span class="note">@tom, could you give this a test when you get a chance? Thanks!</span></dd>
+        </dl>
+        <p>The same from <code>@Cade status</code> and its picker, the task card's Change status, suggestions and standup. A status typed in the command, like <code>@Cade status testing</code>, gets a ✅ on your message, with only the testers' request posted. The <code>@Cade status</code> picker becomes the change log; when testers are asked, it's replaced by a new reply instead, since Slack doesn't notify anyone about an edited message.</p>
+      </article>
+
+      <article class="entry">
+        <h3>Any other status</h3>
+        <dl class="flow">
+          <dt>Thread</dt><dd>@ann set the status to In progress.</dd>
+        </dl>
+      </article>
+
+    </div>
+    <p class="legend"><span class="note">Like this</span> is what a change means for the people it names, after the change log.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Cade: requirements to shipped, in Slack.</span>
+    <a href="commands.html">All commands →</a>
+  </div>
+</footer>
+
+<script>
+  // Light / dark toggle, remembered per browser when storage allows.
+  (() => {
+    const root = document.documentElement;
+    try {
+      const saved = localStorage.getItem("cade-theme");
+      if (saved) root.dataset.theme = saved;
+    } catch {}
+    document.getElementById("theme").addEventListener("click", () => {
+      const dark = root.dataset.theme
+        ? root.dataset.theme === "dark"
+        : matchMedia("(prefers-color-scheme: dark)").matches;
+      root.dataset.theme = dark ? "light" : "dark";
+      try { localStorage.setItem("cade-theme", root.dataset.theme); } catch {}
+    });
+  })();
+</script>
+</body>
+</html>

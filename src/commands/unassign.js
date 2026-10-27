@@ -1,9 +1,12 @@
 import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
-import { noLonger, roleButtons } from "./assign.js";
+import { noLongerIfDue, oneMessage, unassigned } from "../notify.js";
+import { roleButtons } from "./assign.js";
 
 // `@Cade unassign developer @person [@person …]` in a task thread removes
 // people from that role; `@Cade unassign @person` removes them from every role.
-// They're told they no longer need to do it. Without anyone mentioned it offers the same role buttons and form as
+// The thread hears who removed whom, and on the next line tells them there's
+// no need to do it anymore, if they'd been asked to (see notify.js).
+// Without anyone mentioned it offers the same role buttons and form as
 // `@Cade assign`.
 export default {
   name: "unassign",
@@ -28,6 +31,8 @@ export default {
       return `Looks like ${command.mentions.length === 1 ? "they aren't" : "none of them are"} assigned to this task${as}.`;
     }
     await saveTask(env, command.channel, command.threadTs, task);
-    return noLonger([...removed], role);
+    const people = [...removed];
+    const note = noLongerIfDue(task, people, role);
+    return oneMessage({ log: [unassigned(command.user, people, role)], notes: note ? [note] : [] });
   },
 };

@@ -308,3 +308,20 @@ pre.prompt { white-space: pre-wrap; padding-top: 40px; max-height: 260px; }
 .mini-steps h3 { font-size: 1rem; margin-top: 6px; }
 .mini-steps p { margin: 6px 0 0; color: var(--muted); font-size: .93rem; }
 .mini-steps code { white-space: normal; }
+
+/* The notifications page: each flow as labelled rows. */
+.kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; max-width: 760px; }
+@media (max-width: 640px) { .kinds { grid-template-columns: 1fr; } }
+.flow { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px 16px; margin: 14px 0 0; font-size: .93rem; }
+@media (max-width: 520px) { .flow { grid-template-columns: 1fr; gap: 2px; } .flow dd { margin-bottom: 8px; } }
+.flow dt { font-size: .74rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+.flow dd { margin: 0; line-height: 1.6; }
+.btns { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 4px; vertical-align: middle; }
+.btns span { border: 1px solid var(--border); border-radius: 6px; padding: 1px 9px; font-size: .8rem; font-weight: 600; background: var(--surface); }
+.btns span.go { background: var(--green); border-color: var(--green); color: var(--bg); }
+.note { color: var(--muted); border-left: 3px solid var(--accent); padding-left: 8px; display: inline-block; }
+.if-note { font-size: .78rem; font-weight: 600; color: var(--accent); }
+.legend { margin-top: 24px; color: var(--muted); font-size: .9rem; }
+.rules-head { font-size: 1rem; margin-top: 28px; }
+.rules { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: .95rem; max-width: 760px; }
+.rules li { margin: 4px 0; }

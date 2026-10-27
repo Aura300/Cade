@@ -1,13 +1,11 @@
 import { pairFor, roleOf, tasksChannelFor } from "../channels.js";
 import { POST_ATTEMPTS, countPostAttempt, hasUnpostedTask, insertTask, markTaskPosted } from "../db.js";
 import { clientStatus, loadRequirement, updateRequirement } from "../requirements.js";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
 import { fromTheCall, syncApplied } from "./debrief.js";
 import { moveMessage, offerStart } from "./move.js";
 import {
   PRIORITIES,
-  REQUESTS,
-  STARTED_NOTE,
   noPeople,
   readTaskForm,
   refreshSummary,
@@ -16,6 +14,7 @@ import {
   taskFormBlocks,
   taskMessage,
 } from "../tasks.js";
+import { request, startedNote } from "../notify.js";
 
 const TRACK_VIEW = "track";
 const OPEN_ACTION = "track:open";
@@ -364,7 +363,7 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
     await callSlack(env, "chat.postMessage", {
       channel: message.channel,
       thread_ts: message.ts,
-      text: `${mentions(others)} ${origin.started ? STARTED_NOTE : REQUESTS.developer}`,
+      text: origin.started ? startedNote(others) : request(others, "developer"),
     });
   }
   await syncTask(env, message.channel, message.ts, task);
