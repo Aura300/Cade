@@ -4,6 +4,7 @@ import { teamForm } from "./assign.js";
 import { deleteFromMenu } from "./delete.js";
 import { detachFromMenu } from "./detach.js";
 import { dueForm, priorityForm } from "./details.js";
+import { editForm } from "./edit.js";
 import { pullRequestForm } from "./pr.js";
 import { releaseForm } from "./release.js";
 import { statusForm } from "./status.js";
@@ -16,17 +17,24 @@ const MORE_ACTIONS = {
   delete: "task:more:delete",
 };
 
-// The ⋯ menu on a task's card (see taskMenu in tasks.js) does what `@Cade
-// assign`, `status`, `pr`, `release`, `priority`, `due`, `detach` and
-// `delete` do, without a command message in the task's thread. Each choice
-// opens a form; saving it posts who changed what in the thread, as the
-// record, and the card updates. Anything Cade can't do is said only to
-// whoever chose it.
+// The ⋯ menu on a task's card (see taskMenu in tasks.js) has two choices,
+// without a command message in the task's thread:
+//   Edit    one form for the people, status, priority and due date (on the
+//           team's own tasks) and pull requests (see edit.js); saving it
+//           posts who changed what in the thread, as the record, and the
+//           card updates.
+//   Delete  a panel with Delete and, for a task tracked from a requirement
+//           or incident, Detach, which Slack asks about before they're
+//           clicked.
+// Anything Cade can't do is said only to whoever chose it. Sending PRs for
+// approval is `@Cade release`.
 //
-// More opens a panel of buttons for what's rarely needed: the priority and
-// due date, on a task with no requirement (which owns them otherwise), and
-// Detach or Delete, which Slack asks about before they're clicked.
+// Cards posted before had a choice for each form, and More, a panel with
+// the priority and due date too; they're still answered, until the card is
+// redrawn.
 const FORMS = {
+  edit: (env, origin, task) => editForm(env, origin, task),
+  delete: (env, origin, task) => morePanel(origin, task, { title: "Delete", details: false }),
   assign: (env, origin, task) => teamForm(origin, task),
   status: (env, origin, task) => statusForm(origin, task),
   prs: (env, origin, task) => pullRequestForm(origin, task),
@@ -63,7 +71,10 @@ export default {
   views: { [MORE_VIEW]: () => CLOSE_ALL },
 };
 
-function morePanel(origin, task) {
+// The panel of rarely needed buttons: the priority and due date (`details`),
+// on a task with no requirement (which owns them otherwise), Detach and
+// Delete.
+function morePanel(origin, task, { title = "More", details = true } = {}) {
   const value = JSON.stringify(origin);
   const button = (choice, text, extra) => ({ type: "button", action_id: MORE_ACTIONS[choice], text: plainText(text), value, ...extra });
   const confirm = (title, text, yes) => ({
@@ -71,7 +82,7 @@ function morePanel(origin, task) {
   });
   const noun = task.source?.incident ? "incident" : "requirement";
   const buttons = [
-    ...(task.source ? [] : [button("priority", "Change priority…"), button("due", "Change due date…")]),
+    ...(task.source || !details ? [] : [button("priority", "Change priority…"), button("due", "Change due date…")]),
     ...(task.source
       ? [
           button(
@@ -95,12 +106,12 @@ function morePanel(origin, task) {
     type: "modal",
     callback_id: MORE_VIEW,
     private_metadata: value,
-    title: plainText("More"),
+    title: plainText(title),
     close: plainText("Close"),
     blocks: [
       { type: "section", text: mrkdwn(`*${escapeSlack(task.title)}*`) },
       { type: "actions", elements: buttons },
-      ...(task.source
+      ...(task.source && details
         ? [{ type: "context", elements: [mrkdwn(`Its priority and due date come from its ${noun}, and are changed there.`)] }]
         : []),
     ],

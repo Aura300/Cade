@@ -129,17 +129,13 @@ export function taskMessage(task) {
 }
 
 // The ⋯ menu on a task's card, so people change it without typing a command
-// in its thread (see menu.js). Slack shows up to five choices, so the
-// everyday ones come first and the rest are under More.
+// in its thread (see menu.js): Edit, one form for everything, and Delete.
 export const TASK_MENU_ACTION = "task:menu";
 
 function taskMenu() {
   const choices = [
-    ["assign", "Assign people…"],
-    ["status", "Change status…"],
-    ["prs", "Link PRs…"],
-    ["release", "Send PRs for approval…"],
-    ["more", "More…"],
+    ["edit", "Edit…"],
+    ["delete", "Delete…"],
   ];
   return {
     type: "overflow",

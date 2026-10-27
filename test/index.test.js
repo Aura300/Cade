@@ -1887,13 +1887,13 @@ const cardFormSubmission = (callbackId, values) =>
 const threadPosts = (calls) =>
   calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1").map((call) => call.args.text);
 
-test("a task's card has a menu, with the everyday choices first", async (t) => {
+test("a task's card has a menu: Edit and Delete", async (t) => {
   const calls = mockSlack(t, { stored: [ownTask()] });
   await send("/slack/events", threadEvent("<@UBOT> status in progress"));
   const card = calls.find((call) => call.method === "chat.update" && call.args.ts === "100.1").args;
   const { accessory } = card.blocks[0];
   assert.equal(accessory.action_id, "task:menu");
-  assert.deepEqual(accessory.options.map((option) => option.value), ["assign", "status", "prs", "release", "more"]);
+  assert.deepEqual(accessory.options.map((option) => option.value), ["edit", "delete"]);
 });
 
 test("choosing from a task card's menu opens its form, filled in", async (t) => {
@@ -7728,9 +7728,9 @@ test("with AI on, a message is read for every change and confirmed privately", a
     ].join("\n"),
   );
   const [confirm, change, skip] = question.blocks[2].elements;
-  assert.deepEqual([confirm.text.text, change.text.text, skip.text.text], ["Confirm", "Change…", "Not now"]);
+  assert.deepEqual([confirm.text.text, change.text.text, skip.text.text], ["Accept", "Edit…", "Reject"]);
 
-  // Confirm applies it all, and the thread hears it as one message.
+  // Accept applies it all, and the thread hears it as one message.
   await send("/slack/interactions", aiClick(confirm), {}, environment);
   const saved = await savedTask();
   assert.deepEqual(saved.people, { developer: ["UREX"], reviewer: ["UMIA"], tester: [] });
@@ -7753,7 +7753,7 @@ test("with AI on, a message is read for every change and confirmed privately", a
   assert.deepEqual(calls.responses, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
-test("Change… opens a form filled in with what AI read, and saving it applies the form", async (t) => {
+test("Edit… opens the task's Edit form filled in with what AI read, and saving it applies the form", async (t) => {
   const { environment } = aiEnv(aiRead({ tester: { add: ["UTESS"], remove: [] }, status: "IN_TESTING" }));
   const calls = mockSlack(t, { stored: [ownTask({ testers: ["UTOM"] })] });
   calls.responses = recordResponses(t);
@@ -7763,7 +7763,8 @@ test("Change… opens a form filled in with what AI read, and saving it applies 
   await send("/slack/interactions", aiClick(change), {}, environment);
   const form = calls.at(-1).args.view;
   assert.equal(calls.at(-1).method, "views.open");
-  assert.deepEqual(form.blocks.map((block) => block.block_id), ["developer", "reviewer", "tester", "status", "priority", "due_date"]);
+  assert.equal(form.callback_id, "task:edit");
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["developer", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
   assert.deepEqual(form.blocks[2].element.initial_users, ["UTOM", "UTESS"]);
   assert.equal(form.blocks[3].element.initial_option.value, "IN_TESTING");
   assert.equal(form.blocks[5].element.initial_date, "2026-10-31");
@@ -7785,6 +7786,7 @@ test("Change… opens a form filled in with what AI read, and saving it applies 
             status: { value: { selected_option: { value: "IN_TESTING" } } },
             priority: { value: { selected_option: { value: "High" } } },
             due_date: { value: { selected_date: "2026-11-02" } },
+            prs: { value: { value: "" } },
           },
         },
       },
@@ -7895,4 +7897,56 @@ test("npm run config checks each group's suggestions and ai, and npm run group k
   const { withGroup } = await import("../scripts/group.mjs");
   const next = JSON.parse(withGroup(JSON.stringify({ channels }), "test", { incidents: "C0000000004" }));
   assert.deepEqual(next.channels[1], { name: "test", tasks: "C0000000003", incidents: "C0000000004", suggestions: false });
+});
+
+test("the card's Edit opens one form with everything, and saving it applies what changed as one message", async (t) => {
+  const record = ownTask({ developers: ["UREX"], reviewers: ["UMIA"] });
+  const calls = mockSlack(t, { stored: [record] });
+  await send("/slack/interactions", cardMenuClick("edit"));
+  assert.deepEqual(calls.map((call) => call.method), ["views.open"]);
+  const form = calls[0].args.view;
+  assert.equal(form.callback_id, "task:edit");
+  assert.deepEqual(form.blocks.map((block) => block.block_id), ["developer", "reviewer", "tester", "status", "priority", "due_date", "prs"]);
+  assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
+  assert.equal(form.blocks[3].element.initial_option.value, "TODO");
+
+  // A PR linked with the status left alone moves the task to In review, and
+  // the reviewer is asked; a tester is added too.
+  const values = {
+    developer: { value: { selected_users: ["UREX"] } },
+    reviewer: { value: { selected_users: ["UMIA"] } },
+    tester: { value: { selected_users: ["UTESS"] } },
+    status: { value: { selected_option: { value: "TODO" } } },
+    priority: { value: { selected_option: { value: "High" } } },
+    due_date: { value: { selected_date: "2026-10-31" } },
+    prs: { value: { value: "https://github.com/acme/web/pull/12" } },
+  };
+  const submit = (state) =>
+    send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: form.callback_id, private_metadata: form.private_metadata, state: { values: state } } }));
+  await submit(values);
+  const saved = await savedTask();
+  assert.deepEqual([saved.status, saved.prs, saved.people.tester], ["IN_REVIEW", ["https://github.com/acme/web/pull/12"], ["UTESS"]]);
+  const posts = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1");
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].args.text, /^<@UACTOR> linked .* and moved the task to/);
+  assert.match(posts[0].args.text, /<@UACTOR> assigned <@UTESS> as tester\./);
+  assert.match(posts[0].args.text, /<@UMIA>, could you review/);
+
+  // A link that isn't a PR is refused in the form.
+  const refused = await submit({ ...values, prs: { value: { value: "not a link" } } });
+  assert.match(JSON.stringify(await refused.json()), /doesn't look like a pull request link/);
+});
+
+test("the card's Delete opens a panel with Delete, and Detach for a tracked task, without the priority and due date", async (t) => {
+  let calls = mockSlack(t, { stored: [ownTask()] });
+  await send("/slack/interactions", cardMenuClick("delete"));
+  const own = calls[0].args.view;
+  assert.equal(own.title.text, "Delete");
+  assert.deepEqual(own.blocks[1].elements.map((button) => button.action_id), ["task:more:delete"]);
+
+  calls = mockSlack(t, { stored: [storedTask()] });
+  await send("/slack/interactions", cardMenuClick("delete"));
+  const tracked = calls[0].args.view;
+  assert.deepEqual(tracked.blocks[1].elements.map((button) => button.action_id), ["task:more:detach", "task:more:delete"]);
+  assert.equal(tracked.blocks.length, 2);
 });
