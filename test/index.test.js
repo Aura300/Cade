@@ -5855,72 +5855,74 @@ const progressClick = (status, from, user = "UACTOR") =>
 const ephemeral = (calls) => calls.find((call) => call.method === "chat.postEphemeral")?.args;
 const questionButtons = (question) => question.blocks[1].elements;
 
-// The pickers on Cade's private suggestion: { role or "status": initial }.
-const suggestedPickers = (question) =>
-  Object.fromEntries(
-    question.blocks
-      .filter((block) => block.accessory?.action_id?.startsWith("suggest:"))
-      .map((block) => [
-        block.accessory.action_id.replace(/^suggest:(role:)?/, ""),
-        block.accessory.initial_users ?? block.accessory.initial_option?.value ?? null,
-      ]),
-  );
+// The changes Cade's private suggestion would make, as its Accept button
+// carries them (see changes.js).
+const suggestedChanges = (question) => JSON.parse(question.blocks.at(-1).elements[0].value).changes;
+const add = (...ids) => ({ add: ids, remove: [] });
 
-// Saves the suggestion `question` with `picked`: { role or "status": value }
-// for the pickers changed; the rest are left as they started.
-const saveSuggestion = (question, picked = {}, user = "UACTOR") => {
-  const save = question.blocks.at(-1).elements[0];
-  const values = Object.fromEntries(
-    Object.entries(picked).map(([name, value]) => {
-      const id = name === "status" ? "suggest:status" : `suggest:role:${name}`;
-      const state = name === "status" ? { selected_option: { value } } : { selected_users: value };
-      return [id, { [id]: state }];
-    }),
-  );
+// Clicks the suggestion `question`'s button `index`: 0 Accept, 1 Edit…, 2 Reject.
+const answerSuggestion = (question, index = 0, user = "UACTOR") => {
+  const button = question.blocks.at(-1).elements[index];
   return interaction({
     type: "block_actions",
     user: { id: user },
     channel: { id: "CDEV" },
+    trigger_id: "T1",
     container: { is_ephemeral: true },
     response_url: RESPONSE_URL,
-    state: { values },
-    actions: [{ action_id: save.action_id, value: save.value }],
+    actions: [{ action_id: button.action_id, value: button.value }],
   });
 };
 
-test("asking for a role offers that role's picker, filled with who has it now, not who's mentioned", async (t) => {
+test("asking for a role suggests adding whoever the request names, not someone only cc'd", async (t) => {
   const calls = mockSlack(t, { stored: [taskWith("IN_PROGRESS", { reviewers: ["URIA"] })] });
   await send("/slack/events", threadReply("<@UMIA> can you review this? cc <@UREX>"));
   const question = ephemeral(calls);
   assert.equal(question.user, "UACTOR");
   assert.equal(question.thread_ts, "100.1");
-  assert.equal(question.text, "Should I update the task? I've filled this in from your message: change anything, then Save.");
-  assert.deepEqual(suggestedPickers(question), { reviewer: ["URIA"] });
-  assert.deepEqual(question.blocks.at(-1).elements.map((button) => button.text.text), ["Save", "Not now"]);
+  assert.equal(question.text, "Should I update the task? From your message:");
+  assert.equal(question.blocks[1].text.text, "*Reviewers:* <@UMIA> (Add)");
+  assert.deepEqual(suggestedChanges(question), { people: { reviewer: add("UMIA") } });
+  assert.deepEqual(question.blocks.at(-1).elements.map((button) => button.text.text), ["Accept", "Edit…", "Reject"]);
 });
 
-test("one message can ask for several roles, each with its own picker", async (t) => {
+test("one message can ask for several roles, each for whoever it names", async (t) => {
   const calls = mockSlack(t, { stored: [taskWith("TODO", { developers: ["UREX"] })] });
   await send("/slack/events", threadReply("<@UREX> please pick this up, <@UMIA> can you review it and <@UTOM> test it"));
-  // Developing it as well as testing it: the work hasn't reached testing.
-  assert.deepEqual(suggestedPickers(ephemeral(calls)), { developer: ["UREX"], reviewer: null, tester: null });
+  // UREX develops it already; developing it as well as testing it means the
+  // work hasn't reached testing.
+  assert.deepEqual(suggestedChanges(ephemeral(calls)), { people: { reviewer: add("UMIA"), tester: add("UTOM") } });
+});
+
+test("asking someone to implement it while the author tests it suggests them as developer, and the author as tester", async (t) => {
+  const calls = mockSlack(t, { stored: [taskWith("TODO")] });
+  await send("/slack/events", threadReply("<@UUDARA> can you implement this feature while i will try about ways to test this"));
+  assert.deepEqual(suggestedChanges(ephemeral(calls)), { people: { developer: add("UUDARA"), tester: add("UACTOR") } });
+  assert.equal(ephemeral(calls).blocks[1].text.text, "*Developers:* <@UUDARA> (Add)\n*Testers:* <@UACTOR> (Add)");
+
+  // The author testing it, beside a review asked of someone else, doesn't
+  // move it to In testing.
+  const review = mockSlack(t, { stored: [taskWith("IN_REVIEW")] });
+  await send("/slack/events", threadReply("<@UMIA> please review it and I'll test it after"));
+  assert.deepEqual(suggestedChanges(ephemeral(review)), { people: { reviewer: add("UMIA"), tester: add("UACTOR") } });
 });
 
 test("asking only for testing also suggests In testing", async (t) => {
   const calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { testers: ["UTOM"] })] });
   await send("/slack/events", threadReply("<@UTOM> please test it on staging"));
-  assert.deepEqual(suggestedPickers(ephemeral(calls)), { tester: ["UTOM"], status: "IN_TESTING" });
+  // UTOM tests it already, so only the status changes.
+  assert.deepEqual(suggestedChanges(ephemeral(calls)), { status: "IN_TESTING" });
 });
 
-test("the work starting suggests In progress, and the developers picker for someone not on the task", async (t) => {
-  for (const [text, people, pickers] of [
+test("the work starting suggests In progress, and adding as a developer someone not on the task", async (t) => {
+  for (const [text, people, changes] of [
     ["on it", { developers: ["UACTOR"] }, { status: "IN_PROGRESS" }],
-    ["okay, started working on this", {}, { developer: null, status: "IN_PROGRESS" }],
+    ["okay, started working on this", {}, { people: { developer: add("UACTOR") }, status: "IN_PROGRESS" }],
     ["<@UREX> has started working on this", {}, { status: "IN_PROGRESS" }],
   ]) {
     const calls = mockSlack(t, { stored: [taskWith("TODO", people)] });
     await send("/slack/events", threadReply(text));
-    assert.deepEqual(suggestedPickers(ephemeral(calls)), pickers, text);
+    assert.deepEqual(suggestedChanges(ephemeral(calls)), changes, text);
   }
 });
 
@@ -5933,19 +5935,18 @@ test("progress in words suggests the next status", async (t) => {
   ]) {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadReply(text, { user }));
-    assert.deepEqual(suggestedPickers(ephemeral(calls)), { status }, text);
+    assert.deepEqual(suggestedChanges(ephemeral(calls)), { status }, text);
   }
 });
 
-test("Save applies what the pickers show and tells the thread who changed what", async (t) => {
+test("Accept applies the suggestion and tells the thread who changed what", async (t) => {
   let calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"], testers: ["UTOM"] })] });
-  await send("/slack/events", threadReply("<@UTOM> please test it"));
+  await send("/slack/events", threadReply("<@UTESS> please test it"));
   const question = ephemeral(calls);
 
   calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"], testers: ["UTOM"] })] });
   const sent = recordResponses(t);
-  // The tester picker is changed; the status is left as suggested.
-  await send("/slack/interactions", saveSuggestion(question, { tester: ["UTOM", "UTESS"] }));
+  await send("/slack/interactions", answerSuggestion(question));
   const saved = await savedTask();
   assert.deepEqual(saved.people.tester, ["UTOM", "UTESS"]);
   assert.equal(saved.status, "IN_TESTING");
@@ -5963,20 +5964,18 @@ test("Save applies what the pickers show and tells the thread who changed what",
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
-test("Save with a different status picked applies it, and removing someone tells them", async (t) => {
+test("Edit… on a suggestion by phrases opens the task's Edit form, filled in with it", async (t) => {
   let calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"] })] });
   await send("/slack/events", threadReply("<@UMIA> can you review this?"));
   const question = ephemeral(calls);
   calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { reviewers: ["URIA"] })] });
-  recordResponses(t);
-  await send("/slack/interactions", saveSuggestion(question, { reviewer: ["UMIA"] }));
-  const saved = await savedTask();
-  assert.deepEqual(saved.people.reviewer, ["UMIA"]);
-  const post = calls.find((call) => call.method === "chat.postMessage").args.text;
-  assert.match(post, /^<@UACTOR> assigned <@UMIA> as reviewer\.\n<@UACTOR> removed <@URIA> as reviewer/);
+  await send("/slack/interactions", answerSuggestion(question, 1));
+  const form = calls.find((call) => call.method === "views.open").args.view;
+  assert.equal(form.callback_id, "task:edit");
+  assert.deepEqual(form.blocks[1].element.initial_users, ["URIA", "UMIA"]);
 });
 
-test("Save leaves a suggested status alone once the task has moved, and Not now changes nothing", async (t) => {
+test("Accept leaves a suggested status alone once the task has moved, and Reject changes nothing", async (t) => {
   let calls = mockSlack(t, { stored: [taskWith("TODO", { developers: ["UACTOR"] })] });
   await send("/slack/events", threadReply("on it"));
   const question = ephemeral(calls);
@@ -5984,48 +5983,44 @@ test("Save leaves a suggested status alone once the task has moved, and Not now 
   // Someone moved it to In review meanwhile.
   calls = mockSlack(t, { stored: [taskWith("IN_REVIEW", { developers: ["UACTOR"] })] });
   let sent = recordResponses(t);
-  await send("/slack/interactions", saveSuggestion(question));
+  await send("/slack/interactions", answerSuggestion(question));
   assert.equal((await savedTask()).status, "IN_REVIEW");
   assert.ok(!calls.some((call) => call.method === "chat.postMessage"));
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 
   calls = mockSlack(t, { stored: [taskWith("TODO", { developers: ["UACTOR"] })] });
   sent = recordResponses(t);
-  const skip = question.blocks.at(-1).elements[1];
-  await send(
-    "/slack/interactions",
-    interaction({ type: "block_actions", user: { id: "UACTOR" }, response_url: RESPONSE_URL, actions: [{ action_id: skip.action_id, value: skip.value }] }),
-  );
+  await send("/slack/interactions", answerSuggestion(question, 2));
   assert.deepEqual(calls, []);
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
 
 test("suggestions follow the kinds turned on", async (t) => {
-  for (const [kinds, text, record, user, pickers] of [
+  for (const [kinds, text, record, user, changes] of [
     ['["hand-offs"]', "lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", null],
     ['["progress"]', "lgtm", taskWith("IN_REVIEW", { reviewers: ["UACTOR"] }), "UACTOR", { status: "IN_TESTING" }],
     ['["progress"]', "<@UMIA> can you review this?", taskWith("IN_PROGRESS"), "UACTOR", null],
     ['["hand-offs"]', "on it", taskWith("TODO", { developers: ["UACTOR"] }), "UACTOR", null],
-    // Asked for testing with progress off: the role, no status.
-    ['["hand-offs"]', "<@UTOM> please test it", taskWith("IN_PROGRESS"), "UACTOR", { tester: null, status: "IN_TESTING" }],
+    // Asked for testing with progress off: the role, and the status with it.
+    ['["hand-offs"]', "<@UTOM> please test it", taskWith("IN_PROGRESS"), "UACTOR", { people: { tester: add("UTOM") }, status: "IN_TESTING" }],
   ]) {
     const calls = mockSlack(t, { stored: [record] });
     await send("/slack/events", threadReply(text, { user }), {}, { ...env, SUGGESTIONS: kinds });
     const question = ephemeral(calls);
-    assert.deepEqual(question ? suggestedPickers(question) : null, pickers, `${kinds}: ${text}`);
+    assert.deepEqual(question ? suggestedChanges(question) : null, changes, `${kinds}: ${text}`);
   }
 });
 
 test("in a tracked requirement's thread, only development and the work starting are suggested, for its task", async (t) => {
-  for (const [text, pickers] of [
-    ["<@UREX> please start working on this", { developer: null }],
+  for (const [text, changes] of [
+    ["<@UREX> please start working on this", { people: { developer: add("UREX") } }],
     ["<@UREX> please review this", null],
     ["<@UREX> has started working on this", { status: "IN_PROGRESS" }],
   ]) {
     const calls = mockSlack(t, threads(requirementRoot({ task: true }), requirementTask("TODO")));
     await send("/slack/events", requirementReply(text));
     const question = ephemeral(calls);
-    assert.deepEqual(question ? suggestedPickers(question) : null, pickers, text);
+    assert.deepEqual(question ? suggestedChanges(question) : null, changes, text);
     if (question) assert.equal(JSON.parse(question.blocks.at(-1).elements[0].value).channel, "CDEV");
   }
   // Before it's tracked, there's no task to suggest for.
@@ -7720,8 +7715,8 @@ test("with AI on, a message is read for every change and confirmed privately", a
   assert.equal(
     question.blocks[1].text.text,
     [
-      "*Developers:* + <@UREX>   − <@UBOB>",
-      "*Reviewers:* + <@UMIA>",
+      "*Developers:* <@UREX> (Add) · <@UBOB> (Remove)",
+      "*Reviewers:* <@UMIA> (Add)",
       "*Status:* :memo: To do → :arrow_forward: In progress",
       "*Priority:* :large_orange_circle: High → :red_circle: Urgent",
       "*Due:* 31/10/2026 → 30/10/2026",
@@ -7831,7 +7826,8 @@ test("when AI fails, the message is read by its phrases instead", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, environment);
   const question = ephemeral(calls);
-  assert.equal(question.text, "Should I update the task? I've filled this in from your message: change anything, then Save.");
+  assert.equal(question.text, "Should I update the task? From your message:");
+  assert.deepEqual(suggestedChanges(question), { people: { reviewer: add("UMIA") } });
 });
 
 test("with suggestions off, AI isn't asked and only commands work", async (t) => {

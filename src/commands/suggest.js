@@ -1,17 +1,17 @@
-import { aiModel } from "../ai.js";
+import { aiModel, checkChanges } from "../ai.js";
 import { pairFor, roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest, suggesting } from "../intents.js";
 import { loadRequirement, onTheTeam } from "../requirements.js";
-import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
-import { ROLES, STATUSES, loadTask } from "../tasks.js";
-import { suggestWithAi } from "./ai-suggest.js";
+import { dismiss, escapeSlack, respondLater } from "../slack.js";
+import { ROLES, loadTask } from "../tasks.js";
+import { askToChange, suggestWithAi } from "./ai-suggest.js";
 import { applyChanges } from "./changes.js";
-import { progressOptions, soundsLikeProgress, statusOption } from "./status.js";
+import { progressOptions, soundsLikeProgress } from "./status.js";
 
+// Suggestions by phrases used to come with pickers, Save and Not now; those
+// already posted are still answered (see save).
 const SAVE_ACTION = "suggest:save";
 const SKIP_ACTION = "suggest:skip";
-// The pickers, each its own block, so Save reads them from the message's
-// state; Slack needs each action_id in a message to differ.
 const ROLE_PICKS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `suggest:role:${role}`]));
 const STATUS_PICK = "suggest:status";
 
@@ -22,15 +22,16 @@ const STATUS_PICK = "suggest:status";
 //
 // By phrases:
 // "@mia can you review this?", "on it", "lgtm", "done". Cade reads the
-// message for what it asks of each role and what it says about the work,
-// then asks whoever wrote it, privately, with pickers to change the task:
-// one per role asked for, filled in with who has it now, and the status the
-// message suggests. They change what they like and Save; nothing changes
-// until then, and the thread hears only what changed, credited to them.
+// message a request at a time for who it asks to take each role, and what it
+// says about the work, then asks whoever wrote it, privately, with the same
+// summary AI suggestions give: Accept, Edit… or Reject (see askToChange in
+// ai-suggest.js). Nothing changes until then, and the thread hears only what
+// changed, credited to them.
 //
-// Who to assign is never read from the message, since its mentions may be
-// for something else ("cc @rex"): the pickers start from the task's own
-// people. Each kind can be turned off with `suggestions` in cade.config.json:
+// Who is asked is whoever the request names ("@rex, can you review this?"),
+// so a mention that only informs ("cc @rex") asks no one, and neither does
+// the author's own plan ("I'll test it"). Each kind can be turned off with
+// `suggestions` in cade.config.json:
 //   hand-offs  a request to develop, review or test it: a picker for that role
 //   started    the work starting: In progress, and, for someone who isn't on
 //              the task, the developers picker
@@ -66,6 +67,9 @@ const ROLE_REQUESTS = {
     // "I can't take this, @mia can you?", "handing this over to @rex"
     "hand(ing|ed)? (this |it )?over",
     "take over",
+    "implement*",
+    "build (this|it)",
+    "develop (this|it)",
   ]),
 };
 
@@ -101,7 +105,13 @@ const REPORTED = phraseTest([
 
 // Where one request in a message ends and the next starts. Punctuation stays
 // with the request it ends, so a question can be told from a report.
-const REQUEST_BREAK = /(?<=[.;!?\n])|,|\s+(?:and|then|also|&amp;)\s+/i;
+const REQUEST_BREAK = /(?<=[.;!?\n])|,|\s+(?:and|then|also|while|but|&amp;)\s+/i;
+
+// A request about the author's own part: "I'll test it", "while I try ways
+// to test this". The role it names is theirs.
+const OWN_PART = /^\s*(i|i['’](ll|m|d)|we|we['’](ll|re))\b/i;
+
+const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
 // The statuses the work starting, or a tester being asked, moves a task from.
 const MOVES_FROM = {
@@ -167,32 +177,55 @@ export default {
   },
 };
 
-// The roles a message asks someone to do, read a request at a time (see
-// REQUEST_BREAK), in ROLES' order. A request only counts in a message that
-// mentions someone, as asking is done by name, though who is never read
-// from it; and one reporting work already started asks nothing, unless it's
-// a question ("@rex have you started on this?").
-export function rolesAskedIn(message) {
-  if (!message.mentions?.length) return [];
-  const asked = new Set();
+// Who a message asks to take each role, as { [role]: ids }, read a request
+// at a time (see REQUEST_BREAK). Asking is done by name: a request asks
+// whoever it mentions, or whoever the last request did ("@rex, can you
+// review this?"). One reporting work already started asks nothing, unless
+// it's a question ("@rex have you started on this?"). One about the author's
+// own part (see OWN_PART), alongside a request of someone else, gives the
+// author that role: "@udara can you implement this while I test it".
+// Returns the roles taken by the author alone as `own`, a list.
+export function handOffsIn(message) {
+  const asked = {};
+  const own = [];
+  if (!message.mentions?.length) return Object.defineProperty(asked, "own", { value: own });
+  let named = [];
   for (const request of message.text.split(REQUEST_BREAK)) {
     const text = { text: request };
+    const mentioned = [...request.matchAll(USER_MENTION)].map((match) => match[1]);
+    const theirs = !mentioned.length && OWN_PART.test(request);
+    if (mentioned.length) named = mentioned;
     if (REPORTED(text) && !/\?\s*$/.test(request)) continue;
     const role = Object.keys(ROLE_REQUESTS).find((name) => ROLE_REQUESTS[name](text));
-    if (role) asked.add(role);
+    const who = theirs ? [message.user] : named;
+    if (!role || !who.length) continue;
+    asked[role] = [...new Set([...(asked[role] ?? []), ...who])];
+    if (theirs) own.push(role);
   }
-  return Object.keys(ROLES).filter((role) => asked.has(role));
+  return Object.defineProperty(asked, "own", { value: own });
 }
 
-// What a message suggests for `task`, as { roles, status }: the roles to
-// show pickers for, and the status to suggest, or null. Only the kinds
-// turned on are read.
+// The roles a message asks someone to take, in ROLES' order.
+export function rolesAskedIn(message) {
+  const asked = handOffsIn(message);
+  return Object.keys(ROLES).filter((role) => asked[role]);
+}
+
+// What a message suggests for `task`, as { roles, people, status }: the
+// roles it asks for, who to add to each ({ [role]: ids }), and the status to
+// suggest, or null. Only the kinds turned on are read.
 export function suggestionsFor(env, message, task, { place, hasClient }) {
   const roles = new Set();
+  const people = {};
   let status = null;
   const external = place === "external";
-  const asked = suggesting(env, "hand-offs", message.channel) ? rolesAskedIn(message) : [];
-  for (const role of asked) if (!external || role === "developer") roles.add(role);
+  const asked = suggesting(env, "hand-offs", message.channel) ? handOffsIn(message) : {};
+  for (const [role, ids] of Object.entries(asked)) {
+    if (external && role !== "developer") continue;
+    roles.add(role);
+    people[role] = ids;
+  }
+  const ownTesting = asked.own?.includes("tester") && people.tester?.every((id) => id === message.user);
 
   if (suggesting(env, "progress", message.channel) && !external && soundsLikeProgress(message)) {
     status = progressOptions(task, message.user, message, hasClient)[0] ?? null;
@@ -205,14 +238,17 @@ export function suggestionsFor(env, message, task, { place, hasClient }) {
     if (!theirPart) {
       if (MOVES_FROM.IN_PROGRESS.includes(task.status)) status = "IN_PROGRESS";
       // Someone saying they've started who isn't a developer may want to be one.
-      if (!message.mentions.length && !developer.includes(message.user)) roles.add("developer");
+      if (!message.mentions.length && !developer.includes(message.user)) {
+        roles.add("developer");
+        people.developer = [message.user];
+      }
     }
   }
   // Asking someone to test it is the work moving to testing, unless it asks
-  // for someone to develop it too.
-  const testing = roles.has("tester") && !roles.has("developer");
+  // for someone to develop it too; the author saying they'll test it isn't.
+  const testing = roles.has("tester") && !roles.has("developer") && !ownTesting;
   if (!status && testing && MOVES_FROM.IN_TESTING.includes(task.status)) status = "IN_TESTING";
-  return { roles: Object.keys(ROLES).filter((role) => roles.has(role)), status };
+  return { roles: Object.keys(ROLES).filter((role) => roles.has(role)), people, status };
 }
 
 // The work intent's handler: asks whoever wrote the message, privately, with
@@ -227,57 +263,15 @@ async function suggestWork(message, env) {
       console.warn("AI couldn't read the message, so its phrases are read instead", { error: error.message });
     }
   }
-  const { target, of, task, place } = about;
+  const { target, task, place } = about;
   const hasClient = Boolean(pairFor(env, target.channel)?.external);
-  const { roles, status } = suggestionsFor(env, message, task, { place, hasClient });
-  if (!roles.length && !status) return;
-
-  const question = `Should I update the task${of}? I've filled this in from your message: change anything, then Save.`;
-  const picker = (blockId, label, element) => ({
-    type: "section",
-    block_id: blockId,
-    text: mrkdwn(`*${label}*`),
-    accessory: { action_id: blockId, ...element },
-  });
-  const blocks = [
-    { type: "section", text: mrkdwn(question) },
-    ...roles.map((role) =>
-      picker(ROLE_PICKS[role], `${ROLES[role]}s`, {
-        type: "multi_users_select",
-        placeholder: plainText(`Choose ${ROLES[role].toLowerCase()}s`),
-        ...(task.people[role].length && { initial_users: task.people[role] }),
-      }),
-    ),
-    ...(status
-      ? [
-          picker(STATUS_PICK, "Status", {
-            type: "static_select",
-            options: Object.keys(STATUSES).map(statusOption),
-            initial_option: statusOption(status),
-          }),
-        ]
-      : []),
-  ];
-  // The button carries what the pickers started with, as Slack may leave
-  // pickers no one touched out of the state Save gets.
-  const people = Object.fromEntries(roles.map((role) => [role, task.people[role]]));
-  const value = JSON.stringify({ ...target, people, status, from: task.status });
-  await callSlack(env, "chat.postEphemeral", {
-    channel: message.channel,
-    thread_ts: message.threadTs,
-    user: message.user,
-    text: question,
-    blocks: [
-      ...blocks,
-      {
-        type: "actions",
-        elements: [
-          { type: "button", action_id: SAVE_ACTION, text: plainText("Save"), style: "primary", value },
-          { type: "button", action_id: SKIP_ACTION, text: plainText("Not now"), value: "{}" },
-        ],
-      },
-    ],
-  });
+  const { people, status } = suggestionsFor(env, message, task, { place, hasClient });
+  // Checked as AI's are, so only real changes are suggested.
+  const read = { status: status ?? "" };
+  for (const role of Object.keys(ROLES)) read[role] = { add: people[role] ?? [], remove: [] };
+  const allowed = { roles: Object.keys(ROLES), fromMentions: true, status: true, details: false };
+  const changes = checkChanges(read, { task, message, allowed });
+  if (changes) await askToChange(env, message, about, changes);
 }
 
 // The task a thread is about, or null when there is none: in a task's
@@ -301,13 +295,15 @@ async function threadTask(env, message) {
   return task ? { target, of, task, place } : null;
 }
 
-// Saves what the pickers show: each role set to the people chosen, and the
+// For a suggestion posted with pickers: saves what they show: each role set to the people chosen, and the
 // status chosen, as one change (see changes.js), and removes the question. A
 // status left as suggested isn't applied if the task has moved since the
 // question was asked.
 async function save(payload, env) {
   const { channel, ts, people = {}, status: suggested, from } = JSON.parse(payload.actions[0].value);
   const values = payload.state?.values ?? {};
+  // The question goes first, so the click shows at once.
+  await dismiss(payload.response_url);
   const task = await loadTask(env, channel, ts);
   if (task) {
     const changes = { people: {} };
@@ -323,6 +319,4 @@ async function save(payload, env) {
     if (status) changes.status = status;
     await applyChanges(env, { channel, ts }, changes, payload.user.id, { from: status === suggested ? from : undefined });
   }
-  // An ephemeral message can only be changed through its response_url.
-  await respondLater(payload.response_url, { delete_original: true });
 }

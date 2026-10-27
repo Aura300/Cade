@@ -110,8 +110,8 @@ export async function editForm(env, { channel, ts }, task, { changes = {}, respo
   };
 }
 
-// Saves the form as the changes from the task as it is now, and removes the
-// private suggestion it came from, if any.
+// Saves the form as the changes from the task as it is now, having removed
+// the private suggestion it came from, if any.
 function saveEdit(payload, context) {
   const { channel, ts, details, opened, responseUrl } = JSON.parse(payload.view.private_metadata);
   const { values } = payload.view.state;
@@ -124,6 +124,7 @@ function saveEdit(payload, context) {
   context.waitUntil(
     (async () => {
       const { env } = context;
+      await dismiss(responseUrl);
       const task = await loadTask(env, channel, ts);
       if (task) {
         const changes = { people: {} };
@@ -144,7 +145,6 @@ function saveEdit(payload, context) {
         changes.prs = { add: wanted.filter((url) => !task.prs.includes(url)), remove: task.prs.filter((url) => !wanted.includes(url)) };
         await applyChanges(env, { channel, ts }, changes, payload.user.id);
       }
-      if (responseUrl) await dismiss(responseUrl);
     })(),
   );
   return CLOSE_ALL;

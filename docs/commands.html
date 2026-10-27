@@ -319,8 +319,9 @@
         <div class="tags"><span class="where">Task thread</span><span class="where">Requirement thread</span></div>
         <p>Mention someone with what you'd like them to do:</p>
         <ul>
-          <li><b>Developer:</b> “start working”, “work on”, “look into”, “pick this up”, “take this”, “take care of”, “handle this”, “fix this”, “assign this to”, “over to you”</li>
+          <li><b>Developer:</b> “start working”, “work on”, “look into”, “pick this up”, “take this”, “take care of”, “handle this”, “fix this”, “assign this to”, “over to you”, “implement”</li>
           <li><b>Reviewer:</b> “review” · <b>Tester:</b> “test”, “QA”, “verify”</li>
+          <li>Cade suggests adding whoever that part of the message names. Someone only cc'd isn't added. Your own part is yours: “@udara can you implement this while I test it” suggests Udara as developer and you as tester.</li>
           <li>In a requirement thread only developers are offered: <b>Track and assign</b> before it's tracked, <b>Assign as developer</b> after.</li>
         </ul>
         <div class="example"><b>Example:</b> “@Rex please start working on this, first cut by Friday?”</div>
@@ -339,7 +340,7 @@
         <ul>
           <li><b>Started:</b> “on it”, “started on this” from someone on the task offers <b>In progress</b>.</li>
           <li><b>Progress:</b> “lgtm” from a reviewer, “QA passed” from a tester, or “done” from anyone on it offers the next status.</li>
-          <li>Role and status suggestions come together as one private message, with pickers and <b>Save</b>.</li>
+          <li>Role and status suggestions come together as one private message: a summary of what Cade read, with <b>Accept</b>, <b>Edit…</b> (the task's Edit form, filled in with it) and <b>Reject</b>. The same as <a href="#ai">AI suggestions</a>, read by phrases instead.</li>
         </ul>
         <div class="example"><b>Example:</b> “lgtm, approved the PR”</div>
       </article>
@@ -372,7 +373,7 @@
       <article class="entry">
         <h3>Accept, edit, or reject</h3>
         <div class="tags"><span class="where">Only you see it</span></div>
-        <p>Whoever wrote the message gets a private summary of what Cade read, such as <i>Developers: + @Rex − @Bob · Reviewers: + @Mia · Priority: High → Urgent · Due: none → 31/10</i>.</p>
+        <p>Whoever wrote the message gets a private summary of what Cade read, such as <i>Developers: @Rex (Add) · @Bob (Remove) · Reviewers: @Mia (Add) · Priority: High → Urgent · Due: none → 31/10</i>.</p>
         <ul>
           <li><b>Accept</b> applies it all, and the thread hears it as one message.</li>
           <li><b>Edit…</b> opens the same form as the task card's ⋯ → Edit, filled in with it: every role's people, the status, priority, due date and PRs. Correct anything, then Save.</li>

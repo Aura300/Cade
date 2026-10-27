@@ -1,7 +1,7 @@
 import { readChanges, today } from "../ai.js";
 import { suggesting } from "../intents.js";
 import { findDetails } from "../requirements.js";
-import { callSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { callSlack, dismiss, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, loadTask } from "../tasks.js";
 import { applyChanges } from "./changes.js";
 import { editForm } from "./edit.js";
@@ -37,8 +37,13 @@ export async function suggestWithAi(env, message, { target, of, task, place }) {
     details: !external && suggesting(env, "details", message.channel) && (await findDetails(env, target.channel, target.ts))?.kind === "task",
   };
   const changes = await readChanges(env, { message, task, today: today(env), allowed });
-  if (!changes) return;
+  if (changes) await askToChange(env, message, { target, of, task }, changes);
+}
 
+// Asks whoever wrote `message`, privately, whether to make `changes` (as
+// changes.js takes them) to `task`, with a summary and Accept, Edit… and
+// Reject. Shared with suggestions by phrases (see suggest.js).
+export async function askToChange(env, message, { target, of, task }, changes) {
   const question = `Should I update the task${of}? From your message:`;
   const value = JSON.stringify({ ...target, changes, from: task.status });
   await callSlack(env, "chat.postEphemeral", {
@@ -61,13 +66,13 @@ export async function suggestWithAi(env, message, { target, of, task, place }) {
   });
 }
 
-// What would change, a line each: people added (+) and removed (−) per
-// role, then the status, priority and due date, from what they are now.
+// What would change, a line each: people added and removed per role,
+// marked (Add) and (Remove), then the status, priority and due date, from what they are now.
 // Mentions in a message only one person sees notify no one.
 export function summary(task, changes) {
   const lines = Object.entries(changes.people ?? {}).map(([role, { add, remove }]) => {
-    const parts = [add.length && `+ ${mentions(add)}`, remove.length && `− ${mentions(remove)}`].filter(Boolean);
-    return `*${ROLES[role]}s:* ${parts.join("   ")}`;
+    const parts = [add.length && `${mentions(add)} (Add)`, remove.length && `${mentions(remove)} (Remove)`].filter(Boolean);
+    return `*${ROLES[role]}s:* ${parts.join(" · ")}`;
   });
   if (changes.status) lines.push(`*Status:* ${STATUSES[task.status]} → ${STATUSES[changes.status]}`);
   if (changes.priority) lines.push(`*Priority:* ${PRIORITIES[task.priority] ?? ""} ${task.priority} → ${PRIORITIES[changes.priority]} ${changes.priority}`);
@@ -81,9 +86,10 @@ export default {
       const { changes, from, ...target } = JSON.parse(payload.actions[0].value);
       context.waitUntil(
         (async () => {
+          // The private message goes first, so the click shows at once:
+          // saving takes a few seconds, and may fail.
+          await dismiss(payload.response_url);
           await applyChanges(context.env, target, changes, payload.user.id, { from });
-          // An ephemeral message can only be changed through its response_url.
-          await respondLater(payload.response_url, { delete_original: true });
         })(),
       );
     },
