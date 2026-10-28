@@ -7,6 +7,7 @@ import edit from "./edit.js";
 import { due, priority } from "./details.js";
 import brief from "./brief.js";
 import debrief from "./debrief.js";
+import home from "./home.js";
 import menu from "./menu.js";
 import move from "./move.js";
 import pr from "./pr.js";
@@ -57,9 +58,9 @@ export const commands = Object.fromEntries(
   ),
 );
 
-// The task card's menu, its Edit form, and suggestions from people's own words only answer
+// The Home tab's Refresh button, the task card's menu, its Edit form, and suggestions from people's own words only answer
 // clicks and messages, so they aren't commands.
-const interactive = [...handlers, menu, edit, suggest, aiSuggest];
+const interactive = [...handlers, home, menu, edit, suggest, aiSuggest];
 
 export const views = Object.assign(
   {},

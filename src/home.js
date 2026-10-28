@@ -6,8 +6,7 @@ import { PRIORITIES, ROLES, STATUSES } from "./tasks.js";
 
 // The Home tab of Cade's app: what the person has open, by what they do on
 // it, most urgent first. It is only another view of the tasks Cade already
-// stores, drawn when they open it, and again for the people on a task when
-// who works on it, its status, priority or due date changes (see refreshHomes).
+// stores, drawn when they open it or press Refresh.
 
 // What each role is doing, and the statuses in which the task is waiting on
 // them. Tasks in other statuses are theirs but not yet, and are listed
@@ -26,42 +25,11 @@ const MAX_LATER = 5;
 // A button that opens a task's thread. Slack still sends its click to
 // Cade, which has nothing to do (see handleInteraction).
 export const OPEN_ACTION = "home:open";
+export const REFRESH_ACTION = "home:refresh";
 
 // Draws `user`'s Home tab.
 export async function publishHome(env, user) {
   await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user) });
-}
-
-// Redraws the Home tab of the people a change to a task touches, if it
-// touches them: `before` and `after` are the task as it was and as it is,
-// either null for a task that is new or gone. A task's people changing
-// redraws those it had and those it has; its status, priority or due date
-// changing, those it has. Other changes, such as its title, leave the tab
-// as it is. It is a convenience, so failures are logged rather than failing
-// the change.
-export async function refreshHomes(env, before, after) {
-  const users = homeUsers(before, after);
-  await Promise.all(
-    users.map((user) =>
-      publishHome(env, user).catch((error) => console.warn("Could not update the Home tab", { user, error: error.message })),
-    ),
-  );
-}
-
-// The people whose Home tab the change from `before` to `after` touches.
-export function homeUsers(before, after) {
-  const people = (task) => (task ? [...new Set(Object.keys(ROLES).flatMap((role) => task.people[role]))] : []);
-  const was = people(before);
-  const is = people(after);
-  const peopleChanged = Object.keys(ROLES).some((role) => {
-    const a = before?.people[role] ?? [];
-    const b = after?.people[role] ?? [];
-    return a.length !== b.length || a.some((id) => !b.includes(id));
-  });
-  if (!before || !after || peopleChanged) return [...new Set([...was, ...is])];
-  // What the tab shows of a task: where it is, how urgent and when due.
-  const shown = ["status", "priority", "dueDate"];
-  return shown.some((field) => before[field] !== after[field]) ? is : [];
 }
 
 export async function homeView(env, user) {
@@ -89,6 +57,10 @@ export async function homeView(env, user) {
   const blocks = [
     { type: "header", text: plainText("Your tasks") },
     { type: "context", elements: [mrkdwn(status)] },
+    {
+      type: "actions",
+      elements: [{ type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh") }],
+    },
   ];
   for (const section of sections) {
     blocks.push({ type: "divider" });

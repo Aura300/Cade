@@ -193,13 +193,11 @@ export async function loadTask(env, channel, ts) {
 // Stores the task, then renders it to its root message, the Sheet and the
 // summaries.
 export async function saveTask(env, channel, ts, task) {
-  const before = await getTask(env, channel, ts);
   await putTask(env, channel, ts, task);
   console.log("Task saved", { ts, people: task.people });
   await callSlack(env, "chat.update", { channel, ts, ...taskMessage(task) });
   await syncTask(env, channel, ts, task);
   await refreshSummary(env, channel);
-  await refreshHomes(env, before, task);
 }
 
 // Rewrites the summary a change in `channel` touches (see summary.js); with
@@ -209,14 +207,6 @@ export async function saveTask(env, channel, ts, task) {
 export async function refreshSummary(env, channel, options) {
   const summary = await import("./summary.js");
   await summary.refreshSummary(env, channel, options);
-}
-
-// Redraws the Home tab of the people a change to a task touches, from
-// `before` to `after` (see home.js). Imported when needed, like the
-// summary.
-export async function refreshHomes(env, before, after) {
-  const home = await import("./home.js");
-  await home.refreshHomes(env, before, after);
 }
 
 // Records the task's current state in the Google Sheet. The sheet is a
