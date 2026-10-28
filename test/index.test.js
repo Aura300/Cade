@@ -2375,7 +2375,7 @@ test("opening the Home tab shows the person's open tasks by what they do on them
   assert.deepEqual(duplicateActionIds(publish.args.view.blocks), []);
   assert.ok(text.indexOf("Urgent fix") < text.indexOf("Low chore"));
   assert.match(text, /Overdue/);
-  assert.match(text, /:red_circle: \*Urgent fix\*\n:arrow_forward: In progress/);
+  assert.match(text, /\*Urgent fix\*\n:red_circle: Urgent  ·  :arrow_forward: In progress/);
   assert.match(text, /Review me/);
   assert.match(text, /Coming up[^]*Not yet testable/);
   assert.doesNotMatch(text, /Someone else's|Finished/);
