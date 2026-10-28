@@ -47,13 +47,14 @@ export function isQuestion(message) {
 }
 
 // A message as intents see it, or null for messages Cade never acts on:
-// edits, deletions and bot posts (its own included).
+// edits, deletions and bot posts (its own included). A reply also sent to the
+// channel ("Also send to #channel") is still a reply.
 //   text, user, channel, ts, threadTs
 //   inThread   whether it's a reply in a thread
 //   mentions   the people it mentions, Cade aside
 //   botUserId  Cade's own user ID
 export function plainMessage(event, botUserId) {
-  if (event.subtype || event.bot_id || !event.text) return null;
+  if ((event.subtype && event.subtype !== "thread_broadcast") || event.bot_id || !event.text) return null;
   const mentions = [...new Set([...event.text.matchAll(USER_MENTION)].map(([, id]) => id))].filter(
     (id) => id !== botUserId,
   );

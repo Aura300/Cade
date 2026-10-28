@@ -673,7 +673,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     assert.deepEqual(calls[0].args.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade brief` · `/cade debrief`",
+      "`/cade task` · `/cade incident` · `/cade retry <link>` · `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade brief` · `/cade debrief`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move [message link]`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
@@ -1783,6 +1783,45 @@ test("a PR pasted on a task with no reviewer asks who reviews it in the same pri
     `<@UACTOR> moved the task to :eyes: In review.\n<@UMIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
+});
+
+test("/cade retry asks again about a message in a task's thread, from its link", async (t) => {
+  const ts = "1700000001.000500";
+  const reply = { ts, thread_ts: "100.1", user: "UREX", text: `<@UMIA> please look at <${PR}>` };
+  const calls = mockSlack(t, {
+    stored: [storedTask({ reviewers: ["UMIA"] })],
+    "conversations.replies": { messages: [reply] },
+    "auth.test": { user_id: "UBOT" },
+  });
+  const { later } = await runTasksCommand(`retry ${messageLink("CDEV", ts, "?thread_ts=100.1&cid=CDEV")}`, "CDEV");
+
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "auth.test", "chat.postEphemeral"]);
+  assert.equal(calls[0].args.ts, ts);
+  // The question goes to whoever wrote the message, as it would have.
+  assert.equal(calls[2].args.user, "UREX");
+  assert.equal(calls[2].args.thread_ts, "100.1");
+  assert.match(calls[2].args.text, /I see you posted/);
+  assert.match(later.text, /<@UREX> will see a private question/);
+});
+
+test("/cade retry says when the link is missing, not in a thread, or not found", async (t) => {
+  mockSlack(t);
+  assert.match((await runTasksCommand("retry", "CDEV")).now, /Paste the link to the message/);
+
+  mockSlack(t, {
+    "conversations.replies": { messages: [{ ts: "1700000000.000100", user: "UREX", text: "a task" }] },
+    "auth.test": { user_id: "UBOT" },
+  });
+  assert.match((await runTasksCommand(`retry ${messageLink("CDEV", "1700000000.000100")}`, "CDEV")).later.text, /not in a thread/);
+
+  mockSlack(t, { "conversations.replies": { messages: [] } });
+  assert.match((await runTasksCommand(`retry ${messageLink("CDEV", "1700000009.000900")}`, "CDEV")).later.text, /couldn't find that message/);
+});
+
+test("a PR in a reply also sent to the channel is suggested like any reply", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["UMIA"] })] });
+  await send("/slack/events", threadReply(`<@UMIA> can you review <${PR}>?`, { subtype: "thread_broadcast" }));
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
 });
 
 test("messages without unlinked pull requests are left alone", async (t) => {

@@ -35,7 +35,7 @@
         "command": "{{COMMAND}}",
         "url": "{{WORKER_URL}}/slack/commands",
         "description": "Track a task, report an incident, list your tasks or summarise them",
-        "usage_hint": "task | incident | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | syncup | brief | debrief",
+        "usage_hint": "task | incident | tasks [role] [@person|-all|-unassigned] [-status=…] [-due<@today] | standup [-unassigned] | syncup | retry <link> | brief | debrief",
         "should_escape": true
       }
     ]
