@@ -4,7 +4,9 @@ import worker from "../src/index.js";
 import { parseDate } from "../src/commands/details.js";
 import { parseMessage } from "../src/commands/parse.js";
 import { getTask, insertRelease, insertTask, markTaskDeleted, putTask } from "../src/db.js";
+import { changeTask } from "../src/commands/changes.js";
 import { editForm } from "../src/commands/edit.js";
+import { changeLog, changeRequests } from "../src/notify.js";
 import { formatDueDate } from "../src/tasks.js";
 import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
@@ -5703,4 +5705,206 @@ test("someone asked in several roles at once is asked once, and people asked ali
     `<@UBOB>, could you pick this up and review <${PR}|cade/42> when you get a chance? Thanks!`,
     "<@UREX>, could you pick this up when you get a chance? Thanks!",
   ]);
+});
+
+// ---- The update engine: what actually changed ----
+
+const where = { channel: "CDEV", ts: "100.1" };
+
+test("changeTask returns only what differs from the stored task", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask({ owners: ["UALICE"] })] });
+  const change = await changeTask(
+    env,
+    where,
+    {
+      // @alice is an owner already; @bob is new.
+      people: { owner: { add: ["UALICE", "UBOB"] }, tester: { remove: ["UTOM"] } },
+      // The priority is as it is; the due date is not.
+      priority: "High",
+      dueDate: "02/11/2026",
+      status: "TODO",
+    },
+    "UACTOR",
+  );
+  assert.deepEqual(change.people, [{ role: "owner", added: ["UBOB"], removed: [] }]);
+  assert.deepEqual([change.prs, change.priority, change.status], [null, null, null]);
+  assert.deepEqual(change.dueDate, { from: "31/10/2026", to: "02/11/2026" });
+  // Stored, and the card updated once, for all of it.
+  const saved = await savedTask();
+  assert.deepEqual([saved.people.owner, saved.dueDate], [["UALICE", "UBOB"], "02/11/2026"]);
+  assert.equal(calls.filter((call) => call.method === "chat.update").length, 1);
+});
+
+test("changeTask returns what each kind of change was from and to", async (t) => {
+  const root = storedTask({ reviewers: ["UMIA"] });
+  root.task.prs = [MR];
+  mockSlack(t, { stored: [root] });
+  const change = await changeTask(
+    env,
+    where,
+    { prs: { add: [PR, MR], remove: [MR, "https://github.com/acme/other/pull/1"] }, priority: "Low", status: "IN_REVIEW" },
+    "UACTOR",
+  );
+  assert.deepEqual(change.prs, { added: [PR], removed: [MR] });
+  assert.deepEqual(change.priority, { from: "High", to: "Low" });
+  assert.deepEqual(change.status, { from: "TODO", to: "IN_REVIEW" });
+  assert.equal(change.task.status, "IN_REVIEW");
+});
+
+test("changeTask returns null, and saves nothing, when nothing differs", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask({ owners: ["UALICE"] })] });
+  const change = await changeTask(
+    env,
+    where,
+    { people: { owner: { add: ["UALICE"] } }, priority: "High", dueDate: "31/10/2026", status: "TODO", prs: { remove: [PR] } },
+    "UACTOR",
+  );
+  assert.equal(change, null);
+  assert.deepEqual(calls.map((call) => call.method), []);
+});
+
+test("changeTask leaves an incident's priority and due date, and a task that is gone", async (t) => {
+  mockSlack(t, { stored: [incidentTask({})] });
+  assert.equal(await changeTask(env, where, { priority: "Low", dueDate: "01/01/2027" }, "UACTOR"), null);
+  assert.equal(await changeTask(env, { channel: "CDEV", ts: "999.9" }, { priority: "Low" }, "UACTOR"), null);
+});
+
+test("changeTask leaves the status when the task moved on from where the suggestion saw it", async (t) => {
+  const root = storedTask();
+  root.task.status = "IN_PROGRESS";
+  mockSlack(t, { stored: [root] });
+  const change = await changeTask(env, where, { status: "IN_REVIEW", priority: "Low" }, "UACTOR", { from: "TODO" });
+  assert.equal(change.status, null);
+  assert.equal(change.priority.to, "Low");
+  assert.equal((await savedTask()).status, "IN_PROGRESS");
+});
+
+// ---- The acknowledgement engine: what is said about a change ----
+
+// A change as changeTask returns it, with `task` as it now is.
+const changed = ({ people = [], prs = null, status = null, priority = null, dueDate = null, told = {}, task = {} } = {}) => ({
+  user: "UACTOR",
+  told,
+  people,
+  prs,
+  status,
+  priority,
+  dueDate,
+  task: {
+    status: status?.to ?? "TODO",
+    prs: prs?.added ?? [],
+    releases: [],
+    people: { owner: [], reviewer: [], tester: [] },
+    ...task,
+  },
+});
+const team = (owner = [], reviewer = [], tester = []) => ({ owner, reviewer, tester });
+
+test("the change log has a line for each thing that changed, in order", () => {
+  const change = changed({
+    people: [
+      { role: "owner", added: ["UBOB"], removed: [] },
+      { role: "tester", added: [], removed: ["UTOM"] },
+    ],
+    prs: { added: [PR], removed: [MR] },
+    priority: { from: "High", to: "Low" },
+    dueDate: { from: "31/10/2026", to: "" },
+    status: { from: "TODO", to: "IN_PROGRESS" },
+  });
+  assert.deepEqual(changeLog(change), [
+    `<@UACTOR> linked <${PR}|cade/42>.`,
+    `<@UACTOR> unlinked <${MR}|web-app/118>.`,
+    "<@UACTOR> assigned <@UBOB> as owner.",
+    "<@UACTOR> removed <@UTOM> as tester.",
+    "<@UACTOR> set the priority to :large_green_circle: Low.",
+    "<@UACTOR> removed the due date.",
+    "<@UACTOR> set the status to :arrow_forward: In progress.",
+  ]);
+  assert.deepEqual(changeLog(changed()), []);
+});
+
+test("a person is asked once, for everything they are asked to do", () => {
+  const notes = changeRequests(
+    changed({
+      people: [
+        { role: "owner", added: ["UBOB", "UREX"], removed: [] },
+        { role: "reviewer", added: ["UBOB"], removed: [] },
+      ],
+      prs: { added: [PR], removed: [] },
+      task: { people: team(["UBOB", "UREX"], ["UBOB"]) },
+    }),
+  );
+  assert.deepEqual(notes, [
+    `<@UBOB>, could you pick this up and review <${PR}|cade/42> when you get a chance? Thanks!`,
+    "<@UREX>, could you pick this up when you get a chance? Thanks!",
+  ]);
+});
+
+test("people asked alike share a note, and reviewers kept are asked about the new pull requests", () => {
+  const notes = changeRequests(
+    changed({
+      people: [{ role: "owner", added: ["UBOB", "UREX"], removed: [] }],
+      prs: { added: [PR], removed: [] },
+      task: { people: team(["UBOB", "UREX"], ["UMIA", "UZOE"]) },
+    }),
+  );
+  assert.deepEqual(notes, [
+    `<@UMIA>, <@UZOE>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+    "<@UBOB>, <@UREX>, could you pick this up when you get a chance? Thanks!",
+  ]);
+});
+
+test("no one is asked who made the change, was told already, or has nothing to do yet", () => {
+  const people = (role, ...ids) => [{ role, added: ids, removed: [] }];
+  // Made the change, or told by the message the suggestion came from.
+  assert.deepEqual(changeRequests(changed({ people: people("owner", "UACTOR"), task: { people: team(["UACTOR"]) } })), []);
+  assert.deepEqual(changeRequests(changed({ people: people("owner", "UBOB"), told: { UBOB: null }, task: { people: team(["UBOB"]) } })), []);
+  // A reviewer with no pull requests to review, a tester before In testing, an owner once Done.
+  assert.deepEqual(changeRequests(changed({ people: people("reviewer", "UMIA"), task: { people: team([], ["UMIA"]) } })), []);
+  assert.deepEqual(changeRequests(changed({ people: people("tester", "UTOM"), task: { people: team([], [], ["UTOM"]) } })), []);
+  assert.deepEqual(changeRequests(changed({ people: people("owner", "UBOB"), task: { status: "DONE", people: team(["UBOB"]) } })), []);
+  // Pull requests all sent for approval are not for reviewers to review.
+  const sent = { people: team([], ["UMIA"]), prs: [PR], releases: [{ prs: [PR], status: "PENDING_APPROVAL" }] };
+  assert.deepEqual(changeRequests(changed({ people: people("reviewer", "UMIA"), task: sent })), []);
+});
+
+test("moving to In testing asks every tester once, those just added too", () => {
+  const notes = changeRequests(
+    changed({
+      people: [{ role: "tester", added: ["UTESS"], removed: [] }],
+      status: { from: "IN_REVIEW", to: "IN_TESTING" },
+      task: { people: team([], [], ["UTOM", "UTESS", "UACTOR"]) },
+    }),
+  );
+  assert.deepEqual(notes, ["<@UTESS>, <@UTOM>, could you give this a test when you get a chance? Thanks!"]);
+});
+
+test("people removed are told only if they had been asked, and once", () => {
+  // Removed from two roles they were asked in: one note.
+  const both = changed({
+    people: [
+      { role: "owner", added: [], removed: ["UALICE"] },
+      { role: "reviewer", added: [], removed: ["UALICE"] },
+    ],
+    task: { prs: [PR] },
+  });
+  assert.deepEqual(changeRequests(both), ["<@UALICE>, there's no need to work on this or review this anymore. Thanks!"]);
+
+  // A tester removed as it moves to In testing was never asked to test it.
+  const testing = changed({
+    people: [{ role: "tester", added: [], removed: ["UTOM"] }],
+    status: { from: "IN_REVIEW", to: "IN_TESTING" },
+  });
+  assert.deepEqual(changeRequests(testing), []);
+
+  // Nor a reviewer removed as the only pull request goes, or when it is Done.
+  const noPrs = changed({ people: [{ role: "reviewer", added: [], removed: ["UMIA"] }] });
+  assert.deepEqual(changeRequests(noPrs), []);
+  const done = changed({ people: [{ role: "owner", added: [], removed: ["UBOB"] }], task: { status: "DONE" } });
+  assert.deepEqual(changeRequests(done), []);
+});
+
+test("changes that are not about people ask no one", () => {
+  assert.deepEqual(changeRequests(changed({ priority: { from: "High", to: "Low" }, dueDate: { from: "", to: "01/01/2027" } })), []);
+  assert.deepEqual(changeRequests(changed({ status: { from: "TODO", to: "IN_PROGRESS" } })), []);
 });
