@@ -19,6 +19,20 @@ import { statusChange } from "./status.js";
 // Linking a pull request means the work is ready for review (see pr.js).
 export const BEFORE_REVIEW = ["TODO", "IN_PROGRESS"];
 
+// The pull requests of `task` once `changes` are applied.
+export function prsAfter(task, changes) {
+  const { add = [], remove = [] } = changes.prs ?? {};
+  return [...task.prs.filter((url) => !remove.includes(url)), ...add.filter((url) => !task.prs.includes(url))];
+}
+
+// The status of `task` once `changes` are applied: the one changed to, else
+// In review when pull requests are linked to a task not yet there.
+export function statusAfter(task, changes) {
+  if (changes.status) return changes.status;
+  const linking = (changes.prs?.add ?? []).some((url) => !task.prs.includes(url));
+  return linking && BEFORE_REVIEW.includes(task.status) ? "IN_REVIEW" : task.status;
+}
+
 // Applies `changes` to the task at `channel`/`ts` for `user` and posts what
 // changed in its thread. People are changed first, so they're asked as the
 // task stands; then pull requests, which move a task not yet in review to In

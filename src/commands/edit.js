@@ -1,6 +1,6 @@
 import { CLOSE_ALL, dismiss, mrkdwn, plainText } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, parsePullRequest, pickerDate } from "../tasks.js";
-import { applyChanges } from "./changes.js";
+import { applyChanges, prsAfter, statusAfter } from "./changes.js";
 import { statusOption } from "./status.js";
 
 const EDIT_VIEW = "task:edit";
@@ -24,7 +24,7 @@ export function editForm({ channel, ts }, task, { changes = {}, told, responseUr
     return [...task.people[role].filter((id) => !remove.includes(id)), ...add];
   };
   const priorityOption = (name) => ({ text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true }, value: name });
-  const status = changes.status ?? task.status;
+  const status = statusAfter(task, changes);
   const priority = changes.priority ?? task.priority;
   const dueDate = "dueDate" in changes ? changes.dueDate : task.dueDate;
   return {
@@ -103,7 +103,7 @@ export function editForm({ channel, ts }, task, { changes = {}, told, responseUr
           action_id: "value",
           multiline: true,
           placeholder: plainText("https://github.com/acme/web/pull/12"),
-          initial_value: task.prs.join("\n") || undefined,
+          initial_value: prsAfter(task, changes).join("\n") || undefined,
         },
       },
     ],
