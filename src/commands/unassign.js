@@ -1,10 +1,11 @@
 import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
-import { noLongerIfDue, oneMessage, unassigned } from "../notify.js";
+import { noLongerIfDue } from "../notify.js";
+import { acknowledge } from "../slack.js";
 
 // `@Cade unassign owner @person [@person …]` in a task thread removes
 // people from that role; `@Cade unassign @person` removes them from every role.
-// The thread hears who removed whom, and on the next line tells them there's
-// no need to do it anymore, if they'd been asked to (see notify.js).
+// Cade reacts ✅ to the command and, if they'd been asked to, tells them
+// there's no need to do it anymore (see notify.js).
 // Without anyone mentioned it says what to send.
 export default {
   name: "unassign",
@@ -31,6 +32,6 @@ export default {
     await saveTask(env, command.channel, command.threadTs, task);
     const people = [...removed];
     const note = noLongerIfDue(task, people, role, command.user);
-    return oneMessage({ log: [unassigned(command.user, people, role)], notes: note ? [note] : [] });
+    return acknowledge(note ?? undefined);
   },
 };

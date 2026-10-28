@@ -1,5 +1,5 @@
-import { assigned, linked as linkedText, request, toAsk, unlinked as unlinkedText } from "../notify.js";
-import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
+import { assigned, request, toAsk } from "../notify.js";
+import { acknowledge, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 
 const REVIEWERS_ACTION = "pr:reviewers";
@@ -24,8 +24,8 @@ const HOW = "Try `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 // <link> [<link> …]` unlinks them. GitHub, GitLab and Bitbucket links are
 // recognised.
 //
-// Linking asks the task's reviewers, on the next line, to review it (see
-// notify.js); the status is left to the suggestions. With
+// Linking reacts ✅ to the command and asks the task's reviewers to review it
+// in a message of its own (see notify.js); the status is left to the suggestions. With
 // no reviewer yet, the reply asks who should review it, with a people
 // picker; choosing assigns them as reviewers and asks them.
 //
@@ -58,17 +58,18 @@ export default {
     if (adding) {
       const linked = await addPullRequests(env, command.channel, command.threadTs, task, urls);
       if (!linked) return "Those pull requests are already linked to this task, so we're all set.";
-      const text = linkedText(command.user, linked.added);
+      // The task card shows the link, so a ✅ says it was linked; the reviewers
+      // are still asked, or who should review.
       const reviewers = task.people.reviewer;
-      if (!reviewers.length) return reviewerPicker(text, linked.added);
-      return `${text}\n${request(reviewers, "reviewer", linked.added)}`;
+      if (!reviewers.length) return acknowledge(reviewerPicker("", linked.added));
+      return acknowledge(request(reviewers, "reviewer", linked.added));
     }
 
     const removed = urls.filter((url) => task.prs.includes(url));
     if (!removed.length) return "Hmm, those pull requests aren't linked to this task.";
     task.prs = task.prs.filter((url) => !removed.includes(url));
     await saveTask(env, command.channel, command.threadTs, task);
-    return unlinkedText(command.user, removed);
+    return acknowledge();
   },
   actions: {
     [REVIEWERS_ACTION]: async (payload, context) => {

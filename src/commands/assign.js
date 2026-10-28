@@ -1,10 +1,11 @@
-import { assigned, noLongerIfDue, oneMessage, requestIfDue, unassigned } from "../notify.js";
+import { assigned, noLongerIfDue, requestIfDue, unassigned } from "../notify.js";
+import { acknowledge } from "../slack.js";
 import { NOT_A_TASK, loadTask, parseRole, saveTask } from "../tasks.js";
 
 // `@Cade assign owner @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way, and short words
-// do too: `dev`, `review`, `test` or `qa`. The thread hears who assigned
-// whom, and on the next line asks them to do their part. Without a role and
+// do too: `dev`, `review`, `test` or `qa`. Cade reacts ✅ to the command and,
+// in a message of its own, asks them to do their part. Without a role and
 // someone mentioned, it says what to send; the task card's ⋯ → Edit has
 // every role in one form.
 //
@@ -31,7 +32,10 @@ export default {
     if (!task) return NOT_A_TASK;
     task.people[role] = [...new Set([...task.people[role], ...command.mentions])];
     await saveTask(env, channel, threadTs, task);
-    return oneMessage(teamChanges(user, task, [{ role, added: command.mentions, removed: [] }]));
+    // The task card shows who is on it, so a ✅ says it was done; only the
+    // request to them is posted.
+    const { notes } = teamChanges(user, task, [{ role, added: command.mentions, removed: [] }]);
+    return acknowledge(notes.join("\n") || undefined);
   },
 };
 

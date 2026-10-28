@@ -33,9 +33,9 @@
     <div class="eyebrow">Notifications</div>
     <h1>Who hears what.</h1>
     <p class="lede">
-      When someone changes a task's people, pull requests or status, Cade posts one message in the task's thread:
+      When someone changes a task's people, pull requests or status from the card, a suggestion or the standup, Cade posts one message in the task's thread:
       what changed, then what it means for the people it names. There's nothing to confirm, and one change is one
-      message, so everyone is notified once.
+      message, so everyone is notified once. A typed command, such as <code>@Cade assign</code> or <code>@Cade pr add</code>, gets a ✅ on your message instead of the change log; only the requests are posted.
     </p>
     <div class="kinds">
       <div class="box">
@@ -73,15 +73,16 @@
       <article class="entry">
         <h3><code>@Cade assign owner @rex</code></h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @rex as owner.<br><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
+          <dt>Your message</dt><dd>✅</dd>
+          <dt>Thread</dt><dd><span class="note">@rex, could you pick this up when you get a chance? Thanks!</span></dd>
         </dl>
-        <p>A reviewer is asked about the pending PRs: “@mia, could you review web/12 when you get a chance? Thanks!” A tester is asked to “give this a test” once the task is In testing.</p>
+        <p>The task card shows who is on it, so a typed command gets a ✅ rather than a change log. A reviewer is asked about the pending PRs: “@mia, could you review web/12 when you get a chance? Thanks!” A tester is asked to “give this a test” once the task is In testing.</p>
       </article>
 
       <article class="entry">
         <h3>Assigned before there's anything to do</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann assigned @mia as reviewer.<br>@ann assigned @tom as tester.</dd>
+          <dt>Your message</dt><dd>✅</dd>
         </dl>
         <p>No pending PRs, and not In testing yet, so there's nothing to ask. Linking a PR asks the reviewers, and moving to In testing asks the testers.</p>
       </article>
@@ -113,9 +114,10 @@
       <article class="entry">
         <h3><code>@Cade unassign owner @rex</code></h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann removed @rex as owner. <span class="if-note">without a role: from this task</span><br><span class="note">@rex, there's no need to work on this anymore. Thanks!</span></dd>
+          <dt>Your message</dt><dd>✅</dd>
+          <dt>Thread</dt><dd><span class="note">@rex, there's no need to work on this anymore. Thanks!</span></dd>
         </dl>
-        <p>Only if they'd have been asked: removing a tester before In testing just records it.</p>
+        <p>Only if they'd have been asked: removing a tester before In testing gets just the ✅. Without a role, they're removed from every role.</p>
       </article>
 
     </div>
@@ -131,15 +133,18 @@
       <article class="entry">
         <h3><code>@Cade pr add &lt;link&gt;</code>, on a task with reviewers</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann linked web/12.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Your message</dt><dd>✅</dd>
+          <dt>Thread</dt><dd><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
         </dl>
+        <p>The task card shows the link, so a ✅ on your message is the acknowledgement. <code>@Cade pr remove</code> gets only the ✅.</p>
       </article>
 
       <article class="entry">
         <h3><code>@Cade pr add &lt;link&gt;</code>, on a task with no reviewer</h3>
         <dl class="flow">
-          <dt>Thread</dt><dd>@ann linked web/12.<br>There's no reviewer yet. Who should review it? <span class="btns"><span>Choose reviewers ▾</span></span></dd>
-          <dt>Picked</dt><dd>The picker keeps “@ann linked web/12 …”, and a new reply follows:<br>@bob assigned @mia as reviewer.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
+          <dt>Your message</dt><dd>✅</dd>
+          <dt>Thread</dt><dd>There's no reviewer yet. Who should review web/12? <span class="btns"><span>Choose reviewers ▾</span></span></dd>
+          <dt>Picked</dt><dd>The picker goes, and a new reply follows:<br>@bob assigned @mia as reviewer.<br><span class="note">@mia, could you review web/12 when you get a chance? Thanks!</span></dd>
         </dl>
         <p>A new reply, because Slack doesn't notify anyone about an edited message.</p>
       </article>
