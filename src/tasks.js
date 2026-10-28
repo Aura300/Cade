@@ -13,8 +13,8 @@ import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js"
 // for a priority.
 export const PRIORITY_COLORS = {
   Urgent: "#E01E5A",
-  High: "#E8912D",
-  Medium: "#ECB22E",
+  High: "#F26A1B",
+  Medium: "#F5D020",
   Low: "#2EB67D",
 };
 
@@ -111,7 +111,7 @@ export function noPeople() {
 }
 
 export function taskMessage(task, { archivedBy } = {}) {
-  // The title, then in small text its status, priority and due date, its
+  // The title, led by its priority, then in small text its status and due date, its
   // linked pull requests (when it has any) by whether they're approved, and
   // who works on it and who tracked it. All but the title sit in an
   // attachment, whose strip down the side has the priority's colour. Roles
@@ -122,13 +122,13 @@ export function taskMessage(task, { archivedBy } = {}) {
     .map(([role, label]) => `${label} ${mentions(task.people[role])}`)
     .join("  ·  ");
   const card = [
-    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.priority, task.dueDate)] },
+    { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate)] },
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
     smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>`]),
   ];
   // Incidents share the dev channel with the rest of the work, so their
   // cards say which they are.
-  const label = task.incident ? "Incident  ·  " : "";
+  const label = `[${task.priority.toUpperCase()}] ${task.incident ? "[Incident] " : ""}`;
   return {
     text: `${task.priority} ${task.incident ? "incident" : "task"}: ${task.title}`,
     blocks: [{ type: "section", text: mrkdwn(`${label}*${escapeSlack(task.title)}*`), ...(!archivedBy && { accessory: taskMenu(task) }) }],
@@ -162,10 +162,9 @@ export function smallText(lines) {
   return { type: "context", elements: [mrkdwn(lines.join("\n").slice(0, 3000))] };
 }
 
-// A card's line under its title, in small text: the status, priority and
-// due date, leaving out those not set.
-export function metaLine(status, priority, dueDate) {
-  return mrkdwn([status, priority, dueDate && `Due ${dueDate}`].filter(Boolean).join("  ·  "));
+// A card's line under its title, in small text: the status and due date, leaving out those not set.
+export function metaLine(status, dueDate) {
+  return mrkdwn([status, dueDate && `Due ${dueDate}`].filter(Boolean).join("  ·  "));
 }
 
 

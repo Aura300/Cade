@@ -299,7 +299,7 @@ test("modal submission without a due date leaves it out", async (t) => {
     interaction(submission({ title: "Fix login", priority: "Low" })),
   );
   const post = calls.find((call) => call.method === "chat.postMessage" && call.args.channel === "CDEV");
-  assert.equal(blockText(allBlocks(post.args)[1]), ":memo: To do  ·  Low");
+  assert.equal(blockText(allBlocks(post.args)[1]), ":memo: To do");
 });
 
 test("modal submission tells the creator when the task cannot be posted", async (t) => {
@@ -1098,7 +1098,7 @@ test("@Cade archive and the card's Archive stop tracking the task, keeping its c
     const card = calls.find((call) => call.method === "chat.update").args;
     assert.equal(card.ts, "100.1");
     assert.equal(card.blocks[0].accessory, undefined);
-    assert.match(blockText(allBlocks(card)[1]), /^:file_cabinet: Archived by <@UACTOR>  ·  High  ·  Due 31\/10\/2026$/);
+    assert.match(blockText(allBlocks(card)[1]), /^:file_cabinet: Archived by <@UACTOR>  ·  Due 31\/10\/2026$/);
     assert.ok(calls.some((call) => call.method === "pins.remove" && call.args.timestamp === "100.1"));
     // The thread hears who did.
     const post = calls.find((call) => call.method === "chat.postMessage").args;
@@ -3484,8 +3484,8 @@ test("Make new incident reports an urgent incident in the dev channel, labelled 
   );
   const card = calls.find((call) => call.method === "chat.postMessage" && !call.args.thread_ts).args;
   assert.equal(card.text, "Urgent incident: Checkout is down");
-  assert.equal(allBlocks(card)[0].text.text, "Incident  ·  *Checkout is down*");
-  assert.equal(blockText(allBlocks(card)[1]), ":memo: To do  ·  Urgent  ·  Due Immediate");
+  assert.equal(allBlocks(card)[0].text.text, "[URGENT] [Incident] *Checkout is down*");
+  assert.equal(blockText(allBlocks(card)[1]), ":memo: To do  ·  Due Immediate");
   assert.match(footerLines(card)[1], /^Reported by <@UACTOR>$/);
   const task = await savedTask();
   assert.deepEqual([task.incident, task.priority, task.dueDate], [true, "Urgent", "Immediate"]);
