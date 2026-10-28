@@ -17,9 +17,9 @@ const SECTIONS = [
   { role: "tester", emoji: ":test_tube:", title: "To test", ready: ["IN_TESTING"], empty: "Nothing to test." },
 ];
 
-// A view holds 100 blocks and each task takes one, so long lists are cut
+// A view holds 100 blocks and each task takes two, so long lists are cut
 // short.
-const MAX_READY = 15;
+const MAX_READY = 12;
 const MAX_LATER = 5;
 
 // A button that opens a task's thread. Slack still sends its click to
@@ -75,7 +75,7 @@ export async function homeView(env, user) {
 function list({ role, ready, later, empty }, today) {
   const blocks = [];
   if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
-  blocks.push(...ready.slice(0, MAX_READY).map((entry) => card(entry, role, today)));
+  blocks.push(...ready.slice(0, MAX_READY).flatMap((entry) => card(entry, role, today)));
   if (ready.length > MAX_READY) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - MAX_READY} more._`)] });
   }
@@ -87,25 +87,29 @@ function list({ role, ready, later, empty }, today) {
   return blocks;
 }
 
-// A task as a card: its title, then its priority, status and due date, with
-// a button to its thread. The button's id names the section too, as a task
-// is listed under each role the person has on it.
+// A task as a card, in two blocks: its title with a button to its thread,
+// then its priority, status and due date in the smaller type of a context
+// block. The button's id names the section too, as a task is listed under
+// each role the person has on it.
 function card({ ts, channel, task, link, incident }, role, today) {
   const title = `${incident ? ":rotating_light: " : ""}*${escapeSlack(task.title)}*`;
   const due = task.dueDate && (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`);
   const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], due].filter(Boolean).join("  ·  ");
-  return {
-    type: "section",
-    // The blank last line (a braille blank, as Slack trims plain ones) puts
-    // a gap before the next card, without a block of its own.
-    text: mrkdwn(`${title}\n${details}\n\u2800`),
-    accessory: {
-      type: "button",
-      action_id: `${OPEN_ACTION}:${role}:${channel}:${ts}`,
-      text: plainText("Open thread"),
-      url: link,
+  return [
+    {
+      type: "section",
+      text: mrkdwn(title),
+      accessory: {
+        type: "button",
+        action_id: `${OPEN_ACTION}:${role}:${channel}:${ts}`,
+        text: plainText("Open thread"),
+        url: link,
+      },
     },
-  };
+    // The blank last line (a braille blank, as Slack trims plain ones) puts
+    // a gap before the next card.
+    { type: "context", elements: [mrkdwn(`${details}\n\u2800`)] },
+  ];
 }
 
 // Whether the task's due date has passed. An incident, due Immediate, never
