@@ -1,6 +1,6 @@
 import { channelPairs, roleOf } from "../channels.js";
 import { tasksWithStatus } from "../db.js";
-import { intent } from "../intents.js";
+import { findIntent, intent, intentsOn, plainMessage } from "../intents.js";
 import { acknowledge, callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.js";
 import { STATUSES, chosenProject, loadTask, projectBlock, setPinned, statusName } from "../tasks.js";
 import { incidentView, trackView } from "./track.js";
@@ -548,7 +548,29 @@ export async function moveMessage(env, { from, target, user }) {
   // longer needs its pin. setPinned only logs a failure.
   if (message.pinned) await setPinned(env, from.channel, from.ts, false);
   console.log("Message moved", { ts: from.ts, targetTs: target.ts, user });
+  await suggestForCopy(env, { message, target, ts: copy.ts });
   return null;
+}
+
+// Cade's own posts are never read for suggestions (see plainMessage), but
+// the copy of a moved message carries someone's words into the task's
+// thread, so they're read as if their author had just posted them there.
+// A failure here doesn't undo the move.
+async function suggestForCopy(env, { message, target, ts }) {
+  if (!message.text || !message.author) return;
+  try {
+    const { user_id: botUserId } = await callSlack(env, "auth.test", {});
+    const copied = plainMessage(
+      { text: message.text, user: message.author, channel: target.channel, ts, thread_ts: target.ts },
+      botUserId,
+    );
+    // Imported when needed, as the registry lists this command.
+    const { intents } = await import("./registry.js");
+    const meant = copied && findIntent(intentsOn(env, intents, target.channel), copied);
+    if (meant) await meant.handle(copied, { env });
+  } catch (error) {
+    console.warn("Could not read the moved message for suggestions", { ts, error: error.message });
+  }
 }
 
 // The thread's root message and, if Cade moved it already, the link to its
