@@ -8,6 +8,7 @@ import {
   noPeople,
   projectBlock,
   readTaskForm,
+  refreshHomes,
   refreshSummary,
   setPinned,
   syncTask,
@@ -217,6 +218,7 @@ export async function publishTask(env, { id, channel, task, origin, attempts }) 
   await syncTask(env, message.channel, message.ts, task);
   // A group's summary canvas is made with its first new task.
   await refreshSummary(env, message.channel, { create: true });
+  await refreshHomes(env, null, task);
   if (origin.move) {
     const problem = await moveMessage(env, {
       from: origin.move,

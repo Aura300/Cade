@@ -1,6 +1,7 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
 import { actions, intents, reactions, shortcuts, views } from "./commands/registry.js";
+import { OPEN_ACTION, publishHome } from "./home.js";
 import { findIntent, intentsOn, plainMessage } from "./intents.js";
 import { retryUnposted } from "./retry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
@@ -68,6 +69,11 @@ async function handleEvent(body, request, context) {
     if (event.item?.type === "message" && event.user !== botUserId) {
       for (const handle of reactions) context.waitUntil(handle(event, context));
     }
+    return respond();
+  }
+  // Opening Cade's Home tab draws it (see home.js).
+  if (envelope.event.type === "app_home_opened") {
+    if (envelope.event.tab === "home") context.waitUntil(publishHome(context.env, envelope.event.user));
     return respond();
   }
   if (envelope.event.type !== "message") return respond();
@@ -146,6 +152,8 @@ async function handleInteraction(body, request, context) {
     handler = views[id];
   } else if (payload.type === "block_actions") {
     id = payload.actions?.[0]?.action_id;
+    // The Home tab's Open thread buttons are links; the click needs no answer.
+    if (id?.startsWith(`${OPEN_ACTION}:`)) return respond();
     handler = actions[id];
   } else if (payload.type === "message_action") {
     id = payload.callback_id;

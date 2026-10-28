@@ -8,6 +8,7 @@ import { changeTask } from "../src/commands/changes.js";
 import { editForm } from "../src/commands/edit.js";
 import { changeLog, changeRequests } from "../src/notify.js";
 import { formatDueDate } from "../src/tasks.js";
+import { homeUsers } from "../src/home.js";
 import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
 
@@ -118,6 +119,9 @@ function mockSlack(t, { stored = [], ...responses } = {}) {
   DB.reset();
   seeded = Promise.all(stored.map(store));
   const calls = [];
+  // The Home tabs drawn (see home.js), kept apart from `calls`: a change to
+  // a task can redraw them in the middle of a command.
+  Object.defineProperty(calls, "homes", { value: [] });
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     // Answers through a click's or command's response_url, unless a test
@@ -149,6 +153,13 @@ function mockSlack(t, { stored = [], ...responses } = {}) {
         calls.push({ method, args, headers: init.headers, previews: {} });
         return Response.json({ ok: false, error: "invalid_blocks", reused });
       }
+    }
+    // A Home tab is drawn after an auth.test of its own, which goes with it.
+    if (method === "views.publish" && args.view?.type === "home") {
+      const own = calls.findLastIndex((call) => call.method === "auth.test");
+      if (own >= 0) calls.splice(own, 1);
+      calls.homes.push(args);
+      return Response.json({ ok: true });
     }
     const previews = { links: args.unfurl_links, media: args.unfurl_media };
     delete args.unfurl_links;
@@ -2331,7 +2342,55 @@ test("the manifest asks for the scopes Cade uses", async () => {
     "users:read",
     "users:read.email",
   ]);
-  assert.deepEqual(template.settings.event_subscriptions.bot_events, ["message.channels", "message.groups", "reaction_added"]);
+  assert.deepEqual(template.settings.event_subscriptions.bot_events, [
+    // Opening the Home tab draws the person's dashboard.
+    "app_home_opened",
+    "message.channels",
+    "message.groups",
+    "reaction_added",
+  ]);
+  assert.equal(template.features.app_home.home_tab_enabled, true);
+});
+
+test("opening the Home tab shows the person's open tasks by what they do on them, most urgent first", async (t) => {
+  const task = (ts, title, priority, status, people, dueDate = "") => ({
+    channel: "CDEV",
+    ts,
+    task: { ...storedTask().task, title, priority, status, dueDate, people: { owner: [], reviewer: [], tester: [], ...people } },
+  });
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    stored: [
+      task("1.1", "Low chore", "Low", "TODO", { owner: ["UME"] }),
+      task("2.1", "Urgent fix", "Urgent", "IN_PROGRESS", { owner: ["UME"] }, "01/01/2020"),
+      task("3.1", "Review me", "High", "IN_REVIEW", { reviewer: ["UME"] }),
+      task("4.1", "Not yet testable", "High", "IN_PROGRESS", { tester: ["UME"] }),
+      task("5.1", "Someone else's", "Urgent", "TODO", { owner: ["UOTHER"] }),
+      task("6.1", "Finished", "Urgent", "DONE", { owner: ["UME"] }),
+    ],
+  });
+  const body = JSON.stringify({
+    type: "event_callback",
+    authorizations: [{ user_id: "UBOT" }],
+    event: { type: "app_home_opened", user: "UME", tab: "home" },
+  });
+  assert.equal((await send("/slack/events", body)).status, 200);
+
+  const [publish] = calls.homes.map((args) => ({ args }));
+  assert.equal(publish.args.user_id, "UME");
+  const text = publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n");
+  // Each task has a button to its thread.
+  const buttons = publish.args.view.blocks.filter((block) => block.accessory?.text?.text === "Open thread");
+  assert.equal(buttons.length, 4);
+  assert.equal(buttons[0].accessory.url, "https://acme.slack.com/archives/CDEV/p21?thread_ts=2.1&cid=CDEV");
+  assert.deepEqual(duplicateActionIds(publish.args.view.blocks), []);
+  assert.ok(text.indexOf("Urgent fix") < text.indexOf("Low chore"));
+  assert.match(text, /overdue/);
+  assert.match(text, /Review me/);
+  assert.match(text, /Coming up[^]*Not yet testable/);
+  assert.doesNotMatch(text, /Someone else's|Finished/);
+  const headers = publish.args.view.blocks.filter((block) => block.type === "header").map(blockText);
+  assert.deepEqual(headers, ["Your tasks", ":hammer_and_wrench: To work on (2)", ":eyes: To review (1)", ":test_tube: To test (0)"]);
 });
 
 test("slack:create checks its settings before calling Slack", async () => {
@@ -5907,4 +5966,39 @@ test("people removed are told only if they had been asked, and once", () => {
 test("changes that are not about people ask no one", () => {
   assert.deepEqual(changeRequests(changed({ priority: { from: "High", to: "Low" }, dueDate: { from: "", to: "01/01/2027" } })), []);
   assert.deepEqual(changeRequests(changed({ status: { from: "TODO", to: "IN_PROGRESS" } })), []);
+});
+
+test("a Home tab is redrawn when its person's tasks gain or lose them, or change status, priority or due date", async (t) => {
+  const task = (people, status = "TODO", extra = {}) => ({ status, priority: "High", dueDate: "31/10/2026", ...extra, people: { owner: [], reviewer: [], tester: [], ...people } });
+  const sorted = (users) => [...users].sort();
+  // Assigned, unassigned and moved between roles: those it had and has.
+  assert.deepEqual(sorted(homeUsers(task({ owner: ["UA"] }), task({ owner: ["UA", "UB"] }))), ["UA", "UB"]);
+  assert.deepEqual(sorted(homeUsers(task({ owner: ["UA"], reviewer: ["UB"] }), task({ owner: ["UA"] }))), ["UA", "UB"]);
+  assert.deepEqual(sorted(homeUsers(task({ owner: ["UA"] }), task({ reviewer: ["UA"] }))), ["UA"]);
+  // Made, deleted or archived.
+  assert.deepEqual(homeUsers(null, task({ owner: ["UA"] })), ["UA"]);
+  assert.deepEqual(homeUsers(task({ owner: ["UA"] }), null), ["UA"]);
+  // Done, or no longer.
+  assert.deepEqual(homeUsers(task({ owner: ["UA"] }, "IN_TESTING"), task({ owner: ["UA"] }, "DONE")), ["UA"]);
+  assert.deepEqual(homeUsers(task({ owner: ["UA"] }, "DONE"), task({ owner: ["UA"] }, "IN_PROGRESS")), ["UA"]);
+  // Any other status, or the priority or due date.
+  assert.deepEqual(homeUsers(task({ owner: ["UA"] }, "TODO"), task({ owner: ["UA"] }, "IN_REVIEW")), ["UA"]);
+  assert.deepEqual(homeUsers(task({ owner: ["UA"] }), task({ owner: ["UA"] }, "TODO", { priority: "Urgent" })), ["UA"]);
+  assert.deepEqual(homeUsers(task({ owner: ["UA"] }), task({ owner: ["UA"] }, "TODO", { dueDate: "" })), ["UA"]);
+  // Nothing the tab shows: the title, say.
+  assert.deepEqual(homeUsers(task({ owner: ["UA"] }), task({ owner: ["UA"] }, "TODO", { title: "New" })), []);
+
+  // Through a command: assigning redraws the tab of each person on the task.
+  const calls = mockSlack(t, {
+    "auth.test": { url: "https://acme.slack.com/" },
+    stored: [storedTask({ owners: ["UALICE"] })],
+  });
+  await send("/slack/events", threadEvent("<@UBOT> assign owner <@UBOB>"));
+  assert.deepEqual(sorted(calls.homes.map((home) => home.user_id)), ["UALICE", "UBOB"]);
+  calls.homes.length = 0;
+  await send("/slack/events", threadEvent("<@UBOT> status in review"));
+  assert.deepEqual(sorted(calls.homes.map((home) => home.user_id)), ["UALICE", "UBOB"]);
+  calls.homes.length = 0;
+  await send("/slack/events", threadEvent("<@UBOT> status done"));
+  assert.deepEqual(sorted(calls.homes.map((home) => home.user_id)), ["UALICE", "UBOB"]);
 });

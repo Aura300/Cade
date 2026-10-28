@@ -10,6 +10,11 @@
       "display_name": "{{APP_NAME}}",
       "always_online": true
     },
+    "app_home": {
+      "home_tab_enabled": true,
+      "messages_tab_enabled": false,
+      "messages_tab_read_only_enabled": true
+    },
     "shortcuts": [
       {
         "name": "New task",
@@ -64,7 +69,7 @@
   "settings": {
     "event_subscriptions": {
       "request_url": "{{WORKER_URL}}/slack/events",
-      "bot_events": ["message.channels", "message.groups", "reaction_added"]
+      "bot_events": ["app_home_opened", "message.channels", "message.groups", "reaction_added"]
     },
     "interactivity": {
       "is_enabled": true,

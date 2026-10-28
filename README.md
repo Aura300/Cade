@@ -51,7 +51,7 @@ Slack sends three kinds of request to the Worker:
 
 | Path | Slack feature | Handles |
 | --- | --- | --- |
-| `/slack/events` | Event Subscriptions | Messages: `@Cade …` commands, and plain messages Cade reacts to |
+| `/slack/events` | Event Subscriptions | Messages: `@Cade …` commands, and plain messages Cade reacts to; opening the Home tab draws the person's dashboard (`src/home.js`) |
 | `/slack/interactions` | Interactivity | Forms, buttons and menus |
 | `/slack/commands` | Slash Commands | `/cade …` |
 
