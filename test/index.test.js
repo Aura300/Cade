@@ -4,6 +4,7 @@ import worker from "../src/index.js";
 import { parseDate } from "../src/commands/details.js";
 import { parseMessage } from "../src/commands/parse.js";
 import { getTask, insertRelease, insertTask, markTaskDeleted, putTask } from "../src/db.js";
+import { editForm } from "../src/commands/edit.js";
 import { formatDueDate } from "../src/tasks.js";
 import { parseTaskFilters, todayIn } from "../src/commands/tasks.js";
 import { fakeD1 } from "./d1.js";
@@ -5552,4 +5553,24 @@ test("AI is given the dates of the coming week, for deadlines like Friday", asyn
   assert.equal(days.Friday, "2026-10-30");
   assert.equal(days.Tuesday, "2026-11-03");
   assert.equal(Object.keys(days).length, 7);
+});
+
+test("the Edit form of a suggestion shows the task as it will be, with its pull requests and status", () => {
+  const { task } = storedTask({ reviewers: ["URIA"] });
+  task.status = "IN_PROGRESS";
+  task.prs = [MR];
+  const field = (view, id) => view.blocks.find((block) => block.block_id === id).element;
+
+  const form = editForm({ channel: "CDEV", ts: "100.1" }, task, {
+    changes: { prs: { add: [PR], remove: [MR] }, people: { reviewer: { add: ["UREX"], remove: [] } } },
+  });
+  // Linking moves the task to In review, though the suggestion has no status.
+  assert.equal(field(form, "status").initial_option.value, "IN_REVIEW");
+  assert.equal(field(form, "prs").initial_value, PR);
+  assert.deepEqual(field(form, "reviewer").initial_users, ["URIA", "UREX"]);
+
+  // As the task stands, without a suggestion.
+  const plain = editForm({ channel: "CDEV", ts: "100.1" }, task);
+  assert.equal(field(plain, "status").initial_option.value, "IN_PROGRESS");
+  assert.equal(field(plain, "prs").initial_value, MR);
 });
