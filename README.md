@@ -85,8 +85,7 @@ it, what it needs (a thread, a mention), an `order`, and what to do;
 
 | Order | Intent | In | Signals |
 | --- | --- | --- | --- |
-| 10 | `pr-link` | `pr.js` | a pull request link, in a task's thread |
-| 20 | `work` | `suggest.js` | hand-offs ("@mia can you review this?"), the work starting ("on it"), progress ("LGTM", "QA passed", "done"), read by phrases or with AI |
+| 20 | `work` | `suggest.js` | pull request links (linked, with the people mentioned as reviewers), hand-offs ("@mia can you review this?"), the work starting ("on it"), progress ("LGTM", "QA passed", "done"), read by phrases or with AI |
 | 50 | `new-thread` | `move.js` | a message posted on its own in a dev channel, not in a thread |
 
 Each only asks the writer, privately, before changing anything, since a
