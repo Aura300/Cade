@@ -1,5 +1,6 @@
-import { acknowledge, escapeSlack } from "../slack.js";
-import { INCIDENT_IS_FIXED, NOT_A_TASK, PRIORITIES, loadTask, saveTask } from "../tasks.js";
+import { escapeSlack } from "../slack.js";
+import { INCIDENT_IS_FIXED, NOT_A_TASK, PRIORITIES, loadTask } from "../tasks.js";
+import { acknowledged, changeTask } from "./changes.js";
 
 // `@Cade priority high` and `@Cade due 31/12/2026`, in a task's thread,
 // change its priority and due date, and Cade reacts ✅ to the message.
@@ -25,8 +26,7 @@ export const priority = {
       const asked = input ? `I don't know "${escapeSlack(input)}" as a priority.` : "Which priority?";
       return `${asked} Try \`@Cade priority high\`: urgent, high, medium or low.`;
     }
-    await change(env, found, { priority: value }, command.user);
-    return acknowledge();
+    return acknowledged(await changeTask(env, found, { priority: value }, command.user));
   },
 };
 
@@ -45,16 +45,14 @@ export const due = {
 
     const input = command.text.trim();
     if (/^(none|clear|remove)$/i.test(input)) {
-      await change(env, found, { dueDate: "" }, command.user);
-      return acknowledge();
+      return acknowledged(await changeTask(env, found, { dueDate: "" }, command.user));
     }
     const dueDate = parseDate(input);
     if (!dueDate) {
       const asked = input ? `I couldn't read "${escapeSlack(input)}" as a date.` : "When is it due?";
       return `${asked} Try \`@Cade due 31/12/2026\`, or \`@Cade due none\` to clear it.`;
     }
-    await change(env, found, { dueDate }, command.user);
-    return acknowledge();
+    return acknowledged(await changeTask(env, found, { dueDate }, command.user));
   },
 };
 
@@ -70,34 +68,6 @@ function cannotChange(found) {
   if (!found) return NOT_A_TASK;
   if (found.item.incident) return INCIDENT_IS_FIXED;
   return undefined;
-}
-
-// Changes the priority or due date, or both, of the task at `channel`/`ts`
-// for `user`, and returns the change log, as { log, notes } (see oneMessage
-// in notify.js), or null when they can't be changed (see cannotChange).
-// Shared with suggestions.
-export async function detailsChange(env, channel, ts, fields, user) {
-  const found = await findTask(env, channel, ts);
-  if (cannotChange(found)) return null;
-  const log = [];
-  for (const [name, value] of Object.entries(fields)) {
-    if ((found.item[name] ?? "") !== value) log.push(await change(env, found, { [name]: value }, user));
-  }
-  return { log, notes: [] };
-}
-
-// Saves the change and returns the confirmation.
-async function change(env, found, fields, user) {
-  Object.assign(found.item, fields);
-  await saveTask(env, found.channel, found.ts, found.item);
-  return changedText(user, fields);
-}
-
-function changedText(user, { priority, dueDate }) {
-  if (priority) return `<@${user}> set the priority to ${PRIORITIES[priority]} ${priority}.`;
-  return dueDate
-    ? `<@${user}> set the due date to ${dueDate}.`
-    : `<@${user}> removed the due date.`;
 }
 
 // Reads DD/MM/YYYY (or D/M/YYYY, or YYYY-MM-DD) as DD/MM/YYYY, or "" when it

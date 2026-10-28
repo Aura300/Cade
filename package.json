@@ -14,10 +14,13 @@
     "config": "node scripts/config.mjs",
     "group": "node scripts/group.mjs",
     "google:create": "node scripts/google-app.mjs create",
-    "google:update": "node scripts/google-app.mjs update"
+    "google:update": "node scripts/google-app.mjs update",
+    "demo:login": "node scripts/demo/login.mjs",
+    "demo:record": "node scripts/demo/record.mjs"
   },
   "devDependencies": {
     "@google/clasp": "^3.4.1",
+    "playwright": "^1.64.1",
     "wrangler": "^4.152.0"
   }
 }

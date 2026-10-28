@@ -1,6 +1,5 @@
-import { assigned, noLongerIfDue, requestIfDue, unassigned } from "../notify.js";
-import { acknowledge } from "../slack.js";
-import { NOT_A_TASK, loadTask, parseRole, saveTask } from "../tasks.js";
+import { NOT_A_TASK, loadTask, parseRole } from "../tasks.js";
+import { acknowledged, changeTask } from "./changes.js";
 
 // `@Cade assign owner @person [@person …]` in a task thread adds people
 // to that role; `reviewer` and `tester` work the same way, and short words
@@ -30,30 +29,11 @@ export default {
 
     const task = await loadTask(env, command.channel, command.threadTs);
     if (!task) return NOT_A_TASK;
-    task.people[role] = [...new Set([...task.people[role], ...command.mentions])];
-    await saveTask(env, channel, threadTs, task);
     // The task card shows who is on it, so a ✅ says it was done; only the
     // request to them is posted.
-    const { notes } = teamChanges(user, task, [{ role, added: command.mentions, removed: [] }]);
-    return acknowledge(notes.join("\n") || undefined);
+    const changes = { people: { [role]: { add: [...new Set(command.mentions)] } } };
+    return acknowledged(await changeTask(env, { channel, ts: threadTs }, changes, user));
   },
 };
 
 const ASSIGN_USAGE = `Who, and as what? Try ${["owner", "review", "test"].map((name) => `\`@Cade assign ${name} @person\``).join(", ")}.`;
-
-// The thread's record of `user` changing who's on the task, as { log,
-// notes } for oneMessage: the change log, a line per role for who was
-// assigned and who was removed, and what it means for them, a line each,
-// only when there's something for them to do now (see notify.js). Shared
-// with `@Cade assign` and suggestions, whose message `told` some of them
-// already.
-export function teamChanges(user, task, changes, told = {}) {
-  const log = [];
-  const notes = [];
-  for (const { role, added, removed } of changes) {
-    if (added.length) log.push(assigned(user, added, role, told));
-    if (removed.length) log.push(unassigned(user, removed, role, told));
-    notes.push(added.length && requestIfDue(task, added, role, user, told), removed.length && noLongerIfDue(task, removed, role, user, told));
-  }
-  return { log, notes: notes.filter(Boolean) };
-}

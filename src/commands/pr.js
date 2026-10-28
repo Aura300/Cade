@@ -1,4 +1,5 @@
 import { assigned, request, toAsk } from "../notify.js";
+import { acknowledged, changeTask } from "./changes.js";
 import { acknowledge, callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 
@@ -55,21 +56,19 @@ export default {
     const task = await loadTask(env, command.channel, command.threadTs);
     if (!task) return NOT_A_TASK;
 
+    const where = { channel: command.channel, ts: command.threadTs };
     if (adding) {
-      const linked = await addPullRequests(env, command.channel, command.threadTs, task, urls);
-      if (!linked) return "Those pull requests are already linked to this task, so we're all set.";
+      const added = urls.filter((url) => !task.prs.includes(url));
+      if (!added.length) return "Those pull requests are already linked to this task, so we're all set.";
       // The task card shows the link, so a ✅ says it was linked; the reviewers
       // are still asked, or who should review.
-      const reviewers = task.people.reviewer;
-      if (!reviewers.length) return acknowledge(reviewerPicker("", linked.added));
-      return acknowledge(request(reviewers, "reviewer", linked.added));
+      const parts = await changeTask(env, where, { prs: { add: added } }, command.user);
+      return task.people.reviewer.length ? acknowledged(parts) : acknowledge(reviewerPicker("", added));
     }
 
     const removed = urls.filter((url) => task.prs.includes(url));
     if (!removed.length) return "Hmm, those pull requests aren't linked to this task.";
-    task.prs = task.prs.filter((url) => !removed.includes(url));
-    await saveTask(env, command.channel, command.threadTs, task);
-    return acknowledge();
+    return acknowledged(await changeTask(env, where, { prs: { remove: removed } }, command.user));
   },
   actions: {
     [REVIEWERS_ACTION]: async (payload, context) => {

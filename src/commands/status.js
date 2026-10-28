@@ -1,5 +1,6 @@
 import { isQuestion, phraseTest } from "../intents.js";
-import { oneMessage, request, statusChanged, toAsk } from "../notify.js";
+import { changeMessage } from "../notify.js";
+import { acknowledged, changeTask } from "./changes.js";
 import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
   NOT_A_TASK,
@@ -79,12 +80,9 @@ export default {
       return `${asked} ${STATUS_USAGE}`;
     }
 
-    const previous = task.status;
-    await applyStatus(env, command.channel, command.threadTs, task, status);
     // A status typed in the command needs only a ✅, since the task card shows
     // it, plus the testers' request when it reached In testing.
-    if (status === "CLIENT_REVIEW") await askApprover(env, command.channel, command.threadTs, command.user);
-    return acknowledge(testersAsked(task, previous, command.user) ?? undefined);
+    return acknowledged(await changeTask(env, { channel: command.channel, ts: command.threadTs }, { status }, command.user));
   },
   actions: {
     [APPROVE_ACTION]: async (payload, context) => {
@@ -139,47 +137,36 @@ export function statusOption(status) {
 }
 
 // Sets the task's status for `user`, and returns what the thread then
-// hears, as one message (see statusChange). Null if it isn't a task. For
-// `/cade standup`.
+// hears, as one message. Null if it isn't a task, or the status isn't a
+// change. For `/cade standup`.
 export async function setStatus(env, channel, ts, status, user) {
-  const change = await statusChange(env, channel, ts, status, user);
-  return change && oneMessage(change);
+  const change = await changeTask(env, { channel, ts }, { status }, user);
+  return change && changeMessage(change);
 }
 
-// Sets the task's status for `user`, and returns what the thread hears as {
-// log, notes } (see oneMessage): who set it, and, when it reached In
-// testing, the request to its testers. Client review asks whoever set it,
-// privately, who approves it (see askApprover); setting it again asks
-// again, since a private message is easily lost. Null if it isn't a task.
-// Shared with suggestions.
-export async function statusChange(env, channel, ts, status, user, told) {
-  const task = await loadTask(env, channel, ts);
-  if (!task) return null;
+// Sets the task's status and completion time, for the caller to save.
+export function setStatusFields(task, status) {
   const previous = task.status;
-  await applyStatus(env, channel, ts, task, status);
-  if (status === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
-  const ask = testersAsked(task, previous, user, told);
-  return { log: [statusChanged(user, status)], notes: ask ? [ask] : [] };
+  task.status = status;
+  if (status !== "DONE") task.completedAt = "";
+  else if (previous !== "DONE") task.completedAt = new Date().toISOString();
 }
 
-// The request to a task's testers when `user` has just moved it to In
-// testing from `previous`, or null. A tester who moved it isn't asked, nor
-// one `told` already by the message it came from. Testers assigned once
-// it's In testing are asked then (see notify.js).
-function testersAsked(task, previous, user, told) {
-  const tester = toAsk(task.people.tester, user, told);
-  return task.status === "IN_TESTING" && previous !== "IN_TESTING" && tester.length ? request(tester, "tester") : null;
+// What follows saving a status change `{ from, to }` made by `user`: the
+// task is pinned or unpinned as it leaves or reaches Done, and Client review
+// asks whoever moved it, privately, who approves it (see askApprover).
+export async function afterStatusChange(env, channel, ts, { from, to }, user) {
+  if ((from === "DONE") !== (to === "DONE")) await setPinned(env, channel, ts, to !== "DONE");
+  if (to === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
 }
 
 // Saves the new status, pinning or unpinning the task as it leaves or
 // reaches Done.
 async function applyStatus(env, channel, ts, task, status) {
-  const previous = task.status;
-  task.status = status;
-  if (status !== "DONE") task.completedAt = "";
-  else if (previous !== "DONE") task.completedAt = new Date().toISOString();
+  const from = task.status;
+  setStatusFields(task, status);
   await saveTask(env, channel, ts, task);
-  if ((previous === "DONE") !== (status === "DONE")) await setPinned(env, channel, ts, status !== "DONE");
+  if ((from === "DONE") !== (status === "DONE")) await setPinned(env, channel, ts, status !== "DONE");
 }
 
 // A task reaching Client review asks whoever moved it, privately, who

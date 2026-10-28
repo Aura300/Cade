@@ -1,6 +1,5 @@
-import { NOT_A_TASK, ROLES, loadTask, parseRole, saveTask } from "../tasks.js";
-import { noLongerIfDue } from "../notify.js";
-import { acknowledge } from "../slack.js";
+import { NOT_A_TASK, ROLES, loadTask, parseRole } from "../tasks.js";
+import { acknowledged, changeTask } from "./changes.js";
 
 // `@Cade unassign owner @person [@person …]` in a task thread removes
 // people from that role; `@Cade unassign @person` removes them from every role.
@@ -20,18 +19,12 @@ export default {
 
     const task = await loadTask(env, command.channel, command.threadTs);
     if (!task) return NOT_A_TASK;
-    const removed = new Set();
-    for (const name of role ? [role] : Object.keys(ROLES)) {
-      for (const id of task.people[name]) if (command.mentions.includes(id)) removed.add(id);
-      task.people[name] = task.people[name].filter((id) => !command.mentions.includes(id));
-    }
-    if (!removed.size) {
+    const roles = role ? [role] : Object.keys(ROLES);
+    const people = Object.fromEntries(roles.map((name) => [name, { remove: command.mentions }]));
+    if (!roles.some((name) => task.people[name].some((id) => command.mentions.includes(id)))) {
       const as = role ? ` as ${ROLES[role].toLowerCase()}` : "";
       return `Looks like ${command.mentions.length === 1 ? "they aren't" : "none of them are"} assigned to this task${as}.`;
     }
-    await saveTask(env, command.channel, command.threadTs, task);
-    const people = [...removed];
-    const note = noLongerIfDue(task, people, role, command.user);
-    return acknowledge(note ?? undefined);
+    return acknowledged(await changeTask(env, { channel: command.channel, ts: command.threadTs }, { people }, command.user));
   },
 };

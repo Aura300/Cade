@@ -352,7 +352,8 @@ test("@Cade assign adds people to a role on the root message", async (t) => {
   assert.deepEqual(calls[2].args, {
     channel: "CDEV",
     thread_ts: "100.1",
-    text: "<@UBOB>, <@UALICE>, could you pick this up when you get a chance? Thanks!",
+    // @alice was an owner already, so isn't asked again.
+    text: "<@UBOB>, could you pick this up when you get a chance? Thanks!",
   });
 });
 
@@ -836,9 +837,9 @@ test("setting Done records when it was completed", async (t) => {
 test("setting Done again keeps the original completion time", async (t) => {
   const done = withStatus("DONE");
   done.task.completedAt = "2026-10-20T04:30:00.000Z";
-  const calls = mockSlack(t, { ...slackUsers, stored: [done] });
+  mockSlack(t, { ...slackUsers, stored: [done] });
   await sendWithSheet("/slack/events", threadEvent("<@UBOT> status done"));
-  assert.equal(sheetRow(calls)["Completed at"], "20/10/2026 10:00");
+  assert.equal((await savedTask()).completedAt, "2026-10-20T04:30:00.000Z");
 });
 
 test("reopening a Done task clears its completion time", async (t) => {
@@ -1308,10 +1309,10 @@ test("Approve on a deleted task says so", async (t) => {
   assert.match(calls[0].args.text, /\nHmm, this task doesn't exist anymore\.$/);
 });
 
-test("setting Client review again asks again who approves", async (t) => {
+test("setting the status it already has changes nothing, so asks no one", async (t) => {
   const calls = mockSlack(t, { stored: [withStatus("CLIENT_REVIEW")] });
   await send("/slack/events", threadEvent("<@UBOT> status client review"));
-  assert.equal(calls.find((call) => call.method === "chat.postEphemeral").args.blocks[1].elements[0].action_id, "status:ask");
+  assert.deepEqual(calls.map((call) => call.method), ["reactions.add"]);
 });
 
 test("only the chosen approver can approve or reject", async (t) => {
@@ -5629,4 +5630,77 @@ test("the Edit form of a suggestion shows the task as it will be, with its pull 
   const plain = editForm({ channel: "CDEV", ts: "100.1" }, task);
   assert.equal(field(plain, "status").initial_option.value, "IN_PROGRESS");
   assert.equal(field(plain, "prs").initial_value, MR);
+});
+
+test("Edit saves a new status and a tester who is the person saving, in one update, and posts the log", async (t) => {
+  const task = storedTask({ reviewers: ["UMIA"] });
+  task.task.status = "IN_REVIEW";
+  const calls = mockSlack(t, { stored: [task] });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "view_submission",
+      user: { id: "UACTOR" },
+      view: {
+        callback_id: "task:edit",
+        private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1", details: false }),
+        state: {
+          values: {
+            owner: { value: { selected_users: [] } },
+            reviewer: { value: { selected_users: ["UMIA"] } },
+            tester: { value: { selected_users: ["UACTOR"] } },
+            status: { value: { selected_option: { value: "IN_TESTING" } } },
+            prs: { value: { value: "" } },
+          },
+        },
+      },
+    }),
+  );
+  const saved = await savedTask();
+  assert.deepEqual([saved.status, saved.people.tester], ["IN_TESTING", ["UACTOR"]]);
+  // One update of the card, for all of it.
+  assert.equal(calls.filter((call) => call.method === "chat.update").length, 1);
+  const post = calls.find((call) => call.method === "chat.postMessage");
+  assert.equal(post.args.text, "<@UACTOR> assigned themselves as tester.\n<@UACTOR> set the status to :test_tube: In testing.");
+});
+
+test("someone removed from several roles at once is told once", async (t) => {
+  const root = storedTask({ owners: ["UALICE"], reviewers: ["UALICE"] });
+  root.task.prs = [PR];
+  const calls = mockSlack(t, { stored: [root] });
+  await send("/slack/events", threadEvent("<@UBOT> unassign <@UALICE>"));
+  const posts = calls.filter((call) => call.method === "chat.postMessage");
+  assert.deepEqual(posts.map((call) => call.args.text), ["<@UALICE>, there's no need to work on this or review this anymore. Thanks!"]);
+});
+
+test("someone asked in several roles at once is asked once, and people asked alike share a note", async (t) => {
+  const root = storedTask();
+  root.task.prs = [PR];
+  const calls = mockSlack(t, { stored: [root] });
+  await send(
+    "/slack/interactions",
+    interaction({
+      type: "view_submission",
+      user: { id: "UACTOR" },
+      view: {
+        callback_id: "task:edit",
+        private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1", details: false }),
+        state: {
+          values: {
+            owner: { value: { selected_users: ["UBOB", "UREX"] } },
+            reviewer: { value: { selected_users: ["UBOB"] } },
+            tester: { value: { selected_users: [] } },
+            status: { value: { selected_option: { value: "TODO" } } },
+            prs: { value: { value: PR } },
+          },
+        },
+      },
+    }),
+  );
+  const post = calls.find((call) => call.method === "chat.postMessage").args.text;
+  const notes = post.split("\n").filter((line) => line.includes("could you"));
+  assert.deepEqual(notes, [
+    `<@UBOB>, could you pick this up and review <${PR}|cade/42> when you get a chance? Thanks!`,
+    "<@UREX>, could you pick this up when you get a chance? Thanks!",
+  ]);
 });

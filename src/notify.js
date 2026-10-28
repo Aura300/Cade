@@ -1,5 +1,5 @@
 import { mentions } from "./slack.js";
-import { STATUSES, prLink, unsentPrs } from "./tasks.js";
+import { PRIORITIES, STATUSES, prLink, unsentPrs } from "./tasks.js";
 
 // What Cade says in a task's thread when its people, pull requests or
 // status change, in one place so they read alike. Each change is one
@@ -66,6 +66,100 @@ export function movedTo(user, status) {
   return `<@${user}> moved the task to ${STATUSES[status]}.`;
 }
 
+export function priorityChanged(user, priority) {
+  return `<@${user}> set the priority to ${PRIORITIES[priority]} ${priority}.`;
+}
+
+export function dueDateChanged(user, dueDate) {
+  return dueDate ? `<@${user}> set the due date to ${dueDate}.` : `<@${user}> removed the due date.`;
+}
+
+// ---- From a change ----
+
+// A change is what changeTask (commands/changes.js) says it actually did:
+//   { user, told, task, people: [{ role, added, removed }], prs: { added,
+//     removed }, priority: { from, to }, dueDate: { from, to }, status: {
+//     from, to } }
+// with only what changed, and `task` as it now is. The acknowledgement
+// and the requests are both read from it, so each says what happened and
+// nothing else.
+
+// The change log: a line for each thing that changed, who changed it.
+export function changeLog({ user, told, people, prs, priority, dueDate, status }) {
+  return [
+    prs?.added.length && linked(user, prs.added),
+    prs?.removed.length && unlinked(user, prs.removed),
+    ...people.flatMap(({ role, added, removed }) => [
+      added.length && assigned(user, added, role, told),
+      removed.length && unassigned(user, removed, role, told),
+    ]),
+    priority && priorityChanged(user, priority.to),
+    dueDate && dueDateChanged(user, dueDate.to),
+    status && statusChanged(user, status.to),
+  ].filter(Boolean);
+}
+
+// What the change means for people, a note for each person, not for each
+// field: a person asked to do several things is asked once, "pick this up
+// and review web/12", and people asked the same share a note. They are:
+//   - asked: reviewers kept, about pull requests added; people added to a
+//     role, when there's something for them to do now (see onTheirPlate);
+//     testers, when the task reached In testing;
+//   - told they needn't, when removed from a role they'd been asked to do,
+//     by the task as it was before the change.
+// Never `user`, who made the change, nor anyone `told` already.
+export function changeRequests({ user, told, task, people, prs, status }) {
+  const asks = new Map();
+  const ask = (ids, role, forPrs = []) => {
+    for (const id of toAsk(ids, user, told)) {
+      const mine = asks.get(id) ?? [];
+      if (!mine.some((one) => one.role === role)) asks.set(id, [...mine, { role, prs: forPrs }]);
+    }
+  };
+  const reviewersAdded = people.find(({ role }) => role === "reviewer")?.added ?? [];
+  if (prs?.added.length) ask(task.people.reviewer.filter((id) => !reviewersAdded.includes(id)), "reviewer", prs.added);
+  for (const { role, added } of people) {
+    const due = onTheirPlate(task, role);
+    if (due) ask(added, role, due);
+  }
+  // All of the testers, those just added too.
+  if (status?.to === "IN_TESTING") ask(task.people.tester, "tester");
+
+  const before = {
+    ...task,
+    status: status?.from ?? task.status,
+    prs: [...task.prs.filter((url) => !prs?.added.includes(url)), ...(prs?.removed ?? [])],
+  };
+  const needless = new Map();
+  for (const { role, removed } of people) {
+    if (!onTheirPlate(before, role)) continue;
+    for (const id of toAsk(removed, user, told)) needless.set(id, [...(needless.get(id) ?? []), role]);
+  }
+
+  return [
+    ...grouped([...asks].map(([id, mine]) => [id, askedTo(mine)]), (who, what) => `${who}, could you ${what} when you get a chance? Thanks!`),
+    ...grouped([...needless].map(([id, roles]) => [id, roles.map((role) => ASKED[role]).join(" or ")]), (who, what) => `${who}, there's no need to ${what} anymore. Thanks!`),
+  ];
+}
+
+// "pick this up and review web/12": what `asks`, as { role, prs }, ask of one person.
+function askedTo(asks) {
+  const parts = ["owner", "reviewer", "tester"].flatMap((role) => asks.filter((one) => one.role === role).map((one) => ASKS[role](one.prs)));
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+}
+
+// One note for each distinct `what` of [id, what] pairs, for all who share it.
+function grouped(pairs, note) {
+  const byWhat = new Map();
+  for (const [id, what] of pairs) byWhat.set(what, [...(byWhat.get(what) ?? []), id]);
+  return [...byWhat].map(([what, ids]) => note(mentions(ids), what));
+}
+
+// The thread's one message about a change: the log, then the requests.
+export function changeMessage(change) {
+  return [...changeLog(change), ...changeRequests(change)].join("\n");
+}
+
 // ---- Requests ----
 
 // What `role` has to do on `task` now, as the PRs for reviewers, or null
@@ -77,24 +171,6 @@ function onTheirPlate(task, role) {
   if (role === "reviewer") return unsentPrs(task).length ? unsentPrs(task) : null;
   if (role === "tester") return task.status === "IN_TESTING" ? [] : null;
   return [];
-}
-
-// The request to people `user` just assigned to `role`, but not `user`
-// themselves or anyone `told` already, or null when there's no one to ask or nothing for them to do
-// yet.
-export function requestIfDue(task, people, role, user, told) {
-  const others = toAsk(people, user, told);
-  const prs = others.length ? onTheirPlate(task, role) : null;
-  return prs && request(others, role, prs);
-}
-
-// The note to people `user` just removed from `role`, or every role (`role`
-// null), but not `user` themselves or anyone `told` already, or null when there's no one to tell or
-// they'd have had nothing to do.
-export function noLongerIfDue(task, people, role, user, told) {
-  const others = toAsk(people, user, told);
-  const due = role ? onTheirPlate(task, role) : [];
-  return others.length && due && task.status !== "DONE" ? noLonger(others, role) : null;
 }
 
 // What each role is asked to do; reviewers are asked about pull requests.
@@ -109,12 +185,6 @@ export function request(people, role, prs = []) {
   return `${mentions(people)}, could you ${ASKS[role](prs)} when you get a chance? Thanks!`;
 }
 
-// Tells people removed from a role, or from every role (`role` null), that
-// they no longer need to do it.
-export function noLonger(people, role) {
-  return `${mentions(people)}, there's no need to ${ASKED[role] ?? ASKED.owner} anymore. Thanks!`;
-}
-
 // What each role does, for questions about a hand-off and for telling people
 // they no longer need to.
 export const ASKED = {
@@ -122,10 +192,3 @@ export const ASKED = {
   reviewer: "review this",
   tester: "test this",
 };
-
-// One message from parts of { log, notes }: every change first, so they read
-// together as the thread's log, then what they mean for whom. Empty if
-// nothing changed.
-export function oneMessage(...parts) {
-  return [...parts.flatMap((part) => part.log), ...parts.flatMap((part) => part.notes)].join("\n");
-}
