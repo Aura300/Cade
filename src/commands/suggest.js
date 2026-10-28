@@ -3,8 +3,9 @@ import { roleOf } from "../channels.js";
 import { intent, isQuestion, phraseTest, suggesting } from "../intents.js";
 import { dismiss, respondLater } from "../slack.js";
 import { ROLES, loadTask } from "../tasks.js";
-import { askToChange, suggestWithAi } from "./ai-suggest.js";
+import { askToChange, suggestWithAi, withPullRequests } from "./ai-suggest.js";
 import { applyChanges } from "./changes.js";
+import { pullRequestsIn } from "./pr.js";
 import { progressOptions, soundsLikeProgress } from "./status.js";
 
 // Suggestions by phrases used to come with pickers, Save and Not now; those
@@ -14,7 +15,10 @@ const SKIP_ACTION = "suggest:skip";
 const ROLE_PICKS = Object.fromEntries(Object.keys(ROLES).map((role) => [role, `suggest:role:${role}`]));
 const STATUS_PICK = "suggest:status";
 
-// People's own words in a task's thread often mean the task should change.
+// People's own words in a task's thread often mean the task should change,
+// and so does a pasted pull request link. This is the one place messages in a
+// thread are read; a message posted on its own in a channel has no task yet
+// (see move.js).
 // With AI on (`ai` in cade.config.json), the message is read with AI, which
 // can tell more: see ai-suggest.js. Otherwise, or if AI fails, it's read by
 // its phrases, as below; both apply changes the same way (see changes.js).
@@ -31,6 +35,8 @@ const STATUS_PICK = "suggest:status";
 // so a mention that only informs ("cc @rex") asks no one, and neither does
 // the author's own plan ("I'll test it"). Each kind can be turned off with
 // `suggestions` in cade.config.json:
+//   pr-links   a pull request link: link it, and ask the people it mentions
+//              to review it
 //   hand-offs  a request to develop, review or test it: a picker for that role
 //   started    the work starting: In progress, and, for someone who isn't on
 //              the task, the owners picker
@@ -145,10 +151,11 @@ const MIGHT_CHANGE = phraseTest([
 const workIntent = intent({
   name: "work",
   order: 20,
-  kinds: ["hand-offs", "started", "progress", "details"],
+  kinds: ["pr-links", "hand-offs", "started", "progress", "details"],
   needs: { thread: true },
   match: (message) =>
     message.mentions.length > 0 ||
+    pullRequestsIn(message.text).length > 0 ||
     MIGHT_CHANGE(message) ||
     rolesAskedIn(message).length > 0 ||
     STARTED(message) ||
@@ -261,7 +268,7 @@ async function suggestWork(message, env) {
   const read = { status: status ?? "" };
   for (const role of Object.keys(ROLES)) read[role] = { add: people[role] ?? [], remove: [] };
   const allowed = { roles: Object.keys(ROLES), status: true, details: false };
-  const changes = checkChanges(read, { task, message, allowed });
+  const changes = withPullRequests(env, message, task, checkChanges(read, { task, message, allowed }));
   if (changes) await askToChange(env, message, about, changes);
 }
 

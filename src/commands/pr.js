@@ -1,5 +1,3 @@
-import { roleOf } from "../channels.js";
-import { intent } from "../intents.js";
 import { assigned, linked as linkedText, movedTo, request, toAsk, unlinked as unlinkedText } from "../notify.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
@@ -32,8 +30,8 @@ const HOW = "Try `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 // picker; choosing assigns them as reviewers and asks them.
 //
 // People also paste pull requests into a task's thread without `@Cade pr
-// add`. Then Cade asks them, privately, whether to link them, with Link PRs
-// and Not now buttons (see suggestPullRequests).
+// add`. Those are read with the other suggestions (see suggest.js), which ask
+// privately; the buttons below are for questions posted before that.
 export default {
   name: "pr",
   description: "Link or unlink pull requests (in a task thread)",
@@ -72,17 +70,6 @@ export default {
     await saveTask(env, command.channel, command.threadTs, task);
     return unlinkedText(command.user, removed);
   },
-  // Checked before hand-offs: a message with PR links gets only this question.
-  intents: [
-    intent({
-      name: "pr-link",
-      order: 10,
-      kinds: ["pr-links"],
-      needs: { thread: true },
-      match: (message) => pullRequestsIn(message.text).length > 0,
-      handle: (message, { env }) => suggestPullRequests(message, env),
-    }),
-  ],
   actions: {
     [REVIEWERS_ACTION]: async (payload, context) => {
       context.waitUntil(chooseReviewers(payload, context.env));
@@ -118,8 +105,6 @@ async function addPullRequests(env, channel, ts, task, urls) {
   return { added, moved };
 }
 
-const USER_MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
-
 // The pull requests linked in a message's text, each once.
 export function pullRequestsIn(text) {
   return [
@@ -131,122 +116,7 @@ export function pullRequestsIn(text) {
   ];
 }
 
-// The pr-link intent's handler: for a message in a task's thread with pull
-// request links, asks whoever posted it, privately, whether to link the ones not
-// linked yet, and whether to add the people it mentions who aren't reviewers
-// yet as reviewers. Mentions in a message only one person sees notify no one.
-//
-// The person clicking wrote the message, so accepting adds little to the
-// thread: only a status change, and a review request for reviewers the
-// message didn't mention.
-async function suggestPullRequests(message, env) {
-  const { text, botUserId } = message;
-  const urls = pullRequestsIn(text);
-  if (roleOf(env, message.channel) !== "tasks") return;
-  const target = { channel: message.channel, ts: message.threadTs };
-
-  const task = await loadTask(env, target.channel, target.ts);
-  if (!task) return;
-  const unlinked = urls.filter((url) => !task.prs.includes(url));
-  const mentioned = [...new Set([...text.matchAll(USER_MENTION)].map(([, id]) => id))];
-  const reviewers = mentioned.filter((id) => id !== botUserId && !task.people.reviewer.includes(id));
-  // PRs that are all linked already need nothing.
-  if (!unlinked.length) return;
-  // No one reviews it yet: the question asks who, with the people the
-  // message mentioned picked to begin with.
-  if (!task.people.reviewer.length) return askWithReviewers(env, message, target, mentioned, unlinked, reviewers);
-
-  const question = suggestion(unlinked, urls, reviewers);
-  // Who the message mentioned, so they aren't asked again.
-  const base = { ...target, mentioned };
-  const button = (label, fields, style, actionId = SUGGEST_LINK_ACTION) => ({
-    type: "button",
-    action_id: actionId,
-    text: plainText(label),
-    ...(style && { style }),
-    value: JSON.stringify({ ...base, urls: [], reviewers: [], ...fields }),
-  });
-  const prs = unlinked.length === 1 ? "PR" : "PRs";
-  const buttons = !unlinked.length
-    ? [button(reviewers.length === 1 ? "Add reviewer" : "Add reviewers", { reviewers }, "primary")]
-    : reviewers.length
-      ? [
-          button(reviewers.length === 1 ? "Link and add reviewer" : "Link and add reviewers", { urls: unlinked, reviewers }, "primary"),
-          button("Just link", { urls: unlinked }, undefined, SUGGEST_LINK_ONLY_ACTION),
-        ]
-      : [button(`Link ${prs}`, { urls: unlinked }, "primary")];
-
-  await callSlack(env, "chat.postEphemeral", {
-    channel: message.channel,
-    thread_ts: message.threadTs,
-    user: message.user,
-    text: question,
-    blocks: [
-      { type: "section", text: mrkdwn(question) },
-      {
-        type: "actions",
-        elements: [
-          ...buttons,
-          { type: "button", action_id: SUGGEST_SKIP_ACTION, text: plainText("Not now"), value: JSON.stringify(base) },
-        ],
-      },
-    ],
-  });
-}
-
-// The question for a task with no reviewer: whether to link the PRs, with a
-// picker for who reviews them, and Link and Not now.
-async function askWithReviewers(env, message, target, mentioned, unlinked, reviewers) {
-  const them = unlinked.length === 1 ? "it" : "them";
-  const question = `I see you posted ${unlinked.map(prLink).join(", ")}. Should I link ${them} to this task? There's no reviewer yet, so choose who reviews ${them}.`;
-  const base = { ...target, mentioned };
-  await callSlack(env, "chat.postEphemeral", {
-    channel: message.channel,
-    thread_ts: message.threadTs,
-    user: message.user,
-    text: question,
-    blocks: [
-      { type: "section", text: mrkdwn(question) },
-      {
-        type: "actions",
-        block_id: SUGGEST_REVIEWERS_BLOCK,
-        elements: [
-          {
-            type: "multi_users_select",
-            action_id: SUGGEST_REVIEWERS_ACTION,
-            placeholder: plainText("Choose reviewers"),
-            ...(reviewers.length && { initial_users: reviewers }),
-          },
-        ],
-      },
-      {
-        type: "actions",
-        elements: [
-          {
-            type: "button",
-            action_id: SUGGEST_LINK_ACTION,
-            text: plainText(unlinked.length === 1 ? "Link PR" : "Link PRs"),
-            style: "primary",
-            value: JSON.stringify({ ...base, urls: unlinked, reviewers }),
-          },
-          { type: "button", action_id: SUGGEST_SKIP_ACTION, text: plainText("Not now"), value: JSON.stringify(base) },
-        ],
-      },
-    ],
-  });
-}
-
-function suggestion(unlinked, urls, reviewers) {
-  const people = mentions(reviewers);
-  const as = reviewers.length === 1 ? "as reviewer" : "as reviewers";
-  if (!unlinked.length) return `Should I add ${people} ${as} of ${urls.map(prLink).join(", ")}?`;
-  const them = unlinked.length === 1 ? "it" : "them";
-  const posted = `I see you posted ${unlinked.map(prLink).join(", ")}`;
-  if (!reviewers.length) return `${posted}. Should I link ${them} to this task?`;
-  return `${posted} and mentioned ${people}. Should I link ${them} to this task and add ${people} ${as}?`;
-}
-
-// Applies the chosen suggestion, adding the reviewers and linking the pull
+// Applies the chosen suggestion of an earlier question, adding the reviewers and linking the pull
 // requests, and removes the private question. The thread only hears what's
 // new to it: the task moving to In review, a review request for reviewers
 // the message didn't mention, or, with no reviewer at all, who should

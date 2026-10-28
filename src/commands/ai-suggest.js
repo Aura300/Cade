@@ -1,9 +1,10 @@
 import { readChanges, today } from "../ai.js";
 import { suggesting } from "../intents.js";
 import { callSlack, dismiss, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
-import { PRIORITIES, ROLES, STATUSES, loadTask } from "../tasks.js";
-import { applyChanges } from "./changes.js";
+import { PRIORITIES, ROLES, STATUSES, loadTask, prLink } from "../tasks.js";
+import { BEFORE_REVIEW, applyChanges } from "./changes.js";
 import { editForm } from "./edit.js";
+import { pullRequestsIn } from "./pr.js";
 
 // The action IDs are kept from when the buttons read Confirm, Change… and
 // Not now, so suggestions already posted still work.
@@ -29,8 +30,33 @@ export async function suggestWithAi(env, message, { target, task }) {
     status: suggesting(env, "started", message.channel) || suggesting(env, "progress", message.channel),
     details: suggesting(env, "details", message.channel) && !task.incident,
   };
-  const changes = await readChanges(env, { message, task, today: today(env), allowed });
+  // Nothing for the model to read when only PR links are on.
+  const read = allowed.roles.length || allowed.status || allowed.details;
+  const changes = withPullRequests(env, message, task, read ? await readChanges(env, { message, task, today: today(env), allowed }) : null);
   if (changes) await askToChange(env, message, { target, task }, changes);
+}
+
+// `changes` with the message's pull requests that aren't linked yet added,
+// and the people it mentions, who are reviewers of them, unless pr-links is
+// off. Links come from the text, not the model. Shared with suggestions by
+// phrases (see suggest.js). Null when there's nothing to change.
+export function withPullRequests(env, message, task, changes) {
+  if (!suggesting(env, "pr-links", message.channel)) return changes;
+  const add = pullRequestsIn(message.text).filter((url) => !task.prs.includes(url));
+  if (!add.length) return changes;
+  const merged = { ...changes, prs: { add } };
+  const reviewers = message.mentions.filter((id) => !task.people.reviewer.includes(id));
+  if (reviewers.length) {
+    const current = changes?.people?.reviewer ?? { add: [], remove: [] };
+    merged.people = {
+      ...changes?.people,
+      reviewer: {
+        add: [...new Set([...current.add, ...reviewers])],
+        remove: current.remove.filter((id) => !reviewers.includes(id)),
+      },
+    };
+  }
+  return merged;
 }
 
 // Asks whoever wrote `message`, privately, whether to make `changes` (as
@@ -62,14 +88,22 @@ export async function askToChange(env, message, { target, task }, changes) {
 }
 
 // What would change, a line each: people added and removed per role,
-// marked (Add) and (Remove), then the status, priority and due date, from what they are now.
+// marked (Add) and (Remove), then pull requests, then the status, priority and due date, from what they are now.
 // Mentions in a message only one person sees notify no one.
 export function summary(task, changes) {
   const lines = Object.entries(changes.people ?? {}).map(([role, { add, remove }]) => {
     const parts = [add.length && `${mentions(add)} (Add)`, remove.length && `${mentions(remove)} (Remove)`].filter(Boolean);
     return `*${ROLES[role]}s:* ${parts.join(" · ")}`;
   });
-  if (changes.status) lines.push(`*Status:* ${STATUSES[task.status]} → ${STATUSES[changes.status]}`);
+  if (changes.prs) {
+    const links = (urls) => urls.map(prLink).join(", ");
+    const { add = [], remove = [] } = changes.prs;
+    const parts = [add.length && `${links(add)} (Add)`, remove.length && `${links(remove)} (Remove)`].filter(Boolean);
+    if (parts.length) lines.push(`*PRs:* ${parts.join(" · ")}`);
+  }
+  // Linking moves a task not yet in review there (see applyChanges).
+  const status = changes.status ?? (changes.prs?.add?.length && BEFORE_REVIEW.includes(task.status) ? "IN_REVIEW" : null);
+  if (status) lines.push(`*Status:* ${STATUSES[task.status]} → ${STATUSES[status]}`);
   if (changes.priority) lines.push(`*Priority:* ${PRIORITIES[task.priority] ?? ""} ${task.priority} → ${PRIORITIES[changes.priority]} ${changes.priority}`);
   if ("dueDate" in changes) lines.push(`*Due:* ${task.dueDate || "none"} → ${changes.dueDate || "none"}`);
   return lines.join("\n");

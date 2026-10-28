@@ -103,7 +103,24 @@ async function handleEvent(body, request, context) {
     // Kinds turned off in `suggestions`, for the message's group or every
     // group, aren't considered (see suggesting).
     const meant = message && findIntent(intentsOn(context.env, intents, message.channel), message);
-    if (meant) context.waitUntil(meant.handle(message, context));
+    console.log("Plain message", {
+      channel: envelope.event.channel,
+      ts: envelope.event.ts,
+      threadTs: envelope.event.thread_ts,
+      subtype: envelope.event.subtype,
+      botId: envelope.event.bot_id,
+      text: envelope.event.text,
+      acted: Boolean(message),
+      inThread: message?.inThread,
+      intent: meant?.name,
+    });
+    if (meant) {
+      context.waitUntil(
+        Promise.resolve(meant.handle(message, context)).catch((error) =>
+          console.error("Intent failed", { intent: meant.name, error: error.message }),
+        ),
+      );
+    }
   }
   return respond();
 }

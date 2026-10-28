@@ -17,7 +17,7 @@ import { statusChange } from "./status.js";
 // dueDate, prs: { add, remove } }, each optional; pull requests are links.
 
 // Linking a pull request means the work is ready for review (see pr.js).
-const BEFORE_REVIEW = ["TODO", "IN_PROGRESS"];
+export const BEFORE_REVIEW = ["TODO", "IN_PROGRESS"];
 
 // Applies `changes` to the task at `channel`/`ts` for `user` and posts what
 // changed in its thread. People are changed first, so they're asked as the

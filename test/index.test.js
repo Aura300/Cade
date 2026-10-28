@@ -1732,7 +1732,7 @@ function recordResponses(t) {
   return sent;
 }
 
-test("pull requests pasted into a task's thread are offered for linking, privately", async (t) => {
+test("pull requests pasted into a task's thread are asked about with the other changes, privately", async (t) => {
   const root = storedTask({ reviewers: ["URIA"] });
   root.task.prs = [MR];
   const calls = mockSlack(t, { stored: [root] });
@@ -1742,36 +1742,36 @@ test("pull requests pasted into a task's thread are offered for linking, private
   const question = calls[0].args;
   assert.equal(question.user, "UACTOR");
   assert.equal(question.thread_ts, "100.1");
+  assert.equal(question.text, "Should I update the task? From your message:");
   // Only the PR that isn't linked yet is offered.
-  assert.equal(question.text, `I see you posted <${PR}|cade/42>. Should I link it to this task?`);
-  const [link, skip] = question.blocks[1].elements;
-  assert.equal(link.text.text, "Link PR");
-  assert.equal(link.action_id, "pr:suggest-link");
-  assert.equal(skip.text.text, "Not now");
-  assert.deepEqual(JSON.parse(link.value), { channel: "CDEV", ts: "100.1", mentioned: [], urls: [PR], reviewers: [] });
+  assert.match(question.blocks[1].text.text, new RegExp(`PRs:\\* <${PR}\\|cade/42> \\(Add\\)`));
+  assert.doesNotMatch(question.blocks[1].text.text, /pull\/7|merge_requests/);
+  const [accept, edit, reject] = question.blocks[2].elements;
+  assert.deepEqual([accept.text.text, edit.text.text, reject.text.text], ["Accept", "Edit…", "Reject"]);
+  assert.deepEqual(JSON.parse(accept.value).changes, { prs: { add: [PR] } });
 });
 
-test("a PR pasted on a task with no reviewer asks who reviews it in the same private question", async (t) => {
+test("a PR pasted with a mention proposes the person as reviewer in the same private question", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadReply(`<@UREX> <@UBOT> can you look at <${PR}>?`));
   assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
   const question = calls[0].args;
-  assert.equal(
-    question.text,
-    `I see you posted <${PR}|cade/42>. Should I link it to this task? There's no reviewer yet, so choose who reviews it.`,
-  );
-  // The people it mentioned are picked to begin with; Cade isn't one.
-  const [picker] = question.blocks[1].elements;
-  assert.equal(picker.type, "multi_users_select");
-  assert.deepEqual(picker.initial_users, ["UREX"]);
-  const [link, skip] = question.blocks[2].elements;
-  assert.deepEqual([link.text.text, skip.text.text], ["Link PR", "Not now"]);
+  assert.equal(question.text, "Should I update the task? From your message:");
+  // Cade isn't someone to add.
+  const [accept] = question.blocks[2].elements;
+  assert.deepEqual(JSON.parse(accept.value).changes, {
+    prs: { add: [PR] },
+    people: { reviewer: { add: ["UREX"], remove: [] } },
+  });
+  assert.match(question.blocks[1].text.text, /<@UREX> \(Add\)/);
+  assert.doesNotMatch(question.blocks[1].text.text, /UBOT/);
+});
 
-  // Link with reviewers chosen on the picker adds them and asks them to review.
+test("a question posted with the old reviewer picker is still answered", async (t) => {
   const linking = mockSlack(t, { stored: [storedTask()] });
   const sent = recordResponses(t);
   const click = JSON.parse(new URLSearchParams(suggestionClick("pr:suggest-link", [PR])).get("payload"));
-  click.actions[0].value = link.value;
+  click.actions[0].value = JSON.stringify({ channel: "CDEV", ts: "100.1", mentioned: ["UREX"], urls: [PR], reviewers: ["UREX"] });
   click.state = { values: { "pr:suggest-reviewers": { "pr:suggest-reviewers": { selected_users: ["UREX", "UMIA"] } } } };
   await send("/slack/interactions", interaction(click));
   const saved = await savedTask();
@@ -1800,7 +1800,7 @@ test("/cade retry asks again about a message in a task's thread, from its link",
   // The question goes to whoever wrote the message, as it would have.
   assert.equal(calls[2].args.user, "UREX");
   assert.equal(calls[2].args.thread_ts, "100.1");
-  assert.match(calls[2].args.text, /I see you posted/);
+  assert.equal(calls[2].args.text, "Should I update the task? From your message:");
   assert.match(later.text, /<@UREX> will see a private question/);
 });
 
@@ -1908,28 +1908,17 @@ const clickSuggestion = (value) =>
     actions: [{ action_id: "pr:suggest-link", value }],
   });
 
-test("a pasted PR that mentions people offers them as reviewers too", async (t) => {
+test("a pasted PR that mentions people proposes them as reviewers too", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["URIA"] })] });
   // URIA is already a reviewer and Cade is not a person to add.
   await send("/slack/events", threadReply(`<@UREX> <@URIA> <@UBOT> can you look at <${PR}>?`));
 
   const question = calls.find((call) => call.method === "chat.postEphemeral").args;
-  assert.equal(
-    question.text,
-    `I see you posted <${PR}|cade/42> and mentioned <@UREX>. Should I link it to this task and add <@UREX> as reviewer?`,
-  );
-  const [both, link, skip] = question.blocks[1].elements;
-  // Each button has its own action_id, as Slack requires.
-  assert.deepEqual(
-    [both, link, skip].map((button) => button.action_id),
-    ["pr:suggest-link", "pr:suggest-link-only", "pr:suggest-skip"],
-  );
-  assert.equal(both.text.text, "Link and add reviewer");
-  const mentioned = ["UREX", "URIA", "UBOT"];
-  assert.equal(both.value, suggestionValue({ mentioned, urls: [PR], reviewers: ["UREX"] }));
-  assert.equal(link.text.text, "Just link");
-  assert.equal(link.value, suggestionValue({ mentioned, urls: [PR] }));
-  assert.equal(skip.text.text, "Not now");
+  const [accept] = question.blocks[2].elements;
+  assert.deepEqual(JSON.parse(accept.value).changes, {
+    prs: { add: [PR] },
+    people: { reviewer: { add: ["UREX"], remove: [] } },
+  });
 });
 
 test("an already linked PR is left alone, even when it mentions new people", async (t) => {
@@ -2022,12 +2011,16 @@ const clickAssign = (actionId, value) =>
     actions: [{ action_id: actionId, value }],
   });
 
-test("a message with a PR link gets the PR question, not a hand-off one", async (t) => {
+test("a message with a PR link and a hand-off gets one question with both", async (t) => {
   const calls = mockSlack(t, { stored: [storedTask()] });
   await send("/slack/events", threadReply(`<@UREX> please review <${PR}>`));
   const questions = calls.filter((call) => call.method === "chat.postEphemeral");
   assert.equal(questions.length, 1);
-  assert.ok(questions[0].args.blocks.flatMap((block) => block.elements ?? []).some((element) => element.action_id === "pr:suggest-link"));
+  const [accept] = questions[0].args.blocks[2].elements;
+  assert.deepEqual(JSON.parse(accept.value).changes, {
+    prs: { add: [PR] },
+    people: { reviewer: { add: ["UREX"], remove: [] } },
+  });
 });
 
 test("Just link works like the other link button", async (t) => {
@@ -2433,11 +2426,11 @@ test("the first intent by order wins, and needs are checked first", async () => 
   assert.equal(plainMessage(event("deploying", { bot_id: "B1" }), "UBOT"), null);
 });
 
-test("handlers' intents are registered in order: PR links, work, then new threads", async () => {
+test("handlers' intents are registered in order: work, then new threads", async () => {
   const { intents } = await import("../src/commands/registry.js");
   assert.deepEqual(
     [...intents].sort((a, b) => a.order - b.order).map((each) => each.name),
-    ["pr-link", "work", "new-thread"],
+    ["work", "new-thread"],
   );
 });
 
