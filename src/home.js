@@ -1,7 +1,7 @@
 import { channelPairs } from "./channels.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
 import { formatTime } from "./sheet.js";
-import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
+import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js";
 import { PRIORITIES, ROLES, STATUSES } from "./tasks.js";
 
 // The Home tab of Cade's app: what the person has open, by what they do on
@@ -51,54 +51,51 @@ export async function homeView(env, user) {
   });
   const overdue = new Set(entries.filter((entry) => isOverdue(entry.task, today)).map((entry) => entry.ts + entry.channel));
 
-  const counts = sections.map((section) => `*${section.ready.length}* ${section.title.toLowerCase()}`);
-  const status = [counts.join("  ·  "), overdue.size ? `:warning: *${overdue.size}* overdue` : ""].filter(Boolean).join("  ·  ");
+  const waiting = sections.reduce((sum, section) => sum + section.ready.length, 0);
+  const summary = waiting
+    ? `*${waiting}* waiting on you${overdue.size ? `  ·  :warning: *${overdue.size}* overdue` : ""}`
+    : "You're all caught up :tada:";
 
   const blocks = [
     { type: "header", text: plainText("Your tasks") },
-    { type: "context", elements: [mrkdwn(status)] },
-    {
-      type: "actions",
-      elements: [{ type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh") }],
-    },
+    { type: "context", elements: [mrkdwn(summary)] },
+    { type: "actions", elements: [{ type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh") }] },
   ];
   for (const section of sections) {
     blocks.push({ type: "divider" });
     blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
-    blocks.push(...list(section, today, showGroup));
+    blocks.push(...list(section, today, showGroup, user));
   }
   blocks.push({ type: "divider" });
-  blocks.push({
-    type: "context",
-    elements: [mrkdwn(`Updated ${formatTime(env, new Date())}  ·  \`/cade tasks\` filters by status and due date, or shows someone else's.`)],
-  });
+  blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
   return { type: "home", blocks };
 }
 
-// A section's tasks: those to act on, most urgent first, then those coming
-// up.
-function list({ role, ready, later, empty, emoji }, today, showGroup) {
+// A section's tasks: those waiting on the person as cards, most urgent
+// first, then the rest as small lines.
+function list({ role, ready, later, empty }, today, showGroup, user) {
   const blocks = [];
-  if (!ready.length) blocks.push({ type: "section", text: mrkdwn(`_${empty}_ :tada:`) });
-  blocks.push(...ready.slice(0, MAX_READY).map((entry) => card(entry, role, today, showGroup)));
+  if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
+  blocks.push(...ready.slice(0, MAX_READY).map((entry) => card(entry, role, today, showGroup, user)));
   if (ready.length > MAX_READY) {
-    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - MAX_READY} more to do._`)] });
+    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - MAX_READY} more._`)] });
   }
   if (later.length) {
-    blocks.push({ type: "context", elements: [mrkdwn(`${emoji} *Coming up* (${later.length}): yours, but not waiting on you yet`)] });
-    blocks.push(...later.slice(0, MAX_LATER).map((entry) => card(entry, role, today, showGroup)));
-    if (later.length > MAX_LATER) blocks.push({ type: "context", elements: [mrkdwn(`_…and ${later.length - MAX_LATER} more._`)] });
+    const lines = later.slice(0, MAX_LATER).map(({ task, link }) => `<${link}|${escapeSlack(task.title)}>  ·  ${STATUSES[task.status]}`);
+    if (later.length > MAX_LATER) lines.push(`_…and ${later.length - MAX_LATER} more._`);
+    blocks.push({ type: "context", elements: [mrkdwn(`*Coming up*\n${lines.join("\n")}`)] });
   }
   return blocks;
 }
 
-// A task as a block: two lines, its priority and title, then where it is,
-// and a button to its thread. The button's id names the section too, as a
-// task is listed under each role the person has on it.
-function card({ ts, channel, task, link, incident, group }, role, today, showGroup) {
-  const title = `${incident ? ":rotating_light: *Incident:* " : `${PRIORITIES[task.priority] ?? ":white_circle:"} `}*${escapeSlack(task.title)}*`;
-  const due = task.dueDate ? `Due ${task.dueDate}${isOverdue(task, today) ? " :warning: *overdue*" : ""}` : "_No due date_";
-  const details = [STATUSES[task.status], due, showGroup ? group : ""].filter(Boolean).join("  ·  ");
+// A task as a card: its priority and title, then its status, when it is due
+// and who else is on it, with a button to its thread. The button's id names
+// the section too, as a task is listed under each role the person has on it.
+function card({ ts, channel, task, link, incident, group }, role, today, showGroup, user) {
+  const title = `${incident ? ":rotating_light:" : (PRIORITIES[task.priority] ?? ":white_circle:")} *${escapeSlack(task.title)}*`;
+  const due = task.dueDate && (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`);
+  const others = [...new Set(Object.keys(ROLES).flatMap((one) => task.people[one]))].filter((id) => id !== user);
+  const details = [STATUSES[task.status], due, others.length && mentions(others), showGroup && group].filter(Boolean).join("  ·  ");
   return {
     type: "section",
     text: mrkdwn(`${title}\n${details}`),

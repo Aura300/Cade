@@ -2370,11 +2370,12 @@ test("opening the Home tab shows the person's open tasks by what they do on them
   const text = publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n");
   // Each task has a button to its thread.
   const buttons = publish.args.view.blocks.filter((block) => block.accessory?.text?.text === "Open thread");
-  assert.equal(buttons.length, 4);
+  assert.equal(buttons.length, 3);
   assert.equal(buttons[0].accessory.url, "https://acme.slack.com/archives/CDEV/p21?thread_ts=2.1&cid=CDEV");
   assert.deepEqual(duplicateActionIds(publish.args.view.blocks), []);
   assert.ok(text.indexOf("Urgent fix") < text.indexOf("Low chore"));
-  assert.match(text, /overdue/);
+  assert.match(text, /Overdue/);
+  assert.match(text, /:red_circle: \*Urgent fix\*\n:arrow_forward: In progress/);
   assert.match(text, /Review me/);
   assert.match(text, /Coming up[^]*Not yet testable/);
   assert.doesNotMatch(text, /Someone else's|Finished/);
