@@ -1525,7 +1525,7 @@ test("@Cade pr add links pull requests on one line above who tracked it", async 
   assert.equal(blocks[2].type, "context");
   assert.equal(blockText(blocks[2]), `*Pending:* <${PR}|cade/42>, <${MR}|web-app/118>`);
   assert.match(footerLines(calls[0].args)[1], /^Tracked by/);
-  assert.match(calls[1].args.text, new RegExp(`^<@UACTOR> linked <${PR}\\|cade/42>, <${MR}\\|web-app/118> and moved the task to :eyes: In review\\.\\n`));
+  assert.match(calls[1].args.text, new RegExp(`^<@UACTOR> linked <${PR}\\|cade/42>, <${MR}\\|web-app/118>\\.\\n`));
 });
 
 test("tasks without pull requests show no PRs line", async (t) => {
@@ -1541,7 +1541,7 @@ test("@Cade pr add skips pull requests already linked", async (t) => {
   let calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}> <${MR}>`));
   assert.deepEqual((await savedTask()).prs, [PR, MR]);
-  assert.match(calls[1].args.text, new RegExp(`^<@UACTOR> linked <${MR}\\|web-app/118> and moved the task to :eyes: In review\\.\\n`));
+  assert.match(calls[1].args.text, new RegExp(`^<@UACTOR> linked <${MR}\\|web-app/118>\\.\\n`));
 
   calls = mockSlack(t, { stored: [root] });
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
@@ -1604,7 +1604,7 @@ test("linking a PR asks the task's reviewers to review it", async (t) => {
   await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
   assert.equal(
     calls[1].args.text,
-    `<@UACTOR> linked <${PR}|cade/42> and moved the task to :eyes: In review.\n<@URIA>, <@UREX>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+    `<@UACTOR> linked <${PR}|cade/42>.\n<@URIA>, <@UREX>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.equal(calls[1].args.blocks, undefined, "no picker");
 });
@@ -1615,7 +1615,7 @@ test("linking a PR with no reviewer asks who should review it", async (t) => {
   const prompt = calls[1].args;
   assert.equal(
     prompt.text,
-    `<@UACTOR> linked <${PR}|cade/42> and moved the task to :eyes: In review.\nThere's no reviewer yet. Who should review it?`,
+    `<@UACTOR> linked <${PR}|cade/42>.\nThere's no reviewer yet. Who should review it?`,
   );
   const block = prompt.blocks[0];
   assert.equal(block.accessory.type, "multi_users_select");
@@ -1781,7 +1781,7 @@ test("a question posted with the old reviewer picker is still answered", async (
   // UREX was mentioned in the message, so only UMIA is asked.
   assert.equal(
     linking.find((call) => call.method === "chat.postMessage").args.text,
-    `<@UACTOR> moved the task to :eyes: In review.\n<@UMIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+    `<@UMIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
@@ -1825,6 +1825,77 @@ test("a PR in a reply also sent to the channel is suggested like any reply", asy
   assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
 });
 
+test("/cade retry asks again about a message in a task's thread, from its link", async (t) => {
+  const ts = "1700000001.000500";
+  const reply = { ts, thread_ts: "100.1", user: "UREX", text: `<@UMIA> please look at <${PR}>` };
+  const calls = mockSlack(t, {
+    stored: [storedTask({ reviewers: ["UMIA"] })],
+    "conversations.replies": { messages: [reply] },
+    "auth.test": { user_id: "UBOT" },
+  });
+  const { later } = await runTasksCommand(`retry ${messageLink("CDEV", ts, "?thread_ts=100.1&cid=CDEV")}`, "CDEV");
+
+  assert.deepEqual(calls.map((call) => call.method), ["conversations.replies", "auth.test", "chat.postEphemeral"]);
+  assert.equal(calls[0].args.ts, ts);
+  // The question goes to whoever wrote the message, as it would have.
+  assert.equal(calls[2].args.user, "UREX");
+  assert.equal(calls[2].args.thread_ts, "100.1");
+  assert.equal(calls[2].args.text, "Should I update the task? From your message:");
+  assert.match(later.text, /<@UREX> will see a private question/);
+});
+
+test("/cade retry says when the link is missing, not in a thread, or not found", async (t) => {
+  mockSlack(t);
+  assert.match((await runTasksCommand("retry", "CDEV")).now, /Paste the link to the message/);
+
+  mockSlack(t, {
+    "conversations.replies": { messages: [{ ts: "1700000000.000100", user: "UREX", text: "a task" }] },
+    "auth.test": { user_id: "UBOT" },
+  });
+  assert.match((await runTasksCommand(`retry ${messageLink("CDEV", "1700000000.000100")}`, "CDEV")).later.text, /not in a thread/);
+
+  mockSlack(t, { "conversations.replies": { messages: [] } });
+  assert.match((await runTasksCommand(`retry ${messageLink("CDEV", "1700000009.000900")}`, "CDEV")).later.text, /couldn't find that message/);
+});
+
+test("a PR in a reply also sent to the channel is suggested like any reply", async (t) => {
+  const calls = mockSlack(t, { stored: [storedTask({ reviewers: ["UMIA"] })] });
+  await send("/slack/events", threadReply(`<@UMIA> can you review <${PR}>?`, { subtype: "thread_broadcast" }));
+  assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
+});
+
+test("Edit saves the status chosen over the one a PR suggestion moved the task to", async (t) => {
+  const task = storedTask({ reviewers: ["UMIA"] });
+  task.task.status = "IN_PROGRESS";
+  mockSlack(t, { stored: [task] });
+  // The form began on In review, as linking the PR moves the task there; the
+  // person put In progress back.
+  const saveWith = (status) =>
+    send(
+      "/slack/interactions",
+      interaction({
+        type: "view_submission",
+        user: { id: "UACTOR" },
+        view: {
+          callback_id: "task:edit",
+          private_metadata: JSON.stringify({ channel: "CDEV", ts: "100.1", details: false, opened: "IN_PROGRESS", shown: "IN_REVIEW" }),
+          state: {
+            values: {
+              owner: { value: { selected_users: [] } },
+              reviewer: { value: { selected_users: ["UMIA"] } },
+              tester: { value: { selected_users: [] } },
+              status: { value: { selected_option: { value: status } } },
+              prs: { value: { value: PR } },
+            },
+          },
+        },
+      }),
+    );
+  await saveWith("IN_PROGRESS");
+  const saved = await savedTask();
+  assert.deepEqual([saved.status, saved.prs], ["IN_PROGRESS", [PR]]);
+});
+
 test("messages without unlinked pull requests are left alone", async (t) => {
   const linked = storedTask();
   linked.task.prs = [PR];
@@ -1860,11 +1931,11 @@ test("Link PRs links them, posts only what is new and removes the question", asy
   assert.deepEqual(calls.map((call) => call.method), ["chat.update", "chat.postMessage"]);
   assert.deepEqual((await savedTask()).prs, [PR]);
   assert.equal(calls[1].args.thread_ts, "100.1");
-  // No "linked" line: whoever clicked posted the link. The thread hears the
-  // status change, and the reviewer the message didn't mention is asked.
+  // No "linked" line: whoever clicked posted the link. The thread hears only
+  // that the reviewer the message didn't mention is asked.
   assert.equal(
     calls[1].args.text,
-    `<@UACTOR> moved the task to :eyes: In review.\n<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+    `<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.deepEqual(sent, [{ response_type: "ephemeral", delete_original: true }]);
 });
@@ -1947,7 +2018,7 @@ test("Link and add reviewer asks only the reviewers the message did not mention"
   // UREX was mentioned in the message, so only URIA is asked.
   assert.equal(
     post.text,
-    `<@UACTOR> moved the task to :eyes: In review.\n<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
+    `<@URIA>, could you review <${PR}|cade/42> when you get a chance? Thanks!`,
   );
   assert.equal(sent.length, 1);
 });
@@ -1972,23 +2043,14 @@ test("Just link leaves the mentioned people out", async (t) => {
   assert.deepEqual((await savedTask()).people.reviewer, ["URIA"]);
 });
 
-test("linking a PR moves a task that is To do or In progress to In review", async (t) => {
-  for (const [from, to, moved] of [
-    ["TODO", "IN_REVIEW", true],
-    ["IN_PROGRESS", "IN_REVIEW", true],
-    ["IN_REVIEW", "IN_REVIEW", false],
-    // Further on, the task stays where it is.
-    ["IN_TESTING", "IN_TESTING", false],
-    ["CLIENT_REVIEW", "CLIENT_REVIEW", false],
-    ["DONE", "DONE", false],
-  ]) {
-    const calls = mockSlack(t, { stored: [withStatus(from)] });
+test("linking a PR leaves the status to the suggestions", async (t) => {
+  for (const status of ["TODO", "IN_PROGRESS", "IN_REVIEW", "IN_TESTING", "CLIENT_REVIEW", "DONE"]) {
+    const calls = mockSlack(t, { stored: [withStatus(status)] });
     await send("/slack/events", threadEvent(`<@UBOT> pr add <${PR}>`));
-    assert.deepEqual((await savedTask()).status, to, from);
-    const said = calls[1].args.text.includes("moved the task to :eyes: In review");
-    assert.equal(said, moved, from);
+    assert.deepEqual((await savedTask()).status, status, status);
+    assert.ok(!calls[1].args.text.includes("moved the task"), status);
     // Pins only change with Done, so none here.
-    assert.ok(!calls.some((call) => call.method.startsWith("pins.")), from);
+    assert.ok(!calls.some((call) => call.method.startsWith("pins.")), status);
   }
 });
 
@@ -5505,8 +5567,8 @@ test("the card's Edit opens one form with everything, and saving it applies what
   assert.deepEqual(form.blocks[0].element.initial_users, ["UREX"]);
   assert.equal(form.blocks[3].element.initial_option.value, "TODO");
 
-  // A PR linked with the status left alone moves the task to In review, and
-  // the reviewer is asked; a tester is added too.
+  // A PR linked with the status left alone keeps it, and the reviewer is
+  // asked; a tester is added too.
   const values = {
     owner: { value: { selected_users: ["UREX"] } },
     reviewer: { value: { selected_users: ["UMIA"] } },
@@ -5520,10 +5582,10 @@ test("the card's Edit opens one form with everything, and saving it applies what
     send("/slack/interactions", interaction({ type: "view_submission", user: { id: "UACTOR" }, view: { callback_id: form.callback_id, private_metadata: form.private_metadata, state: { values: state } } }));
   await submit(values);
   const saved = await savedTask();
-  assert.deepEqual([saved.status, saved.prs, saved.people.tester], ["IN_REVIEW", ["https://github.com/acme/web/pull/12"], ["UTESS"]]);
+  assert.deepEqual([saved.status, saved.prs, saved.people.tester], ["TODO", ["https://github.com/acme/web/pull/12"], ["UTESS"]]);
   const posts = calls.filter((call) => call.method === "chat.postMessage" && call.args.thread_ts === "100.1");
   assert.equal(posts.length, 1);
-  assert.match(posts[0].args.text, /^<@UACTOR> linked .* and moved the task to/);
+  assert.match(posts[0].args.text, /^<@UACTOR> linked /);
   assert.match(posts[0].args.text, /<@UACTOR> assigned <@UTESS> as tester\./);
   assert.match(posts[0].args.text, /<@UMIA>, could you review/);
 
@@ -5564,8 +5626,8 @@ test("the Edit form of a suggestion shows the task as it will be, with its pull 
   const form = editForm({ channel: "CDEV", ts: "100.1" }, task, {
     changes: { prs: { add: [PR], remove: [MR] }, people: { reviewer: { add: ["UREX"], remove: [] } } },
   });
-  // Linking moves the task to In review, though the suggestion has no status.
-  assert.equal(field(form, "status").initial_option.value, "IN_REVIEW");
+  // Linking leaves the status alone, as the suggestion has none.
+  assert.equal(field(form, "status").initial_option.value, "IN_PROGRESS");
   assert.equal(field(form, "prs").initial_value, PR);
   assert.deepEqual(field(form, "reviewer").initial_users, ["URIA", "UREX"]);
 

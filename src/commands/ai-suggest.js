@@ -2,7 +2,7 @@ import { readChanges, today } from "../ai.js";
 import { suggesting } from "../intents.js";
 import { callSlack, dismiss, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, loadTask, prLink } from "../tasks.js";
-import { applyChanges, statusAfter } from "./changes.js";
+import { applyChanges } from "./changes.js";
 import { editForm } from "./edit.js";
 import { pullRequestsIn } from "./pr.js";
 
@@ -101,9 +101,7 @@ export function summary(task, changes) {
     const parts = [add.length && `${links(add)} (Add)`, remove.length && `${links(remove)} (Remove)`].filter(Boolean);
     if (parts.length) lines.push(`*PRs:* ${parts.join(" · ")}`);
   }
-  // Linking moves a task not yet in review there (see statusAfter).
-  const status = statusAfter(task, changes);
-  if (status !== task.status) lines.push(`*Status:* ${STATUSES[task.status]} → ${STATUSES[status]}`);
+  if (changes.status) lines.push(`*Status:* ${STATUSES[task.status]} → ${STATUSES[changes.status]}`);
   if (changes.priority) lines.push(`*Priority:* ${PRIORITIES[task.priority] ?? ""} ${task.priority} → ${PRIORITIES[changes.priority]} ${changes.priority}`);
   if ("dueDate" in changes) lines.push(`*Due:* ${task.dueDate || "none"} → ${changes.dueDate || "none"}`);
   return lines.join("\n");

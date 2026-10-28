@@ -51,9 +51,8 @@ export function toAsk(people, user, told = {}) {
   return people.filter((id) => id !== user && !(id in told));
 }
 
-export function linked(user, urls, moved) {
-  const status = moved ? ` and moved the task to ${STATUSES.IN_REVIEW}` : "";
-  return `<@${user}> linked ${urls.map(prLink).join(", ")}${status}.`;
+export function linked(user, urls) {
+  return `<@${user}> linked ${urls.map(prLink).join(", ")}.`;
 }
 
 export function unlinked(user, urls) {

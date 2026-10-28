@@ -1,4 +1,4 @@
-import { assigned, linked as linkedText, movedTo, request, toAsk, unlinked as unlinkedText } from "../notify.js";
+import { assigned, linked as linkedText, request, toAsk, unlinked as unlinkedText } from "../notify.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { NOT_A_TASK, loadTask, parsePullRequest, prLink, saveTask } from "../tasks.js";
 
@@ -24,8 +24,8 @@ const HOW = "Try `@Cade pr add <link>` or `@Cade pr remove <link>`.";
 // <link> [<link> …]` unlinks them. GitHub, GitLab and Bitbucket links are
 // recognised.
 //
-// Linking moves a task that is To do or In progress to In review, and asks
-// the task's reviewers, on the next line, to review it (see notify.js). With
+// Linking asks the task's reviewers, on the next line, to review it (see
+// notify.js); the status is left to the suggestions. With
 // no reviewer yet, the reply asks who should review it, with a people
 // picker; choosing assigns them as reviewers and asks them.
 //
@@ -58,7 +58,7 @@ export default {
     if (adding) {
       const linked = await addPullRequests(env, command.channel, command.threadTs, task, urls);
       if (!linked) return "Those pull requests are already linked to this task, so we're all set.";
-      const text = linkedText(command.user, linked.added, linked.moved);
+      const text = linkedText(command.user, linked.added);
       const reviewers = task.people.reviewer;
       if (!reviewers.length) return reviewerPicker(text, linked.added);
       return `${text}\n${request(reviewers, "reviewer", linked.added)}`;
@@ -88,21 +88,14 @@ export default {
   },
 };
 
-// Linking a pull request means the work is ready for review. Tasks further
-// on (testing, client review, done) stay where they are.
-const BEFORE_REVIEW = ["TODO", "IN_PROGRESS"];
-
-// Links the pull requests that aren't linked yet, moving the task to In
-// review if it hadn't got that far. Returns { added, moved }, or null when
-// they were all linked already.
+// Links the pull requests that aren't linked yet. Returns { added }, or null
+// when they were all linked already.
 async function addPullRequests(env, channel, ts, task, urls) {
   const added = urls.filter((url) => !task.prs.includes(url));
   if (!added.length) return null;
   task.prs = [...task.prs, ...added];
-  const moved = BEFORE_REVIEW.includes(task.status);
-  if (moved) task.status = "IN_REVIEW";
   await saveTask(env, channel, ts, task);
-  return { added, moved };
+  return { added };
 }
 
 // The pull requests linked in a message's text, each once.
@@ -118,7 +111,7 @@ export function pullRequestsIn(text) {
 
 // Applies the chosen suggestion of an earlier question, adding the reviewers and linking the pull
 // requests, and removes the private question. The thread only hears what's
-// new to it: the task moving to In review, a review request for reviewers
+// new to it: a review request for reviewers
 // the message didn't mention, or, with no reviewer at all, who should
 // review.
 async function acceptSuggestion(payload, env) {
@@ -137,7 +130,6 @@ async function acceptSuggestion(payload, env) {
     if (!linked && added.length) await saveTask(env, channel, ts, task);
 
     const lines = [];
-    if (linked?.moved) lines.push(movedTo(user, "IN_REVIEW"));
     // Not those the message mentioned, nor whoever wrote it.
     const unasked = toAsk(task.people.reviewer, user, Object.fromEntries(mentioned.map((id) => [id, null])));
     if (linked && unasked.length) lines.push(request(unasked, "reviewer", linked.added));

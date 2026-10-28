@@ -1,6 +1,6 @@
 import { CLOSE_ALL, dismiss, mrkdwn, plainText } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, formatDueDate, loadTask, parsePullRequest, pickerDate } from "../tasks.js";
-import { applyChanges, prsAfter, statusAfter } from "./changes.js";
+import { applyChanges, prsAfter } from "./changes.js";
 import { statusOption } from "./status.js";
 
 const EDIT_VIEW = "task:edit";
@@ -24,15 +24,13 @@ export function editForm({ channel, ts }, task, { changes = {}, told, responseUr
     return [...task.people[role].filter((id) => !remove.includes(id)), ...add];
   };
   const priorityOption = (name) => ({ text: { ...plainText(`${PRIORITIES[name]} ${name}`), emoji: true }, value: name });
-  const status = statusAfter(task, changes);
+  const status = changes.status ?? task.status;
   const priority = changes.priority ?? task.priority;
   const dueDate = "dueDate" in changes ? changes.dueDate : task.dueDate;
   return {
     type: "modal",
     callback_id: EDIT_VIEW,
-    // `opened` is the status as it was, so one left alone isn't applied over
-    // a move linking a PR makes (see applyChanges).
-    private_metadata: JSON.stringify({ channel, ts, details, opened: task.status, responseUrl, told }),
+    private_metadata: JSON.stringify({ channel, ts, details, responseUrl, told }),
     title: plainText("Edit task"),
     submit: plainText("Save"),
     close: plainText("Cancel"),
@@ -113,7 +111,7 @@ export function editForm({ channel, ts }, task, { changes = {}, told, responseUr
 // Saves the form as the changes from the task as it is now, having removed
 // the private suggestion it came from, if any.
 function saveEdit(payload, context) {
-  const { channel, ts, details, opened, responseUrl, told } = JSON.parse(payload.view.private_metadata);
+  const { channel, ts, details, responseUrl, told } = JSON.parse(payload.view.private_metadata);
   const { values } = payload.view.state;
   const lines = (values.prs?.value.value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
   const urls = lines.map((line) => parsePullRequest(line.replace(/^<|[|>].*$/g, ""))?.url);
@@ -136,7 +134,7 @@ function saveEdit(payload, context) {
         };
       }
       const status = values.status.value.selected_option.value;
-      if (status !== opened) changes.status = status;
+      if (status !== task.status) changes.status = status;
       if (details) {
         changes.priority = values.priority.value.selected_option?.value ?? task.priority;
         changes.dueDate = formatDueDate(values.due_date.value.selected_date);

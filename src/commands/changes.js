@@ -16,28 +16,16 @@ import { statusChange } from "./status.js";
 // Changes are { people: { [role]: { add, remove } }, status, priority,
 // dueDate, prs: { add, remove } }, each optional; pull requests are links.
 
-// Linking a pull request means the work is ready for review (see pr.js).
-export const BEFORE_REVIEW = ["TODO", "IN_PROGRESS"];
-
 // The pull requests of `task` once `changes` are applied.
 export function prsAfter(task, changes) {
   const { add = [], remove = [] } = changes.prs ?? {};
   return [...task.prs.filter((url) => !remove.includes(url)), ...add.filter((url) => !task.prs.includes(url))];
 }
 
-// The status of `task` once `changes` are applied: the one changed to, else
-// In review when pull requests are linked to a task not yet there.
-export function statusAfter(task, changes) {
-  if (changes.status) return changes.status;
-  const linking = (changes.prs?.add ?? []).some((url) => !task.prs.includes(url));
-  return linking && BEFORE_REVIEW.includes(task.status) ? "IN_REVIEW" : task.status;
-}
-
 // Applies `changes` to the task at `channel`/`ts` for `user` and posts what
 // changed in its thread. People are changed first, so they're asked as the
-// task stands; then pull requests, which move a task not yet in review to In
-// review unless the status is changed too, and the reviewers kept are asked
-// to review the new ones; then the priority and due date, unless it's an
+// task stands; then pull requests, and the reviewers kept are asked to review
+// the new ones; then the priority and due date, unless it's an
 // incident; then the status, unless the task has moved on from `from` since
 // the suggestion was made. Returns whether anything changed.
 //
@@ -67,9 +55,7 @@ export async function applyChanges(env, { channel, ts }, changes, user, { from, 
   const prs = { log: [], notes: [] };
   if (added.length || removed.length) {
     task.prs = [...task.prs.filter((url) => !removed.includes(url)), ...added];
-    const moved = added.length > 0 && !changes.status && BEFORE_REVIEW.includes(task.status);
-    if (moved) task.status = "IN_REVIEW";
-    if (added.length) prs.log.push(linked(user, added, moved));
+    if (added.length) prs.log.push(linked(user, added));
     if (removed.length) prs.log.push(unlinked(user, removed));
     const asked = toAsk(kept, user, told);
     if (added.length && asked.length) prs.notes.push(request(asked, "reviewer", added));
