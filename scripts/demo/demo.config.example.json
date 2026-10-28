@@ -1,6 +1,0 @@
-{
-  "workspaceUrl": "https://app.slack.com/client/T0000000",
-  "guestUserToken": "xoxp-... (user token of the second account, scope users.profile:write)",
-  "channels": { "client": "C0CLIENT", "dev": "C0DEV" },
-  "leadDm": "D0SARAHDM"
-}

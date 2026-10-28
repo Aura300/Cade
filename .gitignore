@@ -15,6 +15,6 @@ cade.config.json
 google/Secret.gs
 google/.clasp.json
 .google-app.json
-# Demo recording: demo.config.json holds a Slack user token; .demo/ holds logged-in sessions and raw video.
-demo.config.json
+# Demo recording: .demo/ holds logged-in sessions and raw video.
 .demo/
+.playwright-mcp
