@@ -2368,14 +2368,12 @@ test("opening the Home tab shows the person's open tasks by what they do on them
   const [publish] = calls.filter((call) => call.method === "views.publish");
   assert.equal(publish.args.user_id, "UME");
   const text = publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n");
-  // Each task has a button to its thread.
-  const buttons = publish.args.view.blocks.filter((block) => block.accessory?.text?.text === "Open thread");
-  assert.equal(buttons.length, 3);
-  assert.equal(buttons[0].accessory.url, "https://acme.slack.com/archives/CDEV/p21?thread_ts=2.1&cid=CDEV");
+  // Each task's title links to its thread.
+  assert.match(text, /\*<https:\/\/acme\.slack\.com\/archives\/CDEV\/p21\?thread_ts=2\.1&cid=CDEV\|Urgent fix>\*/);
   assert.deepEqual(duplicateActionIds(publish.args.view.blocks), []);
   assert.ok(text.indexOf("Urgent fix") < text.indexOf("Low chore"));
   assert.match(text, /Overdue/);
-  assert.match(text, /\*Urgent fix\*\n:red_circle: Urgent  ·  :arrow_forward: In progress/);
+  assert.match(text, /\|Urgent fix>\*\n:red_circle: Urgent  ·  :arrow_forward: In progress/);
   assert.match(text, /Review me/);
   assert.match(text, /Coming up[^]*Not yet testable/);
   assert.doesNotMatch(text, /Someone else's|Finished/);
@@ -5964,5 +5962,5 @@ test("the Home tab's Refresh button draws it again", async (t) => {
   assert.equal((await send("/slack/interactions", body)).status, 200);
   const [publish] = calls.filter((call) => call.method === "views.publish");
   assert.equal(publish.args.user_id, "UME");
-  assert.match(blockText(publish.args.view.blocks.find((block) => block.accessory)), /Fix login/);
+  assert.match(publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n"), /Fix login/);
 });

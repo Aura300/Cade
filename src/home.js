@@ -22,9 +22,6 @@ const SECTIONS = [
 const MAX_READY = 12;
 const MAX_LATER = 5;
 
-// A button that opens a task's thread. Slack still sends its click to
-// Cade, which has nothing to do (see handleInteraction).
-export const OPEN_ACTION = "home:open";
 export const REFRESH_ACTION = "home:refresh";
 
 // Draws `user`'s Home tab.
@@ -72,10 +69,10 @@ export async function homeView(env, user) {
 
 // A section's tasks: those waiting on the person as cards, most urgent
 // first, then the rest as small lines.
-function list({ role, ready, later, empty }, today) {
+function list({ ready, later, empty }, today) {
   const blocks = [];
   if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
-  blocks.push(...ready.slice(0, MAX_READY).flatMap((entry) => card(entry, role, today)));
+  blocks.push(...ready.slice(0, MAX_READY).flatMap((entry) => card(entry, today)));
   if (ready.length > MAX_READY) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - MAX_READY} more._`)] });
   }
@@ -87,25 +84,15 @@ function list({ role, ready, later, empty }, today) {
   return blocks;
 }
 
-// A task as a card, in two blocks: its title with a button to its thread,
-// then its priority, status and due date in the smaller type of a context
-// block. The button's id names the section too, as a task is listed under
-// each role the person has on it.
-function card({ ts, channel, task, link, incident }, role, today) {
-  const title = `${incident ? ":rotating_light: " : ""}*${escapeSlack(task.title)}*`;
+// A task as a card, in two blocks: its title, linking to its thread, then
+// its priority, status and due date in the smaller type of a context block.
+// The title has no button beside it, which would leave a gap under it.
+function card({ task, link, incident }, today) {
+  const title = `${incident ? ":rotating_light: " : ""}*<${link}|${escapeSlack(task.title)}>*`;
   const due = task.dueDate && (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`);
   const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], due].filter(Boolean).join("  ·  ");
   return [
-    {
-      type: "section",
-      text: mrkdwn(title),
-      accessory: {
-        type: "button",
-        action_id: `${OPEN_ACTION}:${role}:${channel}:${ts}`,
-        text: plainText("Open thread"),
-        url: link,
-      },
-    },
+    { type: "section", text: mrkdwn(title) },
     // The blank last line (a braille blank, as Slack trims plain ones) puts
     // a gap before the next card.
     { type: "context", elements: [mrkdwn(`${details}\n\u2800`)] },

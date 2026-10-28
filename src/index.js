@@ -1,7 +1,7 @@
 import { dispatch, dispatchSlash } from "./commands/dispatch.js";
 import { parseMessage, parseSlashCommand } from "./commands/parse.js";
 import { actions, intents, reactions, shortcuts, views } from "./commands/registry.js";
-import { OPEN_ACTION, publishHome } from "./home.js";
+import { publishHome } from "./home.js";
 import { findIntent, intentsOn, plainMessage } from "./intents.js";
 import { retryUnposted } from "./retry.js";
 import { callSlack, messageBody, verifySlackRequest } from "./slack.js";
@@ -152,8 +152,6 @@ async function handleInteraction(body, request, context) {
     handler = views[id];
   } else if (payload.type === "block_actions") {
     id = payload.actions?.[0]?.action_id;
-    // The Home tab's Open thread buttons are links; the click needs no answer.
-    if (id?.startsWith(`${OPEN_ACTION}:`)) return respond();
     handler = actions[id];
   } else if (payload.type === "message_action") {
     id = payload.callback_id;
