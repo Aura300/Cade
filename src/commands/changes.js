@@ -1,5 +1,4 @@
 import { linked, oneMessage, request, toAsk, unlinked } from "../notify.js";
-import { userNames } from "../sheet.js";
 import { callSlack } from "../slack.js";
 import { ROLES, loadTask, saveTask } from "../tasks.js";
 import { teamChanges } from "./assign.js";
@@ -30,8 +29,8 @@ export function prsAfter(task, changes) {
 // the suggestion was made. Returns whether anything changed.
 //
 // `told` lists who the message a suggestion came from mentioned: it
-// notified them already, so they aren't asked again, and the change log
-// names them by their Slack name rather than mentioning them.
+// notified them already, so they aren't asked again; the change log still
+// mentions them.
 export async function applyChanges(env, { channel, ts }, changes, user, { from, told: mentioned = [] } = {}) {
   const task = await loadTask(env, channel, ts);
   if (!task) return false;
@@ -48,7 +47,8 @@ export async function applyChanges(env, { channel, ts }, changes, user, { from, 
     return change;
   });
   const kept = task.people.reviewer.filter((id) => !(changes.people?.reviewer?.add ?? []).includes(id));
-  const told = await namesOf(env, mentioned, people);
+  // Left out of requests, not of the change log, which still mentions them.
+  const told = Object.fromEntries(mentioned.map((id) => [id, null]));
 
   const added = (changes.prs?.add ?? []).filter((url) => !task.prs.includes(url));
   const removed = (changes.prs?.remove ?? []).filter((url) => task.prs.includes(url));
@@ -75,17 +75,4 @@ export async function applyChanges(env, { channel, ts }, changes, user, { from, 
   const text = oneMessage(...parts);
   if (text) await callSlack(env, "chat.postMessage", { channel, thread_ts: ts, text });
   return Boolean(text);
-}
-
-// Those `mentioned` as { [id]: name }: the Slack name of each one the
-// change log names, for `people`'s changes, and null for the rest, who are
-// only left out of requests. A name that can't be looked up is null too, so
-// the log mentions them rather than showing their ID.
-async function namesOf(env, mentioned, people) {
-  const named = new Set(people.flatMap(({ added, removed }) => [...added, ...removed]));
-  const name = async (id) => {
-    const found = named.has(id) ? await userNames(env, [id]) : id;
-    return found === id ? null : found;
-  };
-  return Object.fromEntries(await Promise.all(mentioned.map(async (id) => [id, await name(id)])));
 }

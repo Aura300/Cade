@@ -3891,7 +3891,7 @@ test("Accept applies the suggestion and tells the thread who changed what", asyn
     [
       // Tess was mentioned in the message, so is named and not asked again;
       // moving to In testing asks the other testers.
-      "<@UACTOR> assigned Tess as tester.",
+      "<@UACTOR> assigned <@UTESS> as tester.",
       "<@UACTOR> set the status to :test_tube: In testing.",
       "<@UTOM>, could you give this a test when you get a chance? Thanks!",
     ].join("\n"),
@@ -5390,9 +5390,9 @@ test("with AI on, a message is read for every change and confirmed privately", a
   assert.equal(
     posts[0].args.text,
     [
-      "<@UACTOR> assigned Rex as owner.",
-      "<@UACTOR> removed Bob as owner.",
-      "<@UACTOR> assigned Mia as reviewer.",
+      "<@UACTOR> assigned <@UREX> as owner.",
+      "<@UACTOR> removed <@UBOB> as owner.",
+      "<@UACTOR> assigned <@UMIA> as reviewer.",
       "<@UACTOR> set the priority to :red_circle: Urgent.",
       "<@UACTOR> set the due date to 30/10/2026.",
       "<@UACTOR> set the status to :arrow_forward: In progress.",
@@ -5449,7 +5449,7 @@ test("Edit… opens the task's Edit form filled in with what AI read, and saving
     calls.filter((call) => call.method === "chat.postMessage").at(-1).args.text,
     [
       // Tess was mentioned in the message; Tom, removed in the form, wasn't.
-      "<@UACTOR> assigned Tess as tester.",
+      "<@UACTOR> assigned <@UTESS> as tester.",
       "<@UACTOR> removed <@UTOM> as tester.",
       "<@UACTOR> set the due date to 02/11/2026.",
       "<@UACTOR> set the status to :test_tube: In testing.",

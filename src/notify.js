@@ -12,9 +12,9 @@ import { STATUSES, prLink, unsentPrs } from "./tasks.js";
 //
 // Someone who assigns or removes themselves is named as "themselves", and
 // isn't asked or told anything: they made the change. Nor is anyone `told`
-// already, by the message a suggested change came from: they're named by
-// their Slack name, { [id]: name }, rather than mentioned, which would
-// notify them again.
+// already, by the message a suggested change came from, { [id]: null }: they
+// are still named by mention in the change log, but get no request of their
+// own, as that message was one.
 //
 // People are only asked when there's something for them to do now (see
 // onTheirPlate): reviewers when there are PRs to review, testers when the
@@ -36,12 +36,11 @@ export function unassigned(user, people, role, told = {}) {
 }
 
 // `people` as named by `user`: "themselves" first if they're among them,
-// then the others, by name if they've been `told` already, by mention if
-// not.
+// then the others, by mention.
 function named(user, people, told) {
   const others = people.filter((id) => id !== user);
   const self = others.length < people.length ? ["themselves"] : [];
-  const names = others.map((id) => told[id] ?? `<@${id}>`);
+  const names = others.map((id) => `<@${id}>`);
   return [...self, ...(names.length ? [names.join(", ")] : [])].join(" and ");
 }
 
