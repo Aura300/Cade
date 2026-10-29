@@ -17,12 +17,17 @@
 //             default model, a model name such as
 //             "@cf/google/gemma-4-26b-a4b-it", or false to read
 //             them by their phrases (see ai.js). Needs suggestions on.
+//   pinning   whether open tasks are pinned in their dev     → PINNING
+//             channel (optional, off): true to pin them
+//   canvas    whether each dev channel has a summary canvas   → CANVAS
+//             of its tasks (optional, off): true to keep one
 //   reactions the emoji that convert or move a message when    → REACTIONS
 //             added to it (optional): { "convert": "ticket",
 //             "move": "twisted_rightwards_arrows" }, by Slack name
 //
-// Each group in `channels` can have its own `suggestions` and `ai`, which
-// replace the ones above for that group: { "name": "acme", …, "ai": true }.
+// Each group in `channels` can have its own `suggestions`, `ai`, `pinning`
+// and `canvas`, which replace the ones above for that group:
+// { "name": "acme", …, "ai": true }.
 //
 // Each group in `channels` can link its Google Doc, for executive summaries,
 // with `doc`, and its own Google Sheet, for its tasks, with `sheet`: their
@@ -54,7 +59,7 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["channels", "timezone", "googleUrl", "suggestions", "ai", "reactions"];
+  const known = ["channels", "timezone", "googleUrl", "suggestions", "ai", "pinning", "canvas", "reactions"];
   const unknown = Object.keys(config).find((key) => !known.includes(key));
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
@@ -74,6 +79,7 @@ export function readConfig(json) {
     try {
       if (pair.suggestions !== undefined) pair.suggestions = checkSuggestions(pair.suggestions);
       if (pair.ai !== undefined) pair.ai = checkAi(pair.ai);
+      for (const key of SWITCHES) if (pair[key] !== undefined) checkSwitch(key, pair[key]);
     } catch (error) {
       throw new Error(`${pair.name}'s ${error.message}`);
     }
@@ -90,7 +96,17 @@ export function readConfig(json) {
   if (config.suggestions !== undefined) secrets.SUGGESTIONS = JSON.stringify(checkSuggestions(config.suggestions));
   if (config.reactions !== undefined) secrets.REACTIONS = JSON.stringify(checkReactions(config.reactions));
   if (config.ai !== undefined) secrets.AI_MODEL = checkAi(config.ai);
+  // "off" is kept as a secret, so turning a switch back off replaces it.
+  for (const key of SWITCHES) if (config[key] !== undefined) secrets[key.toUpperCase()] = checkSwitch(key, config[key]) ? "on" : "off";
   return secrets;
+}
+
+// Features that are off unless turned on, with `true` or `false`.
+const SWITCHES = ["pinning", "canvas"];
+
+function checkSwitch(key, value) {
+  if (typeof value !== "boolean") throw new Error(`${key} is true or false.`);
+  return value;
 }
 
 // AI_MODEL for `ai`: "on" for the default model, the model's name, or "off"

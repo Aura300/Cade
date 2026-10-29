@@ -162,6 +162,36 @@ export async function unpostedTasks(env) {
 }
 
 // The id of the canvas Cade keeps the channel's summary in, or null.
+// The group name the person's Home tab shows, or null for every group.
+export async function getHomeProject(env, user) {
+  const row = await env.DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind(user).first();
+  return row?.home_project ?? null;
+}
+
+export async function setHomeProject(env, user, project) {
+  await env.DB.prepare(
+    `INSERT INTO user_preferences (user_id, home_project) VALUES (?, ?)
+     ON CONFLICT (user_id) DO UPDATE SET home_project = excluded.home_project`,
+  )
+    .bind(user, project)
+    .run();
+}
+
+// The Home tab view the person last used, or null.
+export async function getHomeTab(env, user) {
+  const row = await env.DB.prepare("SELECT home_tab FROM user_preferences WHERE user_id = ?").bind(user).first();
+  return row?.home_tab ?? null;
+}
+
+export async function setHomeTab(env, user, tab) {
+  await env.DB.prepare(
+    `INSERT INTO user_preferences (user_id, home_tab) VALUES (?, ?)
+     ON CONFLICT (user_id) DO UPDATE SET home_tab = excluded.home_tab`,
+  )
+    .bind(user, tab)
+    .run();
+}
+
 export async function getCanvas(env, channel) {
   const row = await env.DB.prepare("SELECT canvas_id FROM canvases WHERE channel = ?").bind(channel).first();
   return row?.canvas_id ?? null;

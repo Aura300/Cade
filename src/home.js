@@ -1,6 +1,7 @@
 import { channelPairs } from "./channels.js";
+import { getHomeProject, getHomeTab, setHomeTab } from "./db.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
-import { formatTime } from "./sheet.js";
+import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
 import { PRIORITIES, peopleLine, ROLES, STATUSES } from "./tasks.js";
 
@@ -28,6 +29,11 @@ export const REFRESH_ACTION = "home:refresh";
 // id, ending in the task's channel and thread, as a view can't repeat one.
 export const CLAIM_ACTION = "home:claim";
 
+// The project picker, which also remembers the choice (see db.js). Its value
+// is a group's name, or none for every project.
+export const PROJECT_ACTION = "home:project";
+export const ALL_PROJECTS = "all";
+
 // The buttons along the top, each a view of the open tasks. Slack has no
 // tabs in the Home tab, so a button draws the tab again with its view.
 export const TABS = {
@@ -41,30 +47,50 @@ const DEFAULT_TAB = "mine";
 // with the Assign to me button).
 const MAX_LISTED = 20;
 
-// Draws `user`'s Home tab, on the `tab` view.
-export async function publishHome(env, user, tab = DEFAULT_TAB) {
+// Draws `user`'s Home tab, on the `tab` view, which is kept for next time.
+// With none, it opens on the one they were last on.
+export async function publishHome(env, user, tab) {
+  if (TABS[tab]) await setHomeTab(env, user, tab);
+  else tab = (await getHomeTab(env, user)) ?? DEFAULT_TAB;
   await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user, tab) });
 }
 
+// The view carries its tab, for the project picker to draw it again on.
 export async function homeView(env, user, tab = DEFAULT_TAB) {
   if (!TABS[tab]) tab = DEFAULT_TAB;
+  return { ...(await draw(env, user, tab)), private_metadata: tab };
+}
+
+async function draw(env, user, tab) {
   const { url } = await callSlack(env, "auth.test", {});
-  const groups = channelPairs(env);
+  const all = channelPairs(env);
+  // The person's last project, unless it is gone from the settings.
+  const chosen = await getHomeProject(env, user);
+  const project = all.find((group) => group.name === chosen);
+  const groups = project ? [project] : all;
   const open = (await Promise.all(groups.map((group) => groupTasks(env, group, OPEN, url)))).flat();
   const today = todayIn(env);
-  const tabs = {
-    type: "actions",
-    elements: [
-      ...Object.entries(TABS).map(([name, { action, label }]) => ({
+  // The project picker (with more than one project) and Refresh share a
+  // row, above the tabs.
+  const tabs = [
+    {
+      type: "actions",
+      elements: [
+        ...(all.length > 1 ? [projectPicker(all, project)] : []),
+        { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
+      ],
+    },
+    {
+      type: "actions",
+      elements: Object.entries(TABS).map(([name, { action, label }]) => ({
         type: "button",
         action_id: action,
         text: plainText(label),
         ...(name === tab && { style: "primary" }),
       })),
-      { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
-    ],
-  };
-  if (tab !== "mine") return listView(env, tab, tabs, open, today, user);
+    },
+  ];
+  if (tab !== "mine") return listView(env, tab, tabs, open, today, user, groups);
 
   const entries = open.filter((entry) => Object.keys(ROLES).some((role) => entry.task.people[role].includes(user)));
 
@@ -86,7 +112,7 @@ export async function homeView(env, user, tab = DEFAULT_TAB) {
   const blocks = [
     { type: "header", text: plainText("Your tasks") },
     { type: "context", elements: [mrkdwn(summary)] },
-    tabs,
+    ...tabs,
   ];
   for (const section of sections) {
     blocks.push({ type: "divider" });
@@ -98,17 +124,39 @@ export async function homeView(env, user, tab = DEFAULT_TAB) {
   return { type: "home", blocks };
 }
 
+// A dropdown of the groups, "All projects" first, on `project` if one is
+// chosen.
+function projectPicker(groups, project) {
+  const option = (value, text) => ({ text: plainText(text), value });
+  const all = option(ALL_PROJECTS, "All projects");
+  const options = [all, ...groups.map((group) => option(group.name, group.name))];
+  return {
+    type: "static_select",
+    action_id: PROJECT_ACTION,
+    placeholder: plainText("Project"),
+    options,
+    initial_option: project ? options[1 + groups.indexOf(project)] : all,
+  };
+}
+
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
 // first. Unassigned ones have an Assign to me button there, and only there.
-function listView(env, tab, tabs, open, today, user) {
+function listView(env, tab, tabs, open, today, user, groups) {
   const unassigned = tab === "unassigned";
   const entries = (unassigned ? open.filter((entry) => !Object.keys(ROLES).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
   const blocks = [
     { type: "header", text: plainText(unassigned ? "Unassigned tasks" : "All open tasks") },
     { type: "context", elements: [mrkdwn(`*${entries.length}* open`)] },
-    tabs,
+    ...tabs,
     { type: "divider" },
   ];
+  // Only open tasks are listed, so the Sheet, which has them all, closed ones
+  // too, is linked: one for each project that has one.
+  const sheets = groups.filter((group) => sheetEnabled(env, group));
+  if (!unassigned && sheets.length) {
+    const links = sheets.map((group) => `<https://docs.google.com/spreadsheets/d/${sheetId(group.sheet)}/edit|${sheets.length > 1 ? escapeSlack(group.name) : "Google Sheet"}>`);
+    blocks.splice(2, 0, { type: "context", elements: [mrkdwn(`:bar_chart: Closed and older tasks are in the ${links.join("  ·  ")}.`)] });
+  }
   if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
   blocks.push(...entries.slice(0, MAX_LISTED).flatMap((entry) => card(entry, today, user, unassigned)));
   if (entries.length > MAX_LISTED) {

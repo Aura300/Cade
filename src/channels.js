@@ -65,3 +65,11 @@ export function roleOf(env, channel) {
   return pair && ROLES.find((role) => pair[role] === channel);
 }
 
+
+// Whether a feature that is off unless turned on is on for `channel`: the
+// group's own `key` (true or false), or else the Worker secret `secret`
+// ("on" turns it on) for every group. See `pinning` and `canvas` in
+// scripts/config.mjs.
+export function groupEnabled(env, channel, key, secret) {
+  return groupSetting(env, channel, key) ?? env[secret] === "on";
+}

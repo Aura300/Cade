@@ -1,4 +1,4 @@
-import { channelPairs, pairFor } from "./channels.js";
+import { channelPairs, groupEnabled, pairFor } from "./channels.js";
 import { getTask, putTask } from "./db.js";
 import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js";
@@ -210,8 +210,9 @@ export async function saveTask(env, channel, ts, task) {
 // Rewrites the summary a change in `channel` touches (see summary.js); with
 // `create`, for a new task, making its canvas if it has none. It is
 // imported when needed, as summary.js uses this module's exports when it
-// loads.
+// loads. Only a group with `canvas` on (CANVAS for every group) has one.
 export async function refreshSummary(env, channel, options) {
+  if (!groupEnabled(env, channel, "canvas", "CANVAS")) return;
   const summary = await import("./summary.js");
   await summary.refreshSummary(env, channel, options);
 }
@@ -260,7 +261,9 @@ export function statusName(status) {
 
 // Open tasks are pinned in the dev channel; done tasks are unpinned. Pinning
 // is a convenience, so failures are logged rather than failing the command.
+// Only a group with `pinning` on (PINNING for every group) is pinned.
 export async function setPinned(env, channel, ts, pinned) {
+  if (!groupEnabled(env, channel, "pinning", "PINNING")) return;
   const method = pinned ? "pins.add" : "pins.remove";
   try {
     await callSlack(env, method, { channel, timestamp: ts });

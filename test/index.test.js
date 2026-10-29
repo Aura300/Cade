@@ -23,6 +23,9 @@ const DB = fakeD1();
 beforeEach(() => DB.reset());
 const env = {
   DB,
+  // Off unless turned on; most tests are of both.
+  PINNING: "on",
+  CANVAS: "on",
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   CHANNEL_PAIRS: [
@@ -2394,7 +2397,7 @@ test("the Home tab's buttons switch between My Tasks, Unassigned and All Tasks, 
     assert.equal((await send("/slack/interactions", body)).status, 200);
     const [publish] = calls.filter((call) => call.method === "views.publish");
     assert.deepEqual(duplicateActionIds(publish.args.view.blocks), []);
-    const buttons = publish.args.view.blocks.find((block) => block.type === "actions").elements;
+    const buttons = publish.args.view.blocks.flatMap((block) => block.elements ?? []).filter((element) => element.type === "button");
     return { text: publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n"), primary: buttons.filter((b) => b.style).map((b) => b.text.text) };
   };
   const unassigned = await view("home:tab:unassigned");
@@ -2435,6 +2438,83 @@ test("Assign to me on the Home tab's Unassigned view makes the person the owner,
   const late = await claim("3.1");
   assert.equal(late.filter((call) => call.method === "chat.update").length, 0);
   assert.equal(late.filter((call) => call.method === "views.publish").length, 1);
+});
+
+test("the Home tab's project picker keeps the person's project for next time", async (t) => {
+  const task = (channel, ts, title) => ({
+    channel,
+    ts,
+    task: { ...storedTask().task, title, status: "TODO", people: { owner: ["UME"], reviewer: [], tester: [] } },
+  });
+  const stored = [task("CDEV", "1.1", "In acme"), task("CTESTDEV", "2.1", "In test")];
+  const publishOf = (calls) => calls.find((call) => call.method === "views.publish").args.view;
+  const textOf = (view) => view.blocks.map((block) => blockText(block) ?? "").join("\n");
+  const interact = (action) => send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, view: { private_metadata: "mine" }, actions: [action] }));
+
+  let calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+  await interact({ action_id: "home:project", selected_option: { value: "test" } });
+  let view = publishOf(calls);
+  assert.match(textOf(view), /In test/);
+  assert.doesNotMatch(textOf(view), /In acme/);
+  const picker = view.blocks.flatMap((block) => block.elements ?? []).find((element) => element.action_id === "home:project");
+  assert.equal(picker.initial_option.value, "test");
+
+  // Remembered when the tab is opened later, without the stored tasks being reset.
+  calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+  await DB.prepare("INSERT INTO user_preferences (user_id, home_project) VALUES (?, ?)").bind("UME", "test").run();
+  await send("/slack/events", JSON.stringify({ type: "event_callback", authorizations: [{ user_id: "UBOT" }], event: { type: "app_home_opened", user: "UME", tab: "home" } }));
+  assert.doesNotMatch(textOf(publishOf(calls)), /In acme/);
+
+  calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+  await interact({ action_id: "home:project", selected_option: { value: "all" } });
+  view = publishOf(calls);
+  assert.match(textOf(view), /In acme[^]*In test|In test[^]*In acme/);
+  // The tab is remembered too: it opens on Unassigned after that was last used.
+  calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+  await interact({ action_id: "home:tab:unassigned" });
+  await send("/slack/events", JSON.stringify({ type: "event_callback", authorizations: [{ user_id: "UBOT" }], event: { type: "app_home_opened", user: "UME", tab: "home" } }));
+  assert.match(textOf(calls.filter((call) => call.method === "views.publish").at(-1).args.view), /Unassigned tasks/);
+  assert.equal(await DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind("UME").first().then((row) => row.home_project), null);
+});
+
+test("npm run config checks the pinning and canvas switches", async () => {
+  const { readConfig } = await import("../scripts/config.mjs");
+  const channels = [{ name: "acme", tasks: "C0000000002" }];
+  assert.equal(readConfig(JSON.stringify({ channels, pinning: false, canvas: true })).PINNING, "off");
+  assert.equal(readConfig(JSON.stringify({ channels, pinning: false, canvas: true })).CANVAS, "on");
+  assert.equal(readConfig(JSON.stringify({ channels })).PINNING, undefined);
+  assert.throws(() => readConfig(JSON.stringify({ channels, canvas: "no" })), /canvas is true or false/);
+  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[0], pinning: 1 }] })), /acme's pinning is true or false/);
+});
+
+test("pinning and the summary canvas can be turned off, for every group or one", async (t) => {
+  const { setPinned, refreshSummary } = await import("../src/tasks.js");
+  const pairs = [{ name: "acme", tasks: "CDEV", pinning: true }, { name: "test", tasks: "CTESTDEV", canvas: false }];
+  for (const [environment, channel, pins, canvases] of [
+    [{ ...env }, "CDEV", 1, true],
+    [{ ...env, PINNING: "off", CANVAS: "off" }, "CDEV", 0, false],
+    [{ ...env, PINNING: undefined, CANVAS: undefined }, "CDEV", 0, false],
+    [{ ...env, CHANNEL_PAIRS: pairs, PINNING: "off" }, "CDEV", 1, true],
+    [{ ...env, CHANNEL_PAIRS: pairs }, "CTESTDEV", 1, false],
+  ]) {
+    const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
+    await setPinned(environment, channel, "1.1", true);
+    await refreshSummary(environment, channel, { create: true });
+    assert.equal(calls.filter((call) => call.method === "pins.add").length, pins, JSON.stringify([channel, environment.PINNING]));
+    assert.equal(calls.some((call) => /canvas/.test(call.method)), canvases, JSON.stringify([channel, environment.CANVAS]));
+  }
+});
+
+test("the Home tab's All Tasks view links the Google Sheet for closed tasks", async (t) => {
+  const press = async (environment, action_id) => {
+    const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored: [] });
+    await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id }] }), {}, environment);
+    return calls.find((call) => call.method === "views.publish").args.view.blocks.map((block) => blockText(block) ?? "").join("\n");
+  };
+  const linked = await press(sheetEnv, "home:tab:all");
+  assert.match(linked, /Closed and older tasks are in the .*docs\.google\.com\/spreadsheets\/d\/[\w-]+\/edit\|acme>.*\|test>/);
+  assert.doesNotMatch(await press(sheetEnv, "home:tab:unassigned"), /spreadsheets/);
+  assert.doesNotMatch(await press(env, "home:tab:all"), /spreadsheets/);
 });
 
 test("slack:create checks its settings before calling Slack", async () => {

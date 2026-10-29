@@ -1,4 +1,4 @@
-import { findPair } from "../channels.js";
+import { findPair, groupEnabled } from "../channels.js";
 import { escapeSlack, linkedThread, respondLater } from "../slack.js";
 import { writeSummary } from "../summary.js";
 import { loadTask, saveTask } from "../tasks.js";
@@ -45,6 +45,7 @@ export default {
 function resyncSummary(command, context) {
   const group = findPair(context.env, command.channel);
   if (!group) return "Send `/cade resync summary` in a group's dev channel, for its summary.";
+  if (!groupEnabled(context.env, group.tasks, "canvas", "CANVAS")) return "The summary canvas is off for this group; turn it on with `canvas` in cade.config.json.";
   // Writing the canvas can take longer than Slack waits for a slash
   // command's answer, so the answer follows.
   context.waitUntil(
