@@ -70,13 +70,12 @@ async function draw(env, user, tab) {
   const groups = project ? [project] : all;
   const open = (await Promise.all(groups.map((group) => groupTasks(env, group, OPEN, url)))).flat();
   const today = todayIn(env);
-  // The project picker (with more than one project) and Refresh share a
-  // row, above the tabs.
+  // The project picker and Refresh share a row, above the tabs.
   const tabs = [
     {
       type: "actions",
       elements: [
-        ...(all.length > 1 ? [projectPicker(all, project)] : []),
+        projectPicker(all, project),
         { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
       ],
     },
