@@ -152,7 +152,7 @@ async function handleInteraction(body, request, context) {
     handler = views[id];
   } else if (payload.type === "block_actions") {
     id = payload.actions?.[0]?.action_id;
-    handler = actions[id];
+    handler = actionFor(id);
   } else if (payload.type === "message_action") {
     id = payload.callback_id;
     handler = shortcuts[id];
@@ -165,6 +165,14 @@ async function handleInteraction(body, request, context) {
     return respond();
   }
   return respond(await handler(payload, context));
+}
+
+// The handler for an action id, or for the longest start of it up to a colon:
+// a button repeated in a view has the item it acts on after its name.
+function actionFor(id) {
+  for (let end = id.length; end > 0; end = id.lastIndexOf(":", end - 1)) {
+    if (actions[id.slice(0, end)]) return actions[id.slice(0, end)];
+  }
 }
 
 function respond(result) {

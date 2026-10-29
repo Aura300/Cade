@@ -2,7 +2,7 @@ import { channelPairs } from "./channels.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
 import { formatTime } from "./sheet.js";
 import { callSlack, escapeSlack, mrkdwn, plainText } from "./slack.js";
-import { PRIORITIES, ROLES, STATUSES } from "./tasks.js";
+import { PRIORITIES, peopleLine, ROLES, STATUSES } from "./tasks.js";
 
 // The Home tab of Cade's app: what the person has open, by what they do on
 // it, most urgent first. It is only another view of the tasks Cade already
@@ -24,6 +24,10 @@ const MAX_LATER = 5;
 
 export const REFRESH_ACTION = "home:refresh";
 
+// Assign to me, on an unassigned task's card. Each card's button has its own
+// id, ending in the task's channel and thread, as a view can't repeat one.
+export const CLAIM_ACTION = "home:claim";
+
 // The buttons along the top, each a view of the open tasks. Slack has no
 // tabs in the Home tab, so a button draws the tab again with its view.
 export const TABS = {
@@ -33,7 +37,8 @@ export const TABS = {
 };
 const DEFAULT_TAB = "mine";
 
-// The cards in the Unassigned and All Tasks views, two blocks each.
+// The cards in the Unassigned and All Tasks views, two blocks each (three
+// with the Assign to me button).
 const MAX_LISTED = 20;
 
 // Draws `user`'s Home tab, on the `tab` view.
@@ -59,7 +64,7 @@ export async function homeView(env, user, tab = DEFAULT_TAB) {
       { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
     ],
   };
-  if (tab !== "mine") return listView(env, tab, tabs, open, today);
+  if (tab !== "mine") return listView(env, tab, tabs, open, today, user);
 
   const entries = open.filter((entry) => Object.keys(ROLES).some((role) => entry.task.people[role].includes(user)));
 
@@ -86,7 +91,7 @@ export async function homeView(env, user, tab = DEFAULT_TAB) {
   for (const section of sections) {
     blocks.push({ type: "divider" });
     blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
-    blocks.push(...list(section, today));
+    blocks.push(...list(section, today, user));
   }
   blocks.push({ type: "divider" });
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
@@ -94,18 +99,18 @@ export async function homeView(env, user, tab = DEFAULT_TAB) {
 }
 
 // The Unassigned and All Tasks views: the open tasks as cards, most urgent
-// first.
-function listView(env, tab, tabs, open, today) {
-  const entries = (tab === "unassigned" ? open.filter((entry) => !Object.keys(ROLES).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
-  const title = tab === "unassigned" ? "Unassigned tasks" : "All open tasks";
+// first. Unassigned ones have an Assign to me button there, and only there.
+function listView(env, tab, tabs, open, today, user) {
+  const unassigned = tab === "unassigned";
+  const entries = (unassigned ? open.filter((entry) => !Object.keys(ROLES).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
   const blocks = [
-    { type: "header", text: plainText(title) },
+    { type: "header", text: plainText(unassigned ? "Unassigned tasks" : "All open tasks") },
     { type: "context", elements: [mrkdwn(`*${entries.length}* open`)] },
     tabs,
     { type: "divider" },
   ];
-  if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${tab === "unassigned" ? "Everything open has someone on it." : "Nothing is open."}_`)] });
-  blocks.push(...entries.slice(0, MAX_LISTED).flatMap((entry) => card(entry, today)));
+  if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${unassigned ? "Everything open has someone on it." : "Nothing is open."}_`)] });
+  blocks.push(...entries.slice(0, MAX_LISTED).flatMap((entry) => card(entry, today, user, unassigned)));
   if (entries.length > MAX_LISTED) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - MAX_LISTED} more._`)] });
   }
@@ -116,10 +121,10 @@ function listView(env, tab, tabs, open, today) {
 
 // A section's tasks: those waiting on the person as cards, most urgent
 // first, then the rest as small lines.
-function list({ ready, later, empty }, today) {
+function list({ ready, later, empty }, today, user) {
   const blocks = [];
   if (!ready.length) blocks.push({ type: "context", elements: [mrkdwn(`_${empty}_`)] });
-  blocks.push(...ready.slice(0, MAX_READY).flatMap((entry) => card(entry, today)));
+  blocks.push(...ready.slice(0, MAX_READY).flatMap((entry) => card(entry, today, user)));
   if (ready.length > MAX_READY) {
     blocks.push({ type: "context", elements: [mrkdwn(`_…and ${ready.length - MAX_READY} more._`)] });
   }
@@ -132,17 +137,26 @@ function list({ ready, later, empty }, today) {
 }
 
 // A task as a card, in two blocks: its title, linking to its thread, then
-// its priority, status and due date in the smaller type of a context block.
+// its priority, status and due date, and below them its owner, reviewers and
+// testers (as on the task's message), in the smaller type of a context block.
 // The title has no button beside it, which would leave a gap under it.
-function card({ task, link, incident }, today) {
+function card({ task, link, incident, channel, ts }, today, viewer, claim = false) {
   const title = `${incident ? ":rotating_light: " : ""}*<${link}|${escapeSlack(task.title)}>*`;
   const due = task.dueDate && (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`);
   const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], due].filter(Boolean).join("  ·  ");
+  const people = peopleLine(task, viewer) || "_Unassigned_";
+  if (claim) {
+    return [
+      { type: "section", text: mrkdwn(title) },
+      { type: "context", elements: [mrkdwn(`${details}\n${people}`)] },
+      { type: "actions", elements: [{ type: "button", action_id: `${CLAIM_ACTION}:${channel}:${ts}`, text: plainText("Assign to me") }] },
+    ];
+  }
   return [
     { type: "section", text: mrkdwn(title) },
     // The blank last line (a braille blank, as Slack trims plain ones) puts
     // a gap before the next card.
-    { type: "context", elements: [mrkdwn(`${details}\n\u2800`)] },
+    { type: "context", elements: [mrkdwn(`${details}\n${people}\n\u2800`)] },
   ];
 }
 

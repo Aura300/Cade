@@ -2403,10 +2403,38 @@ test("the Home tab's buttons switch between My Tasks, Unassigned and All Tasks, 
   assert.deepEqual(unassigned.primary, ["Unassigned"]);
   const all = await view("home:tab:all");
   assert.match(all.text, /Mine[^]*Nobody's[^]*Theirs|Mine[^]*Theirs[^]*Nobody's/);
+  assert.doesNotMatch(all.text, /Assign to me/);
   assert.deepEqual(all.primary, ["All Tasks"]);
   const refreshed = await view("home:refresh", "unassigned");
   assert.deepEqual(refreshed.primary, ["Unassigned"]);
   assert.deepEqual((await view("home:tab:mine")).primary, ["My Tasks"]);
+});
+
+test("Assign to me on the Home tab's Unassigned view makes the person the owner, unless someone took it", async (t) => {
+  const task = (ts, title, people) => ({
+    channel: "CDEV",
+    ts,
+    task: { ...storedTask().task, title, status: "TODO", people: { owner: [], reviewer: [], tester: [], ...people } },
+  });
+  const stored = [task("1.1", "Mine", { owner: ["UME"] }), task("2.1", "Nobody's", {}), task("3.1", "Taken", { owner: ["UOTHER"] })];
+  const claim = async (ts) => {
+    const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+    const body = interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: `home:claim:CDEV:${ts}` }] });
+    assert.equal((await send("/slack/interactions", body)).status, 200);
+    return calls;
+  };
+  const buttons = (calls) => calls.find((call) => call.method === "views.publish").args.view.blocks.flatMap((block) => block.elements ?? []).filter((e) => e.text?.text === "Assign to me");
+  const claimed = await claim("2.1");
+  assert.equal(claimed.filter((call) => call.method === "chat.update").length, 1);
+  assert.equal(claimed.find((call) => call.method === "views.publish").args.user_id, "UME");
+  // It is drawn again without the task, now owned.
+  assert.deepEqual(buttons(claimed), []);
+  const drawn = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored: [task("2.1", "Nobody's", {}), task("1.1", "Mine", { owner: ["UME"] })] });
+  await send("/slack/interactions", interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id: "home:tab:unassigned" }] }));
+  assert.deepEqual(buttons(drawn).map((b) => b.action_id), ["home:claim:CDEV:2.1"]);
+  const late = await claim("3.1");
+  assert.equal(late.filter((call) => call.method === "chat.update").length, 0);
+  assert.equal(late.filter((call) => call.method === "views.publish").length, 1);
 });
 
 test("slack:create checks its settings before calling Slack", async () => {

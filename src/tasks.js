@@ -110,6 +110,16 @@ export function noPeople() {
   return Object.fromEntries(Object.keys(ROLES).map((role) => [role, []]));
 }
 
+// Who has each role on the task, as "Owner @a  ·  Review @b", leaving out
+// roles with no one; empty if no one has any. `viewer`, if given, is
+// written as "you".
+export function peopleLine(task, viewer) {
+  return Object.entries(SHORT_ROLES)
+    .filter(([role]) => task.people[role].length)
+    .map(([role, label]) => `${label} ${task.people[role].map((id) => (id === viewer ? "you" : `<@${id}>`)).join(", ")}`)
+    .join("  ·  ");
+}
+
 export function taskMessage(task, { archivedBy } = {}) {
   // The title, led by its priority, then in small text its status and due date, its
   // linked pull requests (when it has any) by whether they're approved, and
@@ -117,10 +127,7 @@ export function taskMessage(task, { archivedBy } = {}) {
   // attachment, whose strip down the side has the priority's colour. Roles
   // with no one are left out. An archived task's card says who archived it
   // in place of its status, and has no menu, as Cade no longer tracks it.
-  const people = Object.entries(SHORT_ROLES)
-    .filter(([role]) => task.people[role].length)
-    .map(([role, label]) => `${label} ${mentions(task.people[role])}`)
-    .join("  ·  ");
+  const people = peopleLine(task);
   const card = [
     { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate)] },
     ...(task.prs?.length ? [smallText(prLines(task))] : []),
