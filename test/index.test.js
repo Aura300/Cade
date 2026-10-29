@@ -2381,6 +2381,34 @@ test("opening the Home tab shows the person's open tasks by what they do on them
   assert.deepEqual(headers, ["Your tasks", ":hammer_and_wrench: To work on (2)", ":eyes: To review (1)", ":test_tube: To test (0)"]);
 });
 
+test("the Home tab's buttons switch between My Tasks, Unassigned and All Tasks, and Refresh stays on the view", async (t) => {
+  const task = (ts, title, people) => ({
+    channel: "CDEV",
+    ts,
+    task: { ...storedTask().task, title, status: "TODO", people: { owner: [], reviewer: [], tester: [], ...people } },
+  });
+  const stored = [task("1.1", "Mine", { owner: ["UME"] }), task("2.1", "Nobody's", {}), task("3.1", "Theirs", { owner: ["UOTHER"] })];
+  const view = async (action_id, value) => {
+    const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" }, stored });
+    const body = interaction({ type: "block_actions", user: { id: "UME" }, actions: [{ action_id, value }] });
+    assert.equal((await send("/slack/interactions", body)).status, 200);
+    const [publish] = calls.filter((call) => call.method === "views.publish");
+    assert.deepEqual(duplicateActionIds(publish.args.view.blocks), []);
+    const buttons = publish.args.view.blocks.find((block) => block.type === "actions").elements;
+    return { text: publish.args.view.blocks.map((block) => blockText(block) ?? "").join("\n"), primary: buttons.filter((b) => b.style).map((b) => b.text.text) };
+  };
+  const unassigned = await view("home:tab:unassigned");
+  assert.match(unassigned.text, /Nobody's/);
+  assert.doesNotMatch(unassigned.text, /Mine|Theirs/);
+  assert.deepEqual(unassigned.primary, ["Unassigned"]);
+  const all = await view("home:tab:all");
+  assert.match(all.text, /Mine[^]*Nobody's[^]*Theirs|Mine[^]*Theirs[^]*Nobody's/);
+  assert.deepEqual(all.primary, ["All Tasks"]);
+  const refreshed = await view("home:refresh", "unassigned");
+  assert.deepEqual(refreshed.primary, ["Unassigned"]);
+  assert.deepEqual((await view("home:tab:mine")).primary, ["My Tasks"]);
+});
+
 test("slack:create checks its settings before calling Slack", async () => {
   const { checkSettings } = await import("../scripts/slack-app.mjs");
   assert.deepEqual(checkSettings({ workerUrl: "https://cade.acme.workers.dev", name: "Cade", command: "/cade" }), []);

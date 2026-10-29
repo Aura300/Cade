@@ -24,18 +24,44 @@ const MAX_LATER = 5;
 
 export const REFRESH_ACTION = "home:refresh";
 
-// Draws `user`'s Home tab.
-export async function publishHome(env, user) {
-  await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user) });
+// The buttons along the top, each a view of the open tasks. Slack has no
+// tabs in the Home tab, so a button draws the tab again with its view.
+export const TABS = {
+  mine: { action: "home:tab:mine", label: "My Tasks" },
+  unassigned: { action: "home:tab:unassigned", label: "Unassigned" },
+  all: { action: "home:tab:all", label: "All Tasks" },
+};
+const DEFAULT_TAB = "mine";
+
+// The cards in the Unassigned and All Tasks views, two blocks each.
+const MAX_LISTED = 20;
+
+// Draws `user`'s Home tab, on the `tab` view.
+export async function publishHome(env, user, tab = DEFAULT_TAB) {
+  await callSlack(env, "views.publish", { user_id: user, view: await homeView(env, user, tab) });
 }
 
-export async function homeView(env, user) {
+export async function homeView(env, user, tab = DEFAULT_TAB) {
+  if (!TABS[tab]) tab = DEFAULT_TAB;
   const { url } = await callSlack(env, "auth.test", {});
   const groups = channelPairs(env);
-  const entries = (await Promise.all(groups.map((group) => groupTasks(env, group, OPEN, url))))
-    .flat()
-    .filter((entry) => Object.keys(ROLES).some((role) => entry.task.people[role].includes(user)));
+  const open = (await Promise.all(groups.map((group) => groupTasks(env, group, OPEN, url)))).flat();
   const today = todayIn(env);
+  const tabs = {
+    type: "actions",
+    elements: [
+      ...Object.entries(TABS).map(([name, { action, label }]) => ({
+        type: "button",
+        action_id: action,
+        text: plainText(label),
+        ...(name === tab && { style: "primary" }),
+      })),
+      { type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh"), value: tab },
+    ],
+  };
+  if (tab !== "mine") return listView(env, tab, tabs, open, today);
+
+  const entries = open.filter((entry) => Object.keys(ROLES).some((role) => entry.task.people[role].includes(user)));
 
   const sections = SECTIONS.map((section) => {
     const theirs = entries.filter((entry) => entry.task.people[section.role].includes(user)).sort(byUrgency);
@@ -55,12 +81,33 @@ export async function homeView(env, user) {
   const blocks = [
     { type: "header", text: plainText("Your tasks") },
     { type: "context", elements: [mrkdwn(summary)] },
-    { type: "actions", elements: [{ type: "button", action_id: REFRESH_ACTION, text: plainText("Refresh") }] },
+    tabs,
   ];
   for (const section of sections) {
     blocks.push({ type: "divider" });
     blocks.push({ type: "header", text: { type: "plain_text", text: `${section.emoji} ${section.title} (${section.ready.length})`, emoji: true } });
     blocks.push(...list(section, today));
+  }
+  blocks.push({ type: "divider" });
+  blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
+  return { type: "home", blocks };
+}
+
+// The Unassigned and All Tasks views: the open tasks as cards, most urgent
+// first.
+function listView(env, tab, tabs, open, today) {
+  const entries = (tab === "unassigned" ? open.filter((entry) => !Object.keys(ROLES).some((role) => entry.task.people[role].length)) : open).sort(byUrgency);
+  const title = tab === "unassigned" ? "Unassigned tasks" : "All open tasks";
+  const blocks = [
+    { type: "header", text: plainText(title) },
+    { type: "context", elements: [mrkdwn(`*${entries.length}* open`)] },
+    tabs,
+    { type: "divider" },
+  ];
+  if (!entries.length) blocks.push({ type: "context", elements: [mrkdwn(`_${tab === "unassigned" ? "Everything open has someone on it." : "Nothing is open."}_`)] });
+  blocks.push(...entries.slice(0, MAX_LISTED).flatMap((entry) => card(entry, today)));
+  if (entries.length > MAX_LISTED) {
+    blocks.push({ type: "context", elements: [mrkdwn(`_…and ${entries.length - MAX_LISTED} more._`)] });
   }
   blocks.push({ type: "divider" });
   blocks.push({ type: "context", elements: [mrkdwn(`Updated ${formatTime(env, new Date())}`)] });
