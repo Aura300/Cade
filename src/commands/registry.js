@@ -33,7 +33,7 @@ import unassign from "./unassign.js";
 //               with only a `/cade` form, listed with the slash commands,
 //     aliases?: other names that run the same handler,
 //     admin?: true for tidying-up commands, which help lists apart,
-//     channel?: "tasks", or [] for any channel: the channels in
+//     channel?: "channel", or [] for any channel: the channels in
 //               CHANNEL_PAIRS it works in,
 //     slashChannel?: like `channel`, for `/cade name` when it differs,
 //     inThread?: true if it must be run from a thread reply,

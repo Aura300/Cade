@@ -19,7 +19,7 @@ const STATUS_PICK = "suggest:status";
 // and so does a pasted pull request link. This is the one place messages in a
 // thread are read; a message posted on its own in a channel has no task yet
 // (see move.js).
-// With AI on (`ai` in cade.config.json), the message is read with AI, which
+// With AI on (`aiSuggestions` in cade.config.json), the message is read with AI, which
 // can tell more: see ai-suggest.js. Otherwise, or if AI fails, it's read by
 // its phrases, as below; both apply changes the same way (see changes.js).
 //
@@ -34,7 +34,7 @@ const STATUS_PICK = "suggest:status";
 // Who is asked is whoever the request names ("@rex, can you review this?"),
 // so a mention that only informs ("cc @rex") asks no one, and neither does
 // the author's own plan ("I'll test it"). Each kind can be turned off with
-// `suggestions` in cade.config.json:
+// `taskStatusChangeDetection` in cade.config.json:
 //   pr-links   a pull request link: link it, and ask the people it mentions
 //              to review it
 //   hand-offs  a request to develop, review or test it: a picker for that role
@@ -275,7 +275,7 @@ async function suggestWork(message, env) {
 // The task a thread in a dev channel is about, as { target, task }, or null
 // when it is not a task's.
 async function threadTask(env, message) {
-  if (roleOf(env, message.channel) !== "tasks") return null;
+  if (roleOf(env, message.channel) !== "channel") return null;
   const target = { channel: message.channel, ts: message.threadTs };
   const task = await loadTask(env, target.channel, target.ts);
   return task ? { target, task } : null;

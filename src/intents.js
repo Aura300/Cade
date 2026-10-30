@@ -4,9 +4,9 @@
 //
 //   intent({
 //     name,                   // for logs, such as "pr-link"
-//     kinds,                  // the `suggestions` kinds it serves (see
+//     kinds,                  // the `taskStatusChangeDetection` kinds it serves (see
 //                             // SUGGESTION_KINDS); off when all are off.
-//                             // None: always on, whatever `suggestions` says
+//                             // None: always on, whatever `taskStatusChangeDetection` says
 //     order,                  // lower is checked first; the first match wins
 //     phrases,                // words that signal it, or…
 //     match(message),         // …a test of the message, true when it matches
@@ -70,20 +70,20 @@ export function plainMessage(event, botUserId) {
   };
 }
 
-// The kinds of suggestion, as `suggestions` in cade.config.json names them
-// (SUGGESTIONS): the proactive agent, reading messages in the threads Cade
+// The kinds of suggestion, as `taskStatusChangeDetection` in cade.config.json names them
+// (TASK_STATUS_CHANGE_DETECTION): the proactive agent, reading messages in the threads Cade
 // manages. Asking where a message posted on its own in a channel belongs
 // isn't one of them, so it stays on with commands (see move.js).
 export const SUGGESTION_KINDS = ["pr-links", "hand-offs", "started", "progress", "details"];
 
 // Whether the suggestion kind `kind` is turned on in `channel`'s group: all
-// are, unless its `suggestions`, or else SUGGESTIONS for every group, is
+// are, unless its `taskStatusChangeDetection`, or else TASK_STATUS_CHANGE_DETECTION for every group, is
 // false (none) or lists the kinds that are.
 export function suggesting(env, kind, channel) {
-  let kinds = groupSetting(env, channel, "suggestions");
+  let kinds = groupSetting(env, channel, "taskStatusChangeDetection");
   if (kinds === undefined) {
     try {
-      kinds = env.SUGGESTIONS === undefined ? true : JSON.parse(env.SUGGESTIONS);
+      kinds = env.TASK_STATUS_CHANGE_DETECTION === undefined ? true : JSON.parse(env.TASK_STATUS_CHANGE_DETECTION);
     } catch {
       return true;
     }

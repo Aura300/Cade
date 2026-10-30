@@ -1,4 +1,4 @@
-import { channelsWithRole, findPair } from "../channels.js";
+import { channelsWithRole, findProject } from "../channels.js";
 import { commands } from "./registry.js";
 
 // Runs a parsed command and returns the reply to post in the message's thread,
@@ -47,7 +47,7 @@ async function runHandler(handler, run, usage, scope, command, context) {
 
 // Handlers declare where they may run:
 //   channel       the role, or list of roles, of the channels they work in
-//                 ("tasks"; see CHANNEL_PAIRS)
+//                 ("channel", a project's channel; see PROJECTS)
 //   slashChannel  the same for their `/cade` form, when it differs
 //   inThread      whether they must be sent as a thread reply
 function checkScope(scope, usage, command, env) {
@@ -69,7 +69,7 @@ function channelsFor(scope, env) {
 // Names the channels to use instead. From a group's channel, only its own
 // is named, since the others belong to another project.
 function channelHint(scope, env, from) {
-  const pair = findPair(env, from);
+  const pair = findProject(env, from);
   const channels = pair
     ? [scope.channel ?? []].flat().map((role) => pair[role]).filter(Boolean)
     : channelsFor(scope, env);

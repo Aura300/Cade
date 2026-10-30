@@ -1,4 +1,4 @@
-import { channelPairs, groupEnabled, pairFor } from "./channels.js";
+import { projects, groupEnabled, projectFor } from "./channels.js";
 import { getTask, putTask } from "./db.js";
 import { formatTime, sendRow, sheetEnabled, userNames } from "./sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText } from "./slack.js";
@@ -210,9 +210,9 @@ export async function saveTask(env, channel, ts, task) {
 // Rewrites the summary a change in `channel` touches (see summary.js); with
 // `create`, for a new task, making its canvas if it has none. It is
 // imported when needed, as summary.js uses this module's exports when it
-// loads. Only a group with `canvas` on (CANVAS for every group) has one.
+// loads. Only a project with `summaryCanvas` on (SUMMARY_CANVAS for every project) has one.
 export async function refreshSummary(env, channel, options) {
-  if (!groupEnabled(env, channel, "canvas", "CANVAS")) return;
+  if (!groupEnabled(env, channel, "summaryCanvas", "SUMMARY_CANVAS")) return;
   const summary = await import("./summary.js");
   await summary.refreshSummary(env, channel, options);
 }
@@ -220,7 +220,7 @@ export async function refreshSummary(env, channel, options) {
 // Records the task's current state in the Google Sheet. The sheet is a
 // record, so failures are logged rather than failing the command.
 export async function syncTask(env, channel, ts, task, { deleted = false, archived = false } = {}) {
-  const group = pairFor(env, channel);
+  const group = projectFor(env, channel);
   if (!sheetEnabled(env, group)) return;
   try {
     // Tasks keep their link from when they were created; this is in case
@@ -261,9 +261,9 @@ export function statusName(status) {
 
 // Open tasks are pinned in the dev channel; done tasks are unpinned. Pinning
 // is a convenience, so failures are logged rather than failing the command.
-// Only a group with `pinning` on (PINNING for every group) is pinned.
+// Only a group with `activeTasksPinning` on (ACTIVE_TASKS_PINNING for every project) is pinned.
 export async function setPinned(env, channel, ts, pinned) {
-  if (!groupEnabled(env, channel, "pinning", "PINNING")) return;
+  if (!groupEnabled(env, channel, "activeTasksPinning", "ACTIVE_TASKS_PINNING")) return;
   const method = pinned ? "pins.add" : "pins.remove";
   try {
     await callSlack(env, method, { channel, timestamp: ts });
@@ -357,9 +357,9 @@ export function formatDueDate(selectedDate) {
 // channel. The only group is picked to begin with. With `actionId`,
 // choosing one sends that action, for a form that changes with it.
 export function projectBlock(env, { actionId, initial } = {}) {
-  const groups = channelPairs(env);
-  const option = (group) => ({ text: plainText(group.name.slice(0, 75)), value: group.tasks });
-  const picked = groups.find((group) => group.tasks === initial) ?? (groups.length === 1 ? groups[0] : null);
+  const groups = projects(env);
+  const option = (group) => ({ text: plainText(group.name.slice(0, 75)), value: group.channel });
+  const picked = groups.find((group) => group.channel === initial) ?? (groups.length === 1 ? groups[0] : null);
   return {
     type: "input",
     block_id: "project",

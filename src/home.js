@@ -1,4 +1,4 @@
-import { channelPairs } from "./channels.js";
+import { projects } from "./channels.js";
 import { getHomeProject, getHomeTab, setHomeTab } from "./db.js";
 import { byUrgency, groupTasks, OPEN, todayIn } from "./commands/tasks.js";
 import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
@@ -63,7 +63,7 @@ export async function homeView(env, user, tab = DEFAULT_TAB) {
 
 async function draw(env, user, tab) {
   const { url } = await callSlack(env, "auth.test", {});
-  const all = channelPairs(env);
+  const all = projects(env);
   // The person's last project, unless it is gone from the settings.
   const chosen = await getHomeProject(env, user);
   const project = all.find((group) => group.name === chosen);

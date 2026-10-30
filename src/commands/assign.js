@@ -20,7 +20,7 @@ export default {
   description: "Assign an owner, reviewer or tester (in its thread)",
   usage: "@Cade assign owner @person",
   section: "task",
-  channel: "tasks",
+  channel: "channel",
   inThread: true,
   async run(command, { env }) {
     const { channel, threadTs, user } = command;

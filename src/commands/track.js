@@ -37,7 +37,7 @@ export default {
   usage: "@Cade task",
   slashUsage: "/cade task",
   section: "message",
-  channel: "tasks",
+  channel: "channel",
   run: (command, { env }) => fromThread(env, command, "task"),
   async slash(command, { env }) {
     await callSlack(env, "views.open", { trigger_id: command.triggerId, view: trackView(env, { channel: command.channel }) });
@@ -51,7 +51,7 @@ export const incident = {
   usage: "@Cade incident",
   slashUsage: "/cade incident",
   section: "message",
-  channel: "tasks",
+  channel: "channel",
   run: (command, { env }) => fromThread(env, command, "incident"),
   async slash(command, { env }) {
     await callSlack(env, "views.open", { trigger_id: command.triggerId, view: incidentView(env, { channel: command.channel }) });

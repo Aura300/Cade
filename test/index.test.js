@@ -24,8 +24,8 @@ beforeEach(() => DB.reset());
 const env = {
   DB,
   // Off unless turned on; most tests are of both.
-  PINNING: "on",
-  CANVAS: "on",
+  ACTIVE_TASKS_PINNING: "on",
+  SUMMARY_CANVAS: "on",
   SLACK_SIGNING_SECRET: SIGNING_SECRET,
   SLACK_BOT_TOKEN: "xoxb-test",
   CHANNEL_PAIRS: [
@@ -797,10 +797,10 @@ test("a group without its own spreadsheet isn't recorded in a Sheet", async (t) 
 test("cade.config.json can link a group's own spreadsheet", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const sheet = "https://docs.google.com/spreadsheets/d/1AcmeSheetAcmeSheetAcmeSheet/edit";
-  const channels = [{ name: "acme", tasks: "C0000000002", sheet }];
-  assert.equal(JSON.parse(readConfig(JSON.stringify({ channels })).CHANNEL_PAIRS)[0].sheet, sheet);
+  const projects = [{ name: "acme", channel: "C0000000002", sheet }];
+  assert.equal(JSON.parse(readConfig(JSON.stringify({ projects })).PROJECTS)[0].sheet, sheet);
   assert.throws(
-    () => readConfig(JSON.stringify({ channels: [{ ...channels[0], sheet: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }] })),
+    () => readConfig(JSON.stringify({ projects: [{ ...projects[0], sheet: "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit" }] })),
     /acme's sheet should be a Google Sheet's address/,
   );
 });
@@ -2477,31 +2477,31 @@ test("the Home tab's project picker keeps the person's project for next time", a
   assert.equal(await DB.prepare("SELECT home_project FROM user_preferences WHERE user_id = ?").bind("UME").first().then((row) => row.home_project), null);
 });
 
-test("npm run config checks the pinning and canvas switches", async () => {
+test("npm run config checks the activeTasksPinning, summaryCanvas and newMessageTaskDetection switches", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
-  const channels = [{ name: "acme", tasks: "C0000000002" }];
-  assert.equal(readConfig(JSON.stringify({ channels, pinning: false, canvas: true })).PINNING, "off");
-  assert.equal(readConfig(JSON.stringify({ channels, pinning: false, canvas: true })).CANVAS, "on");
-  assert.equal(readConfig(JSON.stringify({ channels })).PINNING, undefined);
-  assert.throws(() => readConfig(JSON.stringify({ channels, canvas: "no" })), /canvas is true or false/);
-  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[0], pinning: 1 }] })), /acme's pinning is true or false/);
+  const projects = [{ name: "acme", channel: "C0000000002" }];
+  const set = JSON.parse(readConfig(JSON.stringify({ projects: [{ ...projects[0], activeTasksPinning: false, summaryCanvas: true, newMessageTaskDetection: false }] })).PROJECTS)[0];
+  assert.deepEqual([set.activeTasksPinning, set.summaryCanvas, set.newMessageTaskDetection], [false, true, false]);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], summaryCanvas: "no" }] })), /acme's summaryCanvas is true or false/);
+  assert.throws(() => readConfig(JSON.stringify({ projects, activeTasksPinning: true })), /"activeTasksPinning" at the top; set it on each project/);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], activeTasksPinning: 1 }] })), /acme's activeTasksPinning is true or false/);
 });
 
 test("pinning and the summary canvas can be turned off, for every group or one", async (t) => {
   const { setPinned, refreshSummary } = await import("../src/tasks.js");
-  const pairs = [{ name: "acme", tasks: "CDEV", pinning: true }, { name: "test", tasks: "CTESTDEV", canvas: false }];
+  const pairs = [{ name: "acme", tasks: "CDEV", activeTasksPinning: true }, { name: "test", tasks: "CTESTDEV", summaryCanvas: false }];
   for (const [environment, channel, pins, canvases] of [
     [{ ...env }, "CDEV", 1, true],
-    [{ ...env, PINNING: "off", CANVAS: "off" }, "CDEV", 0, false],
-    [{ ...env, PINNING: undefined, CANVAS: undefined }, "CDEV", 0, false],
-    [{ ...env, CHANNEL_PAIRS: pairs, PINNING: "off" }, "CDEV", 1, true],
+    [{ ...env, ACTIVE_TASKS_PINNING: "off", SUMMARY_CANVAS: "off" }, "CDEV", 0, false],
+    [{ ...env, ACTIVE_TASKS_PINNING: undefined, SUMMARY_CANVAS: undefined }, "CDEV", 0, false],
+    [{ ...env, CHANNEL_PAIRS: pairs, ACTIVE_TASKS_PINNING: "off" }, "CDEV", 1, true],
     [{ ...env, CHANNEL_PAIRS: pairs }, "CTESTDEV", 1, false],
   ]) {
     const calls = mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
     await setPinned(environment, channel, "1.1", true);
     await refreshSummary(environment, channel, { create: true });
-    assert.equal(calls.filter((call) => call.method === "pins.add").length, pins, JSON.stringify([channel, environment.PINNING]));
-    assert.equal(calls.some((call) => /canvas/.test(call.method)), canvases, JSON.stringify([channel, environment.CANVAS]));
+    assert.equal(calls.filter((call) => call.method === "pins.add").length, pins, JSON.stringify([channel, environment.ACTIVE_TASKS_PINNING]));
+    assert.equal(calls.some((call) => /canvas/.test(call.method)), canvases, JSON.stringify([channel, environment.SUMMARY_CANVAS]));
   }
 });
 
@@ -2527,13 +2527,13 @@ test("slack:create checks its settings before calling Slack", async () => {
 
 test("npm run config checks the suggestions setting", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
-  const channels = [{ name: "acme", tasks: "C0000000002" }];
-  assert.equal(readConfig(JSON.stringify({ channels, suggestions: false })).SUGGESTIONS, "false");
-  assert.equal(readConfig(JSON.stringify({ channels, suggestions: ["pr-links"] })).SUGGESTIONS, '["pr-links"]');
-  assert.equal(readConfig(JSON.stringify({ channels })).SUGGESTIONS, undefined);
-  assert.equal(readConfig(JSON.stringify({ channels, suggestions: ["pr-links", "new-threads"] })).SUGGESTIONS, '["pr-links"]');
-  assert.throws(() => readConfig(JSON.stringify({ channels, suggestions: ["handoffs"] })), /"handoffs" isn't one of them/);
-  assert.throws(() => readConfig(JSON.stringify({ channels, suggestions: "off" })), /true, false or a list/);
+  const projects = [{ name: "acme", channel: "C0000000002" }];
+  const suggestions = (value) => JSON.parse(readConfig(JSON.stringify({ projects: [{ ...projects[0], taskStatusChangeDetection: value }] })).PROJECTS)[0].taskStatusChangeDetection;
+  assert.equal(suggestions(false), false);
+  assert.equal(suggestions(true), true);
+  assert.throws(() => suggestions(["pr-links"]), /acme's taskStatusChangeDetection is true or false/);
+  assert.equal(JSON.parse(readConfig(JSON.stringify({ projects: [{ ...projects[0], suggestions: false }] })).PROJECTS)[0].taskStatusChangeDetection, false, "the old name");
+  assert.throws(() => suggestions("off"), /acme's taskStatusChangeDetection is true or false/);
 });
 
 test("suggestions can be turned off, all or some, and a kind turned off doesn't hand the message to the next", async (t) => {
@@ -2550,52 +2550,37 @@ test("suggestions can be turned off, all or some, and a kind turned off doesn't 
     // A report is "started": off, it doesn't fall through to the reviewer hand-off.
     ['["hand-offs"]', "<@UREX> started working on the review comments", false],
   ]) {
-    const environment = suggestions === undefined ? env : { ...env, SUGGESTIONS: suggestions };
+    const environment = suggestions === undefined ? env : { ...env, TASK_STATUS_CHANGE_DETECTION: suggestions };
     const calls = mockSlack(t, { stored: [record()] });
     await send("/slack/events", threadEvent(text, { user: "UDEV1" }), {}, environment);
     assert.equal(calls.some((call) => call.method === "chat.postEphemeral"), offered, `${suggestions}: ${text}`);
   }
 });
 
-test("npm run config checks the emoji triggers", async () => {
-  const { readConfig } = await import("../scripts/config.mjs");
-  const channels = [{ name: "acme", tasks: "C0000000002" }];
-  const reactions = { convert: "heavy_plus_sign", move: "arrow_right_hook" };
-  assert.equal(readConfig(JSON.stringify({ channels, reactions })).REACTIONS, JSON.stringify(reactions));
-  for (const [bad, message] of [
-    [{ convert: ":ticket:" }, /without colons/],
-    [{ convert: "outbox_tray" }, /Cade adds itself/],
-    [{ convert: "ticket", move: "ticket" }, /different emoji/],
-    [{ archive: "ticket" }, /takes "convert" and "move"/],
-  ]) {
-    assert.throws(() => readConfig(JSON.stringify({ channels, reactions: bad })), message);
-  }
-});
-
 test("npm run config turns cade.config.json into the Worker's secrets", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
-  const channels = [{ name: "acme", tasks: "C0000000002" }];
-  assert.deepEqual(readConfig(JSON.stringify({ timezone: "Asia/Colombo", channels })), {
-    CHANNEL_PAIRS: JSON.stringify(channels),
+  const projects = [{ name: "acme", channel: "C0000000002" }];
+  assert.deepEqual(readConfig(JSON.stringify({ timezone: "Asia/Colombo", projects })), {
+    PROJECTS: JSON.stringify(projects),
     TIMEZONE: "Asia/Colombo",
   });
   // The timezone is optional.
-  assert.deepEqual(readConfig(JSON.stringify({ channels })), { CHANNEL_PAIRS: JSON.stringify(channels) });
+  assert.deepEqual(readConfig(JSON.stringify({ projects })), { PROJECTS: JSON.stringify(projects) });
 });
 
 test("npm run config stops on a mistake, before uploading anything", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
-  const good = [{ name: "acme", tasks: "C0000000002" }];
+  const good = [{ name: "acme", channel: "C0000000002" }];
   for (const [config, problem] of [
     ["{", /not valid JSON/],
-    [{ timezone: "UTC" }, /must list \{ name, tasks \}/],
-    [{ channels: [{ tasks: "C0000000002" }] }, /must list \{ name, tasks \}/],
-    [{ channels: [{ name: "acme" }] }, /must list \{ name, tasks \}/],
-    [{ channels: [{ name: "acme", tasks: "#acme-dev" }] }, /doesn't look like a Slack channel ID/],
-    [{ channels: [{ name: "acme", tasks: "C0000000001" }, { name: "beta", tasks: "C0000000001" }] }, /used twice/],
-    [{ channels: good, timezone: "Sri Lanka" }, /isn't a time zone/],
+    [{ timezone: "UTC" }, /must list \{ name, channel \}/],
+    [{ projects: [{ channel: "C0000000002" }] }, /must list \{ name, channel \}/],
+    [{ projects: [{ name: "acme" }] }, /must list \{ name, channel \}/],
+    [{ projects: [{ name: "acme", channel: "#acme-dev" }] }, /doesn't look like a Slack channel ID/],
+    [{ projects: [{ name: "acme", channel: "C0000000001" }, { name: "beta", channel: "C0000000001" }] }, /used twice/],
+    [{ projects: good, timezone: "Sri Lanka" }, /isn't a time zone/],
     // A token here would be a mistake: they belong in Cloudflare only.
-    [{ channels: good, SLACK_BOT_TOKEN: "xoxb-1" }, /has "SLACK_BOT_TOKEN"; it takes channels and timezone/],
+    [{ projects: good, SLACK_BOT_TOKEN: "xoxb-1" }, /has "SLACK_BOT_TOKEN"; it takes projects and timezone/],
   ]) {
     assert.throws(() => readConfig(typeof config === "string" ? config : JSON.stringify(config)), problem);
   }
@@ -2603,10 +2588,10 @@ test("npm run config stops on a mistake, before uploading anything", async () =>
 
 test("npm run dev passes its settings to Wrangler as a quoted .env file", async () => {
   const { envFile } = await import("../scripts/dev.mjs");
-  const pairs = JSON.stringify([{ name: "acme", tasks: "C0000000002" }]);
+  const pairs = JSON.stringify([{ name: "acme", channel: "C0000000002" }]);
   assert.equal(
-    envFile({ CHANNEL_PAIRS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", GOOGLE_URL: undefined }),
-    `CHANNEL_PAIRS='${pairs}'\nTIMEZONE='UTC'\nSLACK_BOT_TOKEN='xoxb-1'`,
+    envFile({ PROJECTS: pairs, TIMEZONE: "UTC", SLACK_BOT_TOKEN: "xoxb-1", GOOGLE_URL: undefined }),
+    `PROJECTS='${pairs}'\nTIMEZONE='UTC'\nSLACK_BOT_TOKEN='xoxb-1'`,
   );
   assert.throws(() => envFile({ SLACK_SIGNING_SECRET: "it's" }), /can't contain a quote/);
 });
@@ -2625,16 +2610,16 @@ test("npm run dev asks for the Google web app's secret only with its URL", async
 test("cade.config.json can hold the Google web app's address and each group's doc", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
   const doc = "https://docs.google.com/document/d/1AcmeDocAcmeDocAcmeDocAcmeDoc/edit";
-  const channels = [{ name: "acme", tasks: "C0000000002", doc }];
+  const projects = [{ name: "acme", channel: "C0000000002", doc }];
   const googleUrl = "https://script.google.com/macros/s/AKfy-abc/exec";
-  const secrets = readConfig(JSON.stringify({ channels, googleUrl }));
+  const secrets = readConfig(JSON.stringify({ projects, googleUrl }));
   assert.equal(secrets.GOOGLE_URL, googleUrl);
-  assert.equal(JSON.parse(secrets.CHANNEL_PAIRS)[0].doc, doc);
-  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[0], doc: "acme doc" }] })), /acme's doc should be a Google Doc's address/);
-  assert.throws(() => readConfig(JSON.stringify({ channels, googleUrl: doc })), /googleUrl should be the web app URL/);
+  assert.equal(JSON.parse(secrets.PROJECTS)[0].doc, doc);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], doc: "acme doc" }] })), /acme's doc should be a Google Doc's address/);
+  assert.throws(() => readConfig(JSON.stringify({ projects, googleUrl: doc })), /googleUrl should be the web app URL/);
   // The old settings, and the secret, stay out of the file.
-  assert.throws(() => readConfig(JSON.stringify({ channels, sheetUrl: googleUrl })), /has "sheetUrl"/);
-  assert.throws(() => readConfig(JSON.stringify({ channels, googleSecret: "s" })), /has "googleSecret"/);
+  assert.throws(() => readConfig(JSON.stringify({ projects, sheetUrl: googleUrl })), /has "sheetUrl"/);
+  assert.throws(() => readConfig(JSON.stringify({ projects, googleSecret: "s" })), /has "googleSecret"/);
 });
 
 test("intent phrases match whole words, or word starts with *", async () => {
@@ -3718,7 +3703,7 @@ test("Move to existing outside a dev channel asks for the project, then lists it
 });
 
 test("with only one group, the shortcuts anywhere skip the project", async (t) => {
-  const single = { ...env, CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV" }] };
+  const single = { ...env, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
   for (const [callbackId, callback] of [["convert", "track"], ["incident", "incident"]]) {
     const calls = mockSlack(t);
     await send("/slack/interactions", shortcutClick(callbackId), {}, single);
@@ -3823,7 +3808,7 @@ test("a message posted on its own in a dev channel is asked whether it's a task,
 
 test("with suggestions off, a message posted on its own is still asked about; others aren't", async (t) => {
   let calls = mockSlack(t);
-  await send("/slack/events", threadEvent("hi", { ts: "100.7", thread_ts: undefined }), {}, { ...env, SUGGESTIONS: "false" });
+  await send("/slack/events", threadEvent("hi", { ts: "100.7", thread_ts: undefined }), {}, { ...env, TASK_STATUS_CHANGE_DETECTION: "false" });
   assert.deepEqual(calls.map((call) => call.method), ["chat.postEphemeral"]);
 
   calls = mockSlack(t);
@@ -3831,6 +3816,25 @@ test("with suggestions off, a message posted on its own is still asked about; ot
   await send("/slack/events", threadEvent("done", { ts: "100.7", thread_ts: undefined, bot_id: "BOTHER" }));
   await send("/slack/events", threadEvent("edited", { ts: "100.7", thread_ts: undefined, subtype: "message_changed" }));
   assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
+});
+
+test("newMessageTaskDetection false stops the question about a message posted on its own, for one project or every one", async (t) => {
+  const post = (environment) => send("/slack/events", threadEvent("hi", { ts: "100.7", thread_ts: undefined }), {}, environment);
+  const projects = (settings) => ({ ...env, CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((project) => (project.name === "acme" ? { ...project, ...settings } : project)) });
+  for (const [environment, asked] of [
+    [env, true],
+    [projects({ newMessageTaskDetection: false }), false],
+    [{ ...env, NEW_MESSAGE_TASK_DETECTION: "off" }, false],
+    [{ ...projects({ newMessageTaskDetection: true }), NEW_MESSAGE_TASK_DETECTION: "off" }, true],
+  ]) {
+    const calls = mockSlack(t);
+    await post(environment);
+    assert.equal(calls.some((call) => call.method === "chat.postEphemeral"), asked);
+  }
+  // Messages in other threads and the other project are unaffected.
+  const calls = mockSlack(t);
+  await send("/slack/events", threadEvent("hi", { channel: "CTESTDEV", ts: "100.7", thread_ts: undefined }), {}, projects({ newMessageTaskDetection: false }));
+  assert.ok(calls.some((call) => call.method === "chat.postEphemeral"));
 });
 
 test("Track as task and Report incident open their forms, named from the message", async (t) => {
@@ -4153,7 +4157,7 @@ test("suggestions follow the kinds turned on", async (t) => {
     ['["hand-offs"]', "<@UTOM> please test it", taskWith("IN_PROGRESS"), "UACTOR", { people: { tester: add("UTOM") }, status: "IN_TESTING" }],
   ]) {
     const calls = mockSlack(t, { stored: [record] });
-    await send("/slack/events", threadReply(text, { user }), {}, { ...env, SUGGESTIONS: kinds });
+    await send("/slack/events", threadReply(text, { user }), {}, { ...env, TASK_STATUS_CHANGE_DETECTION: kinds });
     const question = ephemeral(calls);
     assert.deepEqual(question ? suggestedChanges(question) : null, changes, `${kinds}: ${text}`);
   }
@@ -4609,7 +4613,7 @@ const execEnv = {
   TIMEZONE: "UTC",
   GOOGLE_URL,
   GOOGLE_SECRET: "google-secret",
-  CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV", doc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
+  PROJECTS: [{ name: "acme", tasks: "CDEV", doc: `https://docs.google.com/document/d/${DOC_ID}/edit` }],
 };
 
 const daysAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
@@ -4863,7 +4867,7 @@ test("/cade brief needs the group to have a Google Doc", async (t) => {
   mockSlack(t, { "auth.test": { url: "https://acme.slack.com/" } });
   const { now: noApp } = await runTasksCommand("brief", "CDEV");
   assert.match(JSON.parse(noApp).text, /Google web app isn't set up yet: run `npm run google:create`/);
-  const noDoc = { ...execEnv, CHANNEL_PAIRS: [{ name: "acme", tasks: "CDEV" }] };
+  const noDoc = { ...execEnv, PROJECTS: [{ name: "acme", tasks: "CDEV" }] };
   const { now, later } = await runTasksCommand("brief", "CDEV", noDoc);
   assert.equal(JSON.parse(now).text, "acme has no Google Doc linked. Add the doc's address as `\"doc\"` to its group in cade.config.json, then run `npm run config`.");
   assert.equal(later, undefined);
@@ -5330,23 +5334,23 @@ test("/cade debrief can discard a suggestion, and needs a summary in the doc", a
 
 test("npm run group adds or changes a group in cade.config.json", async () => {
   const { readArgs, withGroup } = await import("../scripts/group.mjs");
-  assert.deepEqual(readArgs(["--name", "acme", "--tasks", "C0000000002", "--doc", "new"]), { name: "acme", tasks: "C0000000002", doc: "new" });
-  assert.throws(() => readArgs(["--tasks", "C1"]), /Give the group a --name/);
+  assert.deepEqual(readArgs(["--name", "acme", "--channel", "C0000000002", "--doc", "new"]), { name: "acme", channel: "C0000000002", doc: "new" });
+  assert.throws(() => readArgs(["--channel", "C1"]), /Give the group a --name/);
   assert.throws(() => readArgs(["--name", "acme", "--colour", "red"]), /I don't know "--colour"/);
-  assert.throws(() => readArgs(["--name", "acme", "--tasks"]), /--tasks needs a value/);
+  assert.throws(() => readArgs(["--name", "acme", "--channel"]), /--channel needs a value/);
 
-  const start = JSON.stringify({ timezone: "UTC", channels: [{ name: "acme", tasks: "C0000000002", doc: "https://docs.google.com/document/d/D/edit" }] });
+  const start = JSON.stringify({ timezone: "UTC", channels: [{ name: "acme", channel: "C0000000002", doc: "https://docs.google.com/document/d/D/edit" }] });
   // A new group goes at the end, its settings in order.
-  const added = JSON.parse(withGroup(start, "beta", { sheet: "https://docs.google.com/spreadsheets/d/S/edit", tasks: "C0000000003" }));
+  const added = JSON.parse(withGroup(start, "beta", { sheet: "https://docs.google.com/spreadsheets/d/S/edit", channel: "C0000000003" }));
   assert.equal(added.timezone, "UTC");
-  assert.deepEqual(added.channels[1], { name: "beta", tasks: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit" });
+  assert.deepEqual(added.projects[1], { name: "beta", channel: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit" });
   // A group there already keeps what isn't given; `none` removes a setting.
   const changed = JSON.parse(withGroup(start, "acme", { sheet: "https://docs.google.com/spreadsheets/d/S/edit", doc: "none" }));
-  assert.deepEqual(changed.channels, [{ name: "acme", tasks: "C0000000002", sheet: "https://docs.google.com/spreadsheets/d/S/edit" }]);
+  assert.deepEqual(changed.projects, [{ name: "acme", channel: "C0000000002", sheet: "https://docs.google.com/spreadsheets/d/S/edit" }]);
   // An old client or incidents channel goes: a group has only its tasks channel.
-  const old = JSON.stringify({ channels: [{ name: "acme", external: "C0000000001", tasks: "C0000000002", incidents: "C0000000004" }] });
-  assert.deepEqual(JSON.parse(withGroup(old, "acme", {})).channels, [{ name: "acme", tasks: "C0000000002" }]);
-  assert.throws(() => withGroup(start, "gamma", { doc: "none" }), /gamma needs a --tasks channel/);
+  const old = JSON.stringify({ projects: [{ name: "acme", external: "C0000000001", channel: "C0000000002", incidents: "C0000000004" }] });
+  assert.deepEqual(JSON.parse(withGroup(old, "acme", {})).projects, [{ name: "acme", channel: "C0000000002" }]);
+  assert.throws(() => withGroup(start, "gamma", { doc: "none" }), /gamma needs a --channel/);
 });
 
 test("npm run group's guided setup finds channels and people", async () => {
@@ -5438,7 +5442,7 @@ test("npm run group asks for each channel, existing by ID or new by name", async
 test("the dev channel's summary links the group's Google Sheet", async (t) => {
   const calls = mockSlack(t, canvasResponses);
   await putTask(env, "CDEV", "100.1", historyTask("100.1", { title: "Low task", priority: "Low" }).task);
-  const withSheet = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", CHANNEL_PAIRS: withSheets(env.CHANNEL_PAIRS) };
+  const withSheet = { ...env, GOOGLE_URL, GOOGLE_SECRET: "google-secret", PROJECTS: withSheets(env.CHANNEL_PAIRS) };
   await runTasksCommand("resync summary", "CDEV", withSheet);
   const dev = canvasMarkdown(calls.find((call) => call.method === "conversations.canvases.create"));
   assert.match(
@@ -5674,19 +5678,26 @@ test("when AI fails, the message is read by its phrases instead", async (t) => {
 test("with suggestions off, AI isn't asked and only commands work", async (t) => {
   const { environment, asked } = aiEnv(aiRead({ reviewer: { add: ["UMIA"], remove: [] } }));
   const calls = mockSlack(t, { stored: [storedTask()] });
-  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, SUGGESTIONS: "false" });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, TASK_STATUS_CHANGE_DETECTION: "false" });
   assert.equal(asked.length, 0);
   assert.equal(ephemeral(calls), undefined);
 });
 
-test("ai in cade.config.json turns AI on, names a model, or turns it off", async () => {
+test("ai in cade.config.json turns AI on or off, and aiModel names the model", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
-  const channels = [{ name: "acme", tasks: "C0000000002" }];
-  assert.equal(readConfig(JSON.stringify({ channels, ai: true })).AI_MODEL, "on");
-  assert.equal(readConfig(JSON.stringify({ channels, ai: false })).AI_MODEL, "off");
-  assert.equal(readConfig(JSON.stringify({ channels, ai: "@cf/qwen/qwen3-30b-a3b-fp8" })).AI_MODEL, "@cf/qwen/qwen3-30b-a3b-fp8");
-  assert.throws(() => readConfig(JSON.stringify({ channels, ai: "gpt" })), /ai is true, false or a Workers AI/);
+  const project = (settings) => JSON.parse(readConfig(JSON.stringify({ projects: [{ name: "acme", channel: "C0000000002", ...settings }] })).PROJECTS)[0];
+  assert.equal(project({ aiSuggestions: true }).aiSuggestions, true);
+  assert.equal(project({ aiSuggestions: false }).aiSuggestions, false);
+  assert.deepEqual(project({ aiSuggestions: true, aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" }), { name: "acme", channel: "C0000000002", aiSuggestions: true, aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" });
+  // `aiSuggestions` was called `ai`, which used to take a model's name.
+  assert.deepEqual(project({ ai: "@cf/qwen/qwen3-30b-a3b-fp8" }), { name: "acme", channel: "C0000000002", aiSuggestions: true, aiModel: "@cf/qwen/qwen3-30b-a3b-fp8" });
+  assert.throws(() => project({ aiSuggestions: "gpt" }), /aiModel is a Workers AI/);
+  assert.throws(() => project({ aiSuggestions: true, aiModel: "gpt" }), /acme's aiModel is a Workers AI/);
   const { aiModel } = await import("../src/ai.js");
+  const env = (settings) => ({ AI: {}, CHANNEL_PAIRS: [{ name: "acme", channel: "CDEV", ...settings }] });
+  assert.equal(aiModel(env({ aiSuggestions: true }), "CDEV"), "@cf/zai-org/glm-4.7-flash");
+  assert.equal(aiModel(env({ aiSuggestions: true, aiModel: "@cf/x/y" }), "CDEV"), "@cf/x/y");
+  assert.equal(aiModel(env({ aiModel: "@cf/x/y" }), "CDEV"), null, "aiModel alone does nothing");
   assert.equal(aiModel({ AI_MODEL: "on" }), null, "no binding");
   assert.equal(aiModel({ AI: {}, AI_MODEL: "off" }), null);
   assert.equal(aiModel({ AI: {}, AI_MODEL: "@cf/x/y" }), "@cf/x/y");
@@ -5697,20 +5708,20 @@ test("suggestions and ai can be set per group, over the setting for every group"
 
   // acme turns the proactive agent off, though it's on for every group.
   let calls = mockSlack(t, { stored: [storedTask()] });
-  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...env, CHANNEL_PAIRS: pairs({ suggestions: false }) });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...env, CHANNEL_PAIRS: pairs({ taskStatusChangeDetection: false }) });
   assert.equal(ephemeral(calls), undefined);
 
   // acme turns AI on, though it's off for every group.
   const { environment, asked } = aiEnv(aiRead({ reviewer: { add: ["UMIA"], remove: [] } }));
   calls = mockSlack(t, { stored: [storedTask()] });
-  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, AI_MODEL: "off", CHANNEL_PAIRS: pairs({ ai: true }) });
+  await send("/slack/events", threadEvent("<@UMIA> can you review this?"), {}, { ...environment, AI_MODEL: "off", CHANNEL_PAIRS: pairs({ aiSuggestions: true }) });
   assert.equal(asked.length, 1);
   assert.equal(ephemeral(calls).text, "Should I update the task? From your message:");
 
   // Another group keeps the setting for every group.
   const { aiModel } = await import("../src/ai.js");
   const { suggesting } = await import("../src/intents.js");
-  const split = { AI: {}, AI_MODEL: "off", SUGGESTIONS: "false", CHANNEL_PAIRS: pairs({ ai: "@cf/x/y", suggestions: ["hand-offs"] }) };
+  const split = { AI: {}, AI_MODEL: "off", TASK_STATUS_CHANGE_DETECTION: "false", CHANNEL_PAIRS: pairs({ ai: "@cf/x/y", taskStatusChangeDetection: ["hand-offs"] }) };
   assert.equal(aiModel(split, "CDEV"), "@cf/x/y");
   assert.equal(aiModel(split, "CTESTDEV"), null);
   assert.equal(suggesting(split, "hand-offs", "CDEV"), true);
@@ -5720,20 +5731,20 @@ test("suggestions and ai can be set per group, over the setting for every group"
 
 test("npm run config checks each group's suggestions and ai, and npm run group keeps them", async () => {
   const { readConfig } = await import("../scripts/config.mjs");
-  const channels = [
-    { name: "acme", tasks: "C0000000002", suggestions: true, ai: true },
-    { name: "test", tasks: "C0000000003", suggestions: false },
+  const projects = [
+    { name: "acme", channel: "C0000000002", taskStatusChangeDetection: true, aiSuggestions: true },
+    { name: "test", channel: "C0000000003", taskStatusChangeDetection: false },
   ];
-  assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ channels })).CHANNEL_PAIRS), [
-    { ...channels[0], ai: "on" },
-    channels[1],
+  assert.deepEqual(JSON.parse(readConfig(JSON.stringify({ projects })).PROJECTS), [
+    projects[0],
+    projects[1],
   ]);
-  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[0], ai: "gpt" }] })), /acme's ai is true, false/);
-  assert.throws(() => readConfig(JSON.stringify({ channels: [{ ...channels[1], suggestions: ["nope"] }] })), /test's suggestions is/);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[0], aiSuggestions: "gpt" }] })), /acme's aiModel is a Workers AI/);
+  assert.throws(() => readConfig(JSON.stringify({ projects: [{ ...projects[1], taskStatusChangeDetection: ["nope"] }] })), /test's taskStatusChangeDetection is true or false/);
 
   const { withGroup } = await import("../scripts/group.mjs");
-  const next = JSON.parse(withGroup(JSON.stringify({ channels }), "test", { sheet: "https://docs.google.com/spreadsheets/d/S/edit" }));
-  assert.deepEqual(next.channels[1], { name: "test", tasks: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit", suggestions: false });
+  const next = JSON.parse(withGroup(JSON.stringify({ projects }), "test", { sheet: "https://docs.google.com/spreadsheets/d/S/edit" }));
+  assert.deepEqual(next.projects[1], { name: "test", channel: "C0000000003", sheet: "https://docs.google.com/spreadsheets/d/S/edit", taskStatusChangeDetection: false });
 });
 
 test("the card's Edit opens one form with everything, and saving it applies what changed as one message", async (t) => {

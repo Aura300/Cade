@@ -3,7 +3,7 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 
 // Reading what a message in a task's thread asks to change, with a model on
 // Workers AI: who should develop, review or test it, and its status,
-// priority and due date. Turned on with `ai` in cade.config.json (AI_MODEL),
+// priority and due date. Turned on with a project's `aiSuggestions` in cade.config.json,
 // with the Workers AI binding `AI` (see wrangler.toml); without them, or if
 // the model fails, suggestions read messages by their phrases instead (see
 // suggest.js).
@@ -13,8 +13,8 @@ import { PRIORITIES, STATUSES } from "./tasks.js";
 // whoever wrote the message confirms it.
 
 // The quickest and cheapest of the models that read these messages as well
-// as any small one did, keeping to a JSON schema. `ai` in cade.config.json
-// can name another text model instead.
+// as any small one did, keeping to a JSON schema. A project's `aiModel` in
+// cade.config.json can name another text model instead.
 export const DEFAULT_MODEL = "@cf/zai-org/glm-4.7-flash";
 
 // Models that reason before answering unless told not to, which only slows
@@ -31,13 +31,16 @@ const SPEAKS_FOR_SELF =
 const TIMEOUT_MS = 8000;
 
 // The model to read messages in `channel` with, or null when AI is off: the
-// group's own `ai`, or else AI_MODEL for every group. A group's is as `ai` in
-// cade.config.json gives it ("on", "off" or a model's name, or true or false).
+// project's `aiSuggestions` (true or false) with its `aiModel`, the default
+// model if it has none. Before `aiModel`, `ai` (now `aiSuggestions`) could be
+// "on", "off" or a model's name, as AI_MODEL still is for every project;
+// those are still read.
 export function aiModel(env, channel) {
-  let setting = groupSetting(env, channel, "ai") ?? env.AI_MODEL;
+  let setting = groupSetting(env, channel, "aiSuggestions") ?? groupSetting(env, channel, "ai") ?? env.AI_MODEL;
   if (typeof setting === "boolean") setting = setting ? "on" : "off";
   if (!env.AI || !setting || setting === "off") return null;
-  return setting === "on" ? DEFAULT_MODEL : setting;
+  if (setting !== "on") return setting;
+  return groupSetting(env, channel, "aiModel") ?? DEFAULT_MODEL;
 }
 
 // What the model fills in. Empty strings and lists mean no change, as small

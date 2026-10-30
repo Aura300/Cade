@@ -1,0 +1,18 @@
+{
+  "timezone": "Asia/Colombo",
+  "googleUrl": "https://script.google.com/macros/s/AKfycbxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec",
+  "projects": [
+    {
+      "name": "acme",
+      "channel": "C0000000001",
+      "doc": "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdef/edit",
+      "sheet": "https://docs.google.com/spreadsheets/d/1ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210fedcba/edit",
+      "taskStatusChangeDetection": true,
+      "newMessageTaskDetection": true,
+      "aiSuggestions": true,
+      "aiModel": "@cf/zai-org/glm-4.7-flash",
+      "activeTasksPinning": false,
+      "summaryCanvas": false
+    }
+  ]
+}

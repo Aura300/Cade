@@ -66,7 +66,7 @@
       <article class="entry">
         <h3><code>/cade task</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
-        <p>A form for the title, priority and an optional due date. The task is posted in the dev channel. With <code>pinning</code> on in <code>cade.config.json</code>, it also stays pinned until it's done.</p>
+        <p>A form for the title, priority and an optional due date. The task is posted in the dev channel. With <code>activeTasksPinning</code> on in <code>cade.config.json</code>, it also stays pinned until it's done.</p>
         <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
       </article>
 
@@ -128,7 +128,7 @@
         <div class="tags"><span class="where">Dev channel</span></div>
         <p>Cade sets the status and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
         <ul>
-          <li>With <code>pinning</code> on, Done unpins the task; moving it out of Done pins it again.</li>
+          <li>With <code>activeTasksPinning</code> on, Done unpins the task; moving it out of Done pins it again.</li>
           <li>Client review shows whoever set it a private <b>Ask for approval</b> button (set it again to get it back): pick who approves, the client or whoever handles them. Cade asks them in the task's thread to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress). Only they can click.</li>
         </ul>
       </article>
@@ -254,7 +254,7 @@
       <article class="entry">
         <h3>The summary canvas</h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Off by default</span></div>
-        <p>With <code>canvas</code> on in <code>cade.config.json</code> (for every group or one), every dev channel's canvas holds a table of its tasks, made with the first new task (taking over the canvas the channel has, if any) and kept up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done and an Archived section of the last 50 archived, most recent first, each with its title, status, priority, due date, owner, reviewer and tester. With a Google Sheet linked to the group, the canvas also links to it, for every task. Each title opens its thread. The table replaces what the canvas held, and the canvas is made read-only for the channel, since Cade rewrites it on every change; where Slack doesn't allow that, such as on a free plan, it stays editable, and edits are overwritten.</p>
+        <p>With <code>summaryCanvas</code> on in <code>cade.config.json</code> (for every group or one), every dev channel's canvas holds a table of its tasks, made with the first new task (taking over the canvas the channel has, if any) and kept up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done and an Archived section of the last 50 archived, most recent first, each with its title, status, priority, due date, owner, reviewer and tester. With a Google Sheet linked to the group, the canvas also links to it, for every task. Each title opens its thread. The table replaces what the canvas held, and the canvas is made read-only for the channel, since Cade rewrites it on every change; where Slack doesn't allow that, such as on a free plan, it stays editable, and edits are overwritten.</p>
       </article>
 
       <article class="entry">
@@ -284,7 +284,7 @@
     <div class="eyebrow">Proactive agent</div>
     <h2>Plain words Cade picks up in its threads</h2>
     <p class="lede">With the proactive agent on, Cade reads messages in the task and incident threads it manages, and offers, privately, to act on them. Nothing changes until you click.</p>
-    <p class="lede"><b>On by default.</b> Set <code>"suggestions": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
+    <p class="lede"><b>On by default.</b> Set <code>"taskStatusChangeDetection": false</code> in <code>cade.config.json</code>, for every group or on one group in <code>channels</code>, for <b>commands only</b>: Cade then reads nothing from messages in threads. Commands, the task card's ⋯ menu, message shortcuts, emoji, and the question about a <a href="#tidy">new message posted in a channel</a> all keep working. You can also keep only some kinds: <code>pr-links</code>, <code>hand-offs</code>, <code>started</code>, <code>progress</code>.</p>
     <div class="entries">
 
       <article class="entry">
@@ -327,7 +327,7 @@
     <div class="eyebrow">AI suggestions</div>
     <h2>One message, every change, read with AI</h2>
     <p class="lede">With AI suggestions on, the proactive agent reads messages in task threads with a small model on Cloudflare Workers AI, not by fixed phrases. That catches more ways of saying things, and several changes in one message.</p>
-    <p class="lede"><b>Off by default.</b> Turn it on with <code>"ai": true</code> in <code>cade.config.json</code>, or name another Workers AI model, for every group or only some: <code>{ "name": "acme", …, "ai": true }</code> in <code>channels</code>. It needs the proactive agent on: with <code>"suggestions": false</code>, AI is never asked.</p>
+    <p class="lede"><b>Off by default.</b> Turn it on with <code>"aiSuggestions": true</code> in <code>cade.config.json</code>, or name another Workers AI model, for every group or only some: <code>{ "name": "acme", …, "ai": true }</code> in <code>channels</code>. It needs the proactive agent on: with <code>"taskStatusChangeDetection": false</code>, AI is never asked.</p>
     <div class="entries">
 
       <article class="entry">

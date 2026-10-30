@@ -47,13 +47,14 @@ export function readSessions() {
 // belong to; its team id is read from the URL once Slack loads.
 export function loadConfig() {
   if (!existsSync(CADE_CONFIG_FILE)) throw new Error("cade.config.json is missing.");
-  const groups = JSON.parse(readFileSync(CADE_CONFIG_FILE, "utf8")).channels ?? [];
+  const config = JSON.parse(readFileSync(CADE_CONFIG_FILE, "utf8"));
+  const groups = config.projects ?? config.channels ?? [];
   const group = groups.find((g) => g.name === process.env.DEMO_GROUP) ?? groups[0];
   return {
     workspaceUrl: "https://app.slack.com/client",
     team: null,
     sessions: readSessions(),
-    channels: { dev: group?.tasks, client: process.env.DEMO_CLIENT_CHANNEL ?? group?.tasks },
+    channels: { dev: group?.channel ?? group?.tasks, client: process.env.DEMO_CLIENT_CHANNEL ?? group?.channel ?? group?.tasks },
     leadDm: process.env.DEMO_LEAD_DM,
     sheetUrl: process.env.DEMO_SHEET_URL,
   };

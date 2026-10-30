@@ -1,4 +1,4 @@
-import { channelPairs, findPair } from "../channels.js";
+import { projects, findProject } from "../channels.js";
 import {
   claimExport,
   exportItems,
@@ -65,7 +65,7 @@ const HEALTH_MENU = ["ON_TRACK", "AT_RISK", "DELAYED", "BLOCKED"];
 // is left, so Back shows it again. Nothing about the work itself changes.
 //
 // The summary isn't posted in Slack: it goes at the top of the Summary tab
-// of the group's Google Doc (its `doc` in CHANNEL_PAIRS), as a section of
+// of the group's Google Doc (its `doc` in PROJECTS), as a section of
 // its own, which is gone through with the client on a call. `/cade debrief`
 // then reads the section back for what the call added to it (see debrief.js).
 // So `/cade brief` only works for a group with a doc.
@@ -160,13 +160,13 @@ function docLink(group) {
 // channel's own, or the only one. Otherwise, what to tell whoever sent it,
 // suggesting `usage` with each group's name.
 export function pickGroup(env, text, channel, usage) {
-  const groups = channelPairs(env);
+  const groups = projects(env);
   const named = text.trim().toLowerCase();
   if (named) {
     const group = groups.find((pair) => pair.name.toLowerCase() === named);
     return group ?? `I don't know a group called "${escapeSlack(text.trim())}". Try ${groupNames(groups, usage)}.`;
   }
-  const own = findPair(env, channel);
+  const own = findProject(env, channel);
   if (own) return own;
   if (groups.length === 1) return groups[0];
   return `Which group? Try ${groupNames(groups, usage)}.`;
@@ -266,7 +266,7 @@ export function label(text) {
 // done, most urgent first. The steps are the period, pages of done work,
 // each active entry, then the review.
 async function walk(env, summary, url) {
-  const group = channelPairs(env).find((pair) => pair.name === summary.group);
+  const group = projects(env).find((pair) => pair.name === summary.group);
   const all = group ? await entries(env, group, url) : [];
   const done = all
     .filter((entry) => entry.done && entry.completedAt >= summary.since && (!summary.until || entry.completedAt <= summary.until))
@@ -497,7 +497,7 @@ async function render(env, at, notice) {
       },
     );
   } else {
-    const group = channelPairs(env).find((pair) => pair.name === summary.group);
+    const group = projects(env).find((pair) => pair.name === summary.group);
     const where = group && docId(group.doc) ? `<${docLink(group)}|${summary.group}'s Google Doc>` : "the group's Google Doc";
     blocks.push({ type: "context", elements: [mrkdwn(`*Review.* This is what I'll add to the top of ${where}'s Summary tab.`)] });
     for (const chunk of chunks(summaryText(env, summary, done, active, chosen), 3000).slice(0, 40)) {
@@ -628,7 +628,7 @@ async function post(payload, env, at) {
     await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at)) });
     return;
   }
-  const group = channelPairs(env).find((pair) => pair.name === summary.group);
+  const group = projects(env).find((pair) => pair.name === summary.group);
   const problem = group ? docProblem(env, group) : `I don't know the group ${summary.group} any more.`;
   if (problem) {
     await respondLater(payload.response_url, { replace_original: true, ...(await render(env, at, `:warning: ${problem}`)) });

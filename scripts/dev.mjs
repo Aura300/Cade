@@ -71,11 +71,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     try {
       json = await readFile(`${ROOT}cade.config.json`, "utf8");
     } catch {
-      throw new Error("No cade.config.json: copy cade.config.example.json to cade.config.json and fill it in.");
+      throw new Error("No cade.config.json: copy cade.config.sample.json to cade.config.json and fill it in.");
     }
     const config = readConfig(json);
     const secrets = await askSecrets(config);
-    const groups = JSON.parse(config.CHANNEL_PAIRS).map((pair) => pair.name).join(", ");
+    const groups = JSON.parse(config.PROJECTS).map((project) => project.name).join(", ");
     console.log(`Using cade.config.json: ${groups}${config.TIMEZONE ? `; timezone ${config.TIMEZONE}` : ""}`);
 
     // The local database keeps its tasks between runs; this only adds tables

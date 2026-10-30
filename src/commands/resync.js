@@ -1,4 +1,4 @@
-import { findPair, groupEnabled } from "../channels.js";
+import { findProject, groupEnabled } from "../channels.js";
 import { escapeSlack, linkedThread, respondLater } from "../slack.js";
 import { writeSummary } from "../summary.js";
 import { loadTask, saveTask } from "../tasks.js";
@@ -43,18 +43,18 @@ export default {
 
 // Rewrites the summary of the dev channel the command was sent in.
 function resyncSummary(command, context) {
-  const group = findPair(context.env, command.channel);
+  const group = findProject(context.env, command.channel);
   if (!group) return "Send `/cade resync summary` in a group's dev channel, for its summary.";
-  if (!groupEnabled(context.env, group.tasks, "canvas", "CANVAS")) return "The summary canvas is off for this group; turn it on with `canvas` in cade.config.json.";
+  if (!groupEnabled(context.env, group.channel, "summaryCanvas", "SUMMARY_CANVAS")) return "The summary canvas is off for this group; turn it on with `summaryCanvas` in cade.config.json.";
   // Writing the canvas can take longer than Slack waits for a slash
   // command's answer, so the answer follows.
   context.waitUntil(
     (async () => {
       let text;
       try {
-        text = await writeSummary(context.env, group.tasks, { full: true, user: command.user });
+        text = await writeSummary(context.env, group.channel, { full: true, user: command.user });
       } catch (error) {
-        console.error("Could not resync the summary", { channel: group.tasks, error: error.message });
+        console.error("Could not resync the summary", { channel: group.channel, error: error.message });
         text = "Sorry, I couldn't update the summary just now. Could you try again?";
       }
       await respondLater(command.responseUrl, { text });

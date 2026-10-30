@@ -1,4 +1,4 @@
-import { channelPairs, roleOf } from "../channels.js";
+import { groupDisabled, projects, roleOf } from "../channels.js";
 import { tasksWithStatus } from "../db.js";
 import { findIntent, intent, intentsOn, plainMessage } from "../intents.js";
 import { acknowledge, callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.js";
@@ -15,8 +15,8 @@ const EXISTING_ACTION = "move:existing";
 const DISMISS_ACTION = "move:dismiss";
 const PROJECT_ACTION = "move:project";
 // The emoji that ask Cade to convert or move a message, when someone adds
-// them to it; `reactions` in cade.config.json changes them (REACTIONS).
-const DEFAULT_REACTIONS = { convert: "ticket", move: "twisted_rightwards_arrows" };
+// them to it.
+const REACTIONS = { convert: "ticket", move: "twisted_rightwards_arrows" };
 
 // The message shortcuts, ⋯ → More actions → New task, New
 // incident and Move to existing, by the callback_ids the manifest gives
@@ -75,7 +75,7 @@ function taskOption(task) {
 // lists that project's open tasks. The message is copied as above, so it can be read in the task's
 // thread even by people who can't see where it was written; the link back
 // to it, and the note and reaction under it, work only where they can.
-// Adding 🎫 or 🔀 to a message in a dev channel (see DEFAULT_REACTIONS) does
+// Adding 🎫 or 🔀 to a message in a dev channel (see REACTIONS) does
 // the same in one click from Slack's hover bar, with a private reply
 // instead of a form (see reacted).
 //
@@ -88,7 +88,7 @@ export default {
   description: "Move a message into a task's thread",
   usage: "@Cade move [message link]",
   section: "message",
-  channel: "tasks",
+  channel: "channel",
   async run(command, { env }) {
     const inThread = command.threadTs && command.threadTs !== command.ts;
     if (!inThread) return NOT_IN_THREAD;
@@ -113,7 +113,7 @@ export default {
       name: "new-thread",
       order: 50,
       // Not a suggestion kind: messages posted on their own are asked about
-      // even with `suggestions` off.
+      // even with `taskStatusChangeDetection` off, unless `newMessageTaskDetection` is false.
       match: (message) => !message.inThread,
       handle: (message, { env }) => offerThread(env, message),
     }),
@@ -171,7 +171,7 @@ export default {
 async function shortcutMessage(payload, env) {
   const channel = payload.channel.id;
   const { ts, thread_ts: threadTs, text = "", user, files, pinned_to: pinnedTo } = payload.message;
-  if (roleOf(env, channel) === "tasks") {
+  if (roleOf(env, channel) === "channel") {
     let problem = threadTs && threadTs !== ts && "I can only do that with messages posted in the channel itself, not replies in a thread.";
     if (!problem) {
       const checked = await checkRoot(env, channel, ts);
@@ -213,9 +213,9 @@ async function tell(env, payload, text) {
 // project: the one it was chosen in, or the only group's; undefined when
 // there's a choice to make.
 function knownProject(env, channel) {
-  if (roleOf(env, channel) === "tasks") return channel;
-  const groups = channelPairs(env);
-  return groups.length === 1 ? groups[0].tasks : undefined;
+  if (roleOf(env, channel) === "channel") return channel;
+  const groups = projects(env);
+  return groups.length === 1 ? groups[0].channel : undefined;
 }
 
 // New task and New incident: their form, named from the message's first
@@ -289,15 +289,6 @@ function submitMoveForm(payload, context) {
   );
 }
 
-// The emoji that convert and move messages, as { convert, move }.
-export function triggerReactions(env) {
-  try {
-    return { ...DEFAULT_REACTIONS, ...JSON.parse(env.REACTIONS || "{}") };
-  } catch {
-    return DEFAULT_REACTIONS;
-  }
-}
-
 // Someone added an emoji to a message in a dev channel. The convert emoji
 // asks them, privately, whether to track it as a task, with a button that
 // opens the form, since a reaction carries no trigger_id to open one; the
@@ -306,11 +297,10 @@ export function triggerReactions(env) {
 // stopping it is said only to them.
 async function reacted(env, event) {
   const emoji = event.reaction.split("::")[0];
-  const { convert, move } = triggerReactions(env);
-  const action = { [convert]: "convert", [move]: "move" }[emoji];
-  if (!action) return;
   const { channel, ts } = event.item;
-  if (roleOf(env, channel) !== "tasks") return;
+  const action = { [REACTIONS.convert]: "convert", [REACTIONS.move]: "move" }[emoji];
+  if (!action) return;
+  if (roleOf(env, channel) !== "channel") return;
   const user = event.user;
   const tell = (body) => callSlack(env, "chat.postEphemeral", { channel, user, ...body });
 
@@ -389,7 +379,8 @@ function startQuestion(kind, value) {
 // The private question for a message posted on its own in a dev channel.
 // Move to existing is there if there's anything open to move it to.
 async function offerThread(env, message) {
-  if (roleOf(env, message.channel) !== "tasks") return;
+  if (roleOf(env, message.channel) !== "channel") return;
+  if (groupDisabled(env, message.channel, "newMessageTaskDetection", "NEW_MESSAGE_TASK_DETECTION")) return;
   const value = JSON.stringify({ channel: message.channel, ts: message.ts, title: firstLine(message.text) });
   const button = (action_id, text, style) => ({ type: "button", action_id, text: plainText(text), value, style });
   const open = await openTasks(env, message.channel);

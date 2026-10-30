@@ -1,4 +1,4 @@
-import { channelPairs, findPair } from "../channels.js";
+import { projects, findProject } from "../channels.js";
 import { tasksWithStatus } from "../db.js";
 import { userNames } from "../sheet.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, respondLater } from "../slack.js";
@@ -53,8 +53,8 @@ export default {
   async slash(command, context) {
     const filters = parseTaskFilters(command.text);
     if (filters.error) return filters.error;
-    const own = findPair(context.env, command.channel);
-    const groups = own ? [own] : channelPairs(context.env);
+    const own = findProject(context.env, command.channel);
+    const groups = own ? [own] : projects(context.env);
     // Reading the channels can take longer than Slack waits for a slash
     // command's answer, so the list follows through its response_url.
     context.waitUntil(
@@ -370,7 +370,7 @@ export function threadLink(url, channel, ts) {
 // incident }, from its tasks channel. Links are built from the workspace's address, `url`, rather
 // than looked up one by one, which would take a Slack call per task.
 export async function groupTasks(env, group, statuses, url) {
-  const channel = group.tasks;
+  const channel = group.channel;
   return (await tasksWithStatus(env, channel, statuses)).map(({ ts, task }) => ({
     channel,
     ts,

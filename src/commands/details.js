@@ -13,7 +13,7 @@ export const priority = {
   description: "Change the task's priority (in its thread)",
   usage: "@Cade priority high",
   section: "task",
-  channel: "tasks",
+  channel: "channel",
   inThread: true,
   async run(command, { env }) {
     const found = await findTask(env, command.channel, command.threadTs);
@@ -36,7 +36,7 @@ export const due = {
   description: "Change the task's due date (in its thread)",
   usage: "@Cade due 31/12/2026",
   section: "task",
-  channel: "tasks",
+  channel: "channel",
   inThread: true,
   async run(command, { env }) {
     const found = await findTask(env, command.channel, command.threadTs);

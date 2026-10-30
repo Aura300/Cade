@@ -14,7 +14,7 @@ export default {
   description: "Archive the task: Cade stops tracking it, and its thread stays (in its thread)",
   usage: "@Cade archive",
   section: "task",
-  channel: "tasks",
+  channel: "channel",
   inThread: true,
   async run(command, { env }) {
     return (await archiveTask(env, command.channel, command.threadTs, command.user)) ?? NOT_A_TASK;

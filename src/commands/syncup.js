@@ -1,4 +1,4 @@
-import { channelPairs, findPair } from "../channels.js";
+import { projects, findProject } from "../channels.js";
 import { callSlack, escapeSlack, mentions, mrkdwn, plainText, respondLater } from "../slack.js";
 import { PRIORITIES, ROLES, STATUSES, prLines } from "../tasks.js";
 import { OPEN, byUrgency, groupTasks } from "./tasks.js";
@@ -25,9 +25,9 @@ export default {
   description: "Go through the open tasks one at a time, each linking to its thread, only to you",
   slashUsage: "/cade syncup",
   section: "work",
-  slashChannel: "tasks",
+  slashChannel: "channel",
   async slash(command, context) {
-    const walk = { g: findPair(context.env, command.channel).name, i: 0 };
+    const walk = { g: findProject(context.env, command.channel).name, i: 0 };
     context.waitUntil((async () => respondLater(command.responseUrl, await render(context.env, walk)))());
   },
   actions: {
@@ -53,7 +53,7 @@ export default {
 async function render(env, walk) {
   // Links are built from the workspace's address.
   const { url } = await callSlack(env, "auth.test", {});
-  const group = channelPairs(env).find((pair) => pair.name === walk.g);
+  const group = projects(env).find((pair) => pair.name === walk.g);
   const tasks = (group ? await groupTasks(env, group, OPEN, url) : []).sort(byUrgency);
   if (!tasks.length) {
     const text = `There are no open ${walk.g} tasks right now.`;

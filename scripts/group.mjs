@@ -4,7 +4,7 @@
 //
 //   npm run group                      asks for each setting, and can make
 //                                      the group's Slack channels too
-//   npm run group -- --name acme --tasks C…
+//   npm run group -- --name acme --channel C…
 //                    [--doc new | <address>] [--sheet new | <address>]
 //
 // --doc and --sheet link the group's Google Doc (for executive summaries)
@@ -29,12 +29,12 @@ const KINDS = {
   sheet: { path: "spreadsheets", noun: "Google Sheet" },
 };
 
-const FIELDS = ["tasks", "doc", "sheet"];
+const FIELDS = ["channel", "doc", "sheet"];
 
 // What each file is called when `new` makes it.
 const NEW_TITLES = { doc: (name) => `${name} executive summaries`, sheet: (name) => `${name} tasks` };
 
-// The command line as { name, tasks, … }, each as given.
+// The command line as { name, channel, … }, each as given.
 export function readArgs(args) {
   const found = {};
   for (let i = 0; i < args.length; i++) {
@@ -49,30 +49,32 @@ export function readArgs(args) {
 }
 
 const USAGE =
-  "Use: npm run group -- --name acme --tasks C… [--doc new|<address>] [--sheet new|<address>]";
+  "Use: npm run group -- --name acme --channel C… [--doc new|<address>] [--sheet new|<address>]";
 
 // cade.config.json with the group `name` added or changed: `fields` are its
-// settings, a value of "none" removing one. A new group needs `tasks`.
+// settings, a value of "none" removing one. A new group needs `channel`.
 export function withGroup(configJson, name, fields) {
   const config = JSON.parse(configJson);
-  const channels = config.channels ?? [];
+  // `channels`, each with its channel as `tasks`, is how projects were kept.
+  const channels = (config.projects ?? config.channels ?? []).map(({ tasks, ...old }) => ({ ...old, channel: old.channel ?? tasks }));
   const at = channels.findIndex((group) => group.name === name);
   const group = { ...(at === -1 ? { name } : channels[at]) };
   for (const [field, value] of Object.entries(fields)) {
     if (value === "none") delete group[field];
     else group[field] = value;
   }
-  if (!group.tasks) throw new Error(`${name} needs a --tasks channel.`);
-  // Groups have only their tasks channel now, so an old client or
-  // incidents channel goes.
+  if (!group.channel) throw new Error(`${name} needs a --channel.`);
+  // Projects have only their channel now, so an old client or incidents
+  // channel goes.
   delete group.external;
   delete group.incidents;
   // Settings in a steady order, as the file shows them, then those set by
-  // hand, such as `suggestions` and `ai`.
+  // hand, such as `taskStatusChangeDetection` and `aiSuggestions`.
   const ordered = Object.fromEntries(["name", ...FIELDS].filter((field) => group[field]).map((field) => [field, group[field]]));
   for (const [field, value] of Object.entries(group)) if (!(field in ordered) && !FIELDS.includes(field)) ordered[field] = value;
   const next = at === -1 ? [...channels, ordered] : channels.map((other, i) => (i === at ? ordered : other));
-  return `${JSON.stringify({ ...config, channels: next }, null, 2)}\n`;
+  const { channels: old, ...rest } = config;
+  return `${JSON.stringify({ ...rest, projects: next }, null, 2)}\n`;
 }
 
 // The ID of a doc or spreadsheet (`kind`) in its address, or `value` itself
@@ -115,12 +117,17 @@ async function createFile(kind, url, title) {
   return result.id;
 }
 
+// The projects in a parsed config, under the old `channels` name too.
+function projectsIn(config) {
+  return config.projects ?? config.channels ?? [];
+}
+
 // The config file as it is, or an empty one.
 async function currentConfig() {
   try {
     return await readFile(CONFIG_FILE, "utf8");
   } catch {
-    return '{\n  "channels": []\n}\n';
+    return '{\n  "projects": []\n}\n';
   }
 }
 
@@ -131,10 +138,10 @@ async function saveGroup(json, name, fields, settings = {}) {
   const next = withGroup(JSON.stringify({ ...JSON.parse(json), ...settings }), name, fields);
   readConfig(next);
   await writeFile(CONFIG_FILE, next);
-  const known = JSON.parse(json).channels?.some((other) => other.name === name);
+  const known = projectsIn(JSON.parse(json)).some((other) => other.name === name);
   console.log(`${known ? "Changed" : "Added"} ${name} in cade.config.json. Uploading…`);
   await uploadConfig();
-  return JSON.parse(next).channels.find((other) => other.name === name);
+  return projectsIn(JSON.parse(next)).find((other) => other.name === name);
 }
 
 export async function group(args) {
@@ -147,14 +154,14 @@ export async function group(args) {
   }
   const saved = await saveGroup(json, name, fields);
   console.log(`
-Done. In Slack, invite Cade to the tasks channel (${saved.tasks}) with /invite @Cade, if it isn't there.`);
+Done. In Slack, invite Cade to the project channel (${saved.channel}) with /invite @Cade, if it isn't there.`);
   if (saved.doc) console.log(`Doc: ${saved.doc}\n  Share it with the client as Editor.`);
   if (saved.sheet) console.log(`Sheet: ${saved.sheet}`);
 }
 
-// The group's channels, as the guided setup asks for them.
+// The project's channels, as the guided setup asks for them.
 const ROLES = [
-  { field: "tasks", what: "Dev channel, where the team tracks its tasks and incidents", suffix: "dev", required: true },
+  { field: "channel", what: "Project channel, where the team tracks its tasks and incidents", suffix: "dev", required: true },
 ];
 
 // A channel name as Slack keeps it: no #, lower case.
@@ -291,7 +298,7 @@ async function guided() {
         name = "";
       }
     }
-    const current = config.channels?.find((other) => other.name === name) ?? {};
+    const current = projectsIn(config).find((other) => other.name === name) ?? {};
     if (current.name) console.log(`  ${name} is set up already; what you give changes it, and Enter keeps what it has.`);
 
     // The first group, at setup, also sets the time zone.

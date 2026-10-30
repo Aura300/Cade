@@ -1,4 +1,4 @@
-import { channelPairs, findPair } from "../channels.js";
+import { projects, findProject } from "../channels.js";
 import { userNames } from "../sheet.js";
 import { callSlack, escapeSlack, mrkdwn, plainText, respondLater } from "../slack.js";
 import { assigned, request } from "../notify.js";
@@ -38,14 +38,14 @@ export default {
     "Go through the open tasks one owner at a time, only to you (`-unassigned` to give tasks an owner)",
   slashUsage: "/cade standup",
   section: "work",
-  slashChannel: "tasks",
+  slashChannel: "channel",
   async slash(command, context) {
     const option = command.text.trim();
     const unassigned = /^(?:--?|[—–])unassigned$/i.test(option);
     if (option && !unassigned) {
       return `I don't know "${escapeSlack(option)}" as an option. Send \`/cade standup\` to go through everyone's tasks, or \`/cade standup -unassigned\` for those with no owner.`;
     }
-    const group = findPair(context.env, command.channel);
+    const group = findProject(context.env, command.channel);
     const walk = { m: unassigned ? "unassigned" : "people", g: group.name, l: command.user, i: 0 };
     context.waitUntil((async () => respondLater(command.responseUrl, await render(context.env, walk)))());
   },
@@ -117,7 +117,7 @@ async function assignOwner(payload, env) {
 // owner, whoever runs it first, then { entries } for the tasks with no
 // owner; for -unassigned, { entries } with one task each.
 async function steps(env, walk, url) {
-  const group = channelPairs(env).find((pair) => pair.name === walk.g);
+  const group = projects(env).find((pair) => pair.name === walk.g);
   const tasks = group ? await groupTasks(env, group, OPEN, url) : [];
   const unassigned = tasks.filter((entry) => !entry.task.people.owner.length).sort(byUrgency);
   if (walk.m === "unassigned") return unassigned.map((entry) => ({ entries: [entry] }));

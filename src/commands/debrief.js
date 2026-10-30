@@ -1,4 +1,4 @@
-import { channelPairs } from "../channels.js";
+import { projects } from "../channels.js";
 import { decideSuggestion, getExport, getSuggestion, insertSuggestion, lastExport, pendingSuggestions, suggestions } from "../db.js";
 import { readSection } from "../doc.js";
 import { callSlack, escapeSlack, linkedThread, mrkdwn, plainText, respondLater } from "../slack.js";
@@ -54,7 +54,7 @@ export default {
       const { env } = context;
       const suggestion = await getSuggestion(env, Number(payload.actions[0].value));
       const summary = suggestion && (await getExport(env, suggestion.exportId));
-      const group = summary && channelPairs(env).find((pair) => pair.name === summary.group);
+      const group = summary && projects(env).find((pair) => pair.name === summary.group);
       if (!group || suggestion.status !== "PENDING") {
         context.waitUntil(next(env, payload.response_url, suggestion?.exportId));
         return;
@@ -63,7 +63,7 @@ export default {
       const initial = { initial: suggestion.details || suggestion.text };
       const view =
         suggestion.kind === "TASK"
-          ? trackView(env, { channel: group.tasks, title: suggestion.text, sync }, initial)
+          ? trackView(env, { channel: group.channel, title: suggestion.text, sync }, initial)
           : pointView(suggestion, sync);
       await callSlack(env, "views.open", { trigger_id: payload.trigger_id, view });
     },
@@ -171,7 +171,7 @@ async function render(env, summary) {
   const doc = `<${summary.docUrl}|the executive summary of ${writtenOn(env, summary)}>`;
   if (!pending.length) return { text: `Nothing more to go through: everything added to ${doc} has been applied or discarded.` };
   const suggestion = pending[0];
-  const group = channelPairs(env).find((pair) => pair.name === summary.group);
+  const group = projects(env).find((pair) => pair.name === summary.group);
   const blocks = [{ type: "section", text: mrkdwn(`*${escapeSlack(summary.group)}: added to ${doc}*  ·  ${pending.length} to go`) }];
   if (suggestion.kind === "POINT") {
     const { url } = await callSlack(env, "auth.test", {});
@@ -187,7 +187,7 @@ async function render(env, summary) {
       {
         type: "context",
         elements: [
-          mrkdwn(`Apply opens the task form, with ${details ? "the lines under it" : "it"} as the initial message, to track it in <#${group?.tasks}>.`),
+          mrkdwn(`Apply opens the task form, with ${details ? "the lines under it" : "it"} as the initial message, to track it in <#${group?.channel}>.`),
         ],
       },
     );

@@ -46,7 +46,7 @@ export default {
   description: "Send some of the task's PRs to the client to approve (in its thread)",
   usage: "@Cade release",
   section: "task",
-  channel: "tasks",
+  channel: "channel",
   inThread: true,
   async run(command, { env }) {
     const found = await findRelease(env, command.channel, command.threadTs);

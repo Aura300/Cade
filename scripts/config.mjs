@@ -3,36 +3,39 @@
 // checking it the way Cade reads it. Edit the file, then run `npm run config`;
 // changes take effect without a deploy. See GETTING_STARTED.md.
 //
-//   channels  each group's Slack channels                    → CHANNEL_PAIRS
+//   projects  each project: its Slack channel, Doc, Sheet and  → PROJECTS
+//             settings (below)
 //   timezone  for times in the Google Sheet (optional)        → TIMEZONE
 //   googleUrl the Google web app's address (optional), for     → GOOGLE_URL
-//             each group's Sheet and Doc
-//   suggestions the proactive agent: Cade reading messages in the → SUGGESTIONS
-//             threads it manages and offering changes (optional,
-//             on): true, false for commands only, or a list of the
-//             kinds to keep, from SUGGESTION_KINDS (intents.js).
-//             Messages posted on their own are asked about either way
-//   ai        AI suggestions: the proactive agent reads people's → AI_MODEL
-//             words with Workers AI (optional, off): true for the
-//             default model, a model name such as
-//             "@cf/google/gemma-4-26b-a4b-it", or false to read
-//             them by their phrases (see ai.js). Needs suggestions on.
-//   pinning   whether open tasks are pinned in their dev     → PINNING
-//             channel (optional, off): true to pin them
-//   canvas    whether each dev channel has a summary canvas   → CANVAS
-//             of its tasks (optional, off): true to keep one
-//   reactions the emoji that convert or move a message when    → REACTIONS
-//             added to it (optional): { "convert": "ticket",
-//             "move": "twisted_rightwards_arrows" }, by Slack name
+//             every project's Sheet and Doc
 //
-// Each group in `channels` can have its own `suggestions`, `ai`, `pinning`
-// and `canvas`, which replace the ones above for that group:
-// { "name": "acme", …, "ai": true }.
-//
-// Each group in `channels` can link its Google Doc, for executive summaries,
-// with `doc`, and its own Google Sheet, for its tasks, with `sheet`: their
-// addresses. A group without `sheet` isn't recorded in a Sheet. `npm run
-// group` adds or changes a group here (see group.mjs).
+// Everything else is set on each project, not at the top of the file:
+//   name, channel (an ID) required
+//   doc, sheet    the project's Google Doc, for executive summaries, and
+//                 Google Sheet, for its tasks (addresses; without `sheet`
+//                 its tasks aren't recorded in a Sheet)
+//   taskStatusChangeDetection
+//                 the proactive agent: Cade reading messages in the threads
+//                 it manages and offering changes (optional, on): true, or
+//                 false for commands only
+//   aiSuggestions AI suggestions (optional, off): true to read people's
+//                 words with Workers AI, false to read them by their
+//                 phrases (see ai.js). Needs taskStatusChangeDetection on
+//   aiModel       the Workers AI text model for `aiSuggestions` (optional): a name such
+//                 as "@cf/google/gemma-4-26b-a4b-it"; the default model
+//                 without it
+//   newMessageTaskDetection
+//                 whether Cade asks about a message posted on its own in the
+//                 channel: track it as a task, report it as an incident or
+//                 move it to a task (optional, on); false to leave such
+//                 messages alone
+//   activeTasksPinning
+//                 whether open tasks are pinned in the channel (optional, off)
+//   summaryCanvas whether the channel has a summary canvas of its tasks
+//                 (optional, off)
+// `npm run group` adds or changes a project here (see group.mjs). Older files
+// with `channels`, each with its channel as `tasks`, and `suggestions` for
+// taskStatusChangeDetection, are still read.
 //
 // The real secrets (the bot token, the signing secret and GOOGLE_SECRET,
 // which the web app's address is useless without) are set once with
@@ -42,9 +45,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { channelPairs } from "../src/channels.js";
+import { projects } from "../src/channels.js";
 import { docId } from "../src/doc.js";
-import { SUGGESTION_KINDS } from "../src/intents.js";
 import { sheetId } from "../src/sheet.js";
 import "./cloudflare.mjs";
 
@@ -59,33 +61,48 @@ export function readConfig(json) {
   } catch {
     throw new Error("cade.config.json is not valid JSON.");
   }
-  const known = ["channels", "timezone", "googleUrl", "suggestions", "ai", "pinning", "canvas", "reactions"];
-  const unknown = Object.keys(config).find((key) => !known.includes(key));
+  const known = ["projects", "timezone", "googleUrl"];
+  // `channels` is the old name for `projects`.
+  const unknown = Object.keys(config).find((key) => !known.includes(key) && key !== "channels");
+  if (PROJECT_SETTINGS.includes(unknown)) {
+    throw new Error(`cade.config.json has "${unknown}" at the top; set it on each project instead: { "name": "acme", "channel": "C…", "${unknown}": … }.`);
+  }
   if (unknown) throw new Error(`cade.config.json has "${unknown}"; it takes ${known.join(" and ")}.`);
 
-  const pairs = channelPairs({ CHANNEL_PAIRS: config.channels });
-  const ids = pairs.map((pair) => pair.tasks);
+  const list = projects({ PROJECTS: config.projects ?? config.channels });
+  const ids = list.map((project) => project.channel);
   const notId = ids.find((id) => !/^[CG][A-Z0-9]{8,}$/.test(id));
   if (notId) throw new Error(`"${notId}" doesn't look like a Slack channel ID (C… from the channel's About tab).`);
   const reused = ids.find((id, i) => ids.indexOf(id) !== i);
-  if (reused) throw new Error(`${reused} is used twice; each channel belongs to one group, in one role.`);
-  const badDoc = pairs.find((pair) => pair.doc !== undefined && !docId(pair.doc));
+  if (reused) throw new Error(`${reused} is used twice; each channel belongs to one project.`);
+  const badDoc = list.find((project) => project.doc !== undefined && !docId(project.doc));
   if (badDoc) throw new Error(`${badDoc.name}'s doc should be a Google Doc's address: https://docs.google.com/document/d/…/edit.`);
-  const badSheet = pairs.find((pair) => pair.sheet !== undefined && !sheetId(pair.sheet));
+  const badSheet = list.find((project) => project.sheet !== undefined && !sheetId(project.sheet));
   if (badSheet) throw new Error(`${badSheet.name}'s sheet should be a Google Sheet's address: https://docs.google.com/spreadsheets/d/…/edit.`);
 
-  // A group's own `suggestions` and `ai` replace those for every group.
-  for (const pair of pairs) {
+  for (const project of list) {
     try {
-      if (pair.suggestions !== undefined) pair.suggestions = checkSuggestions(pair.suggestions);
-      if (pair.ai !== undefined) pair.ai = checkAi(pair.ai);
-      for (const key of SWITCHES) if (pair[key] !== undefined) checkSwitch(key, pair[key]);
+      // `suggestions` is the old name of taskStatusChangeDetection.
+      if (project.suggestions !== undefined) {
+        project.taskStatusChangeDetection ??= project.suggestions;
+        delete project.suggestions;
+      }
+      // `aiSuggestions` was `ai`, which used to be a model's name too: that's
+      // `aiModel` now.
+      if (project.ai !== undefined) {
+        project.aiSuggestions ??= project.ai;
+        delete project.ai;
+      }
+      if (typeof project.aiSuggestions === "string") Object.assign(project, { aiSuggestions: true, aiModel: project.aiSuggestions });
+      if (project.aiSuggestions !== undefined) project.aiSuggestions = checkAiSuggestions(project.aiSuggestions);
+      if (project.aiModel !== undefined) project.aiModel = checkAiModel(project.aiModel);
+      for (const key of SWITCHES) if (project[key] !== undefined) checkSwitch(key, project[key]);
     } catch (error) {
-      throw new Error(`${pair.name}'s ${error.message}`);
+      throw new Error(`${project.name}'s ${error.message}`);
     }
   }
 
-  const secrets = { CHANNEL_PAIRS: JSON.stringify(pairs) };
+  const secrets = { PROJECTS: JSON.stringify(list) };
   if (config.timezone !== undefined) secrets.TIMEZONE = checkZone(config.timezone);
   if (config.googleUrl !== undefined) {
     if (!/^https:\/\/script\.google\.com\/\S+\/exec$/.test(config.googleUrl)) {
@@ -93,59 +110,32 @@ export function readConfig(json) {
     }
     secrets.GOOGLE_URL = config.googleUrl;
   }
-  if (config.suggestions !== undefined) secrets.SUGGESTIONS = JSON.stringify(checkSuggestions(config.suggestions));
-  if (config.reactions !== undefined) secrets.REACTIONS = JSON.stringify(checkReactions(config.reactions));
-  if (config.ai !== undefined) secrets.AI_MODEL = checkAi(config.ai);
-  // "off" is kept as a secret, so turning a switch back off replaces it.
-  for (const key of SWITCHES) if (config[key] !== undefined) secrets[key.toUpperCase()] = checkSwitch(key, config[key]) ? "on" : "off";
   return secrets;
 }
 
-// Features that are off unless turned on, with `true` or `false`.
-const SWITCHES = ["pinning", "canvas"];
+// Features with `true` or `false`, set on each project: activeTasksPinning and summaryCanvas
+// are off unless turned on; taskStatusChangeDetection and
+// newMessageTaskDetection are on unless turned off.
+const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection"];
+
+// What a project can set, which used to be allowed at the top of the file.
+const PROJECT_SETTINGS = ["aiSuggestions", "aiModel", ...SWITCHES];
 
 function checkSwitch(key, value) {
   if (typeof value !== "boolean") throw new Error(`${key} is true or false.`);
   return value;
 }
 
-// AI_MODEL for `ai`: "on" for the default model, the model's name, or "off"
-// (so turning it off replaces the secret, which a missing key wouldn't).
-export function checkAi(ai) {
-  if (typeof ai === "boolean") return ai ? "on" : "off";
-  if (typeof ai === "string" && /^@(cf|hf)\/\S+$/.test(ai)) return ai;
-  throw new Error(`ai is true, false or a Workers AI text model's name, such as "@cf/google/gemma-4-26b-a4b-it".`);
+// `aiSuggestions` if it's true or false, else throws.
+export function checkAiSuggestions(aiSuggestions) {
+  if (typeof aiSuggestions === "boolean") return aiSuggestions;
+  throw new Error("aiSuggestions is true or false; name a model with aiModel.");
 }
 
-// Returns `suggestions` if it's true, false or a list of known kinds; else
-// throws.
-export function checkSuggestions(suggestions) {
-  if (typeof suggestions === "boolean") return suggestions;
-  // "new-threads" was a kind until messages posted on their own were always
-  // asked about; a config listing it still reads.
-  if (Array.isArray(suggestions)) suggestions = suggestions.filter((kind) => kind !== "new-threads");
-  const kinds = SUGGESTION_KINDS;
-  const unknown = Array.isArray(suggestions) ? suggestions.find((kind) => !kinds.includes(kind)) : suggestions;
-  if (unknown !== undefined) {
-    throw new Error(`suggestions is true, false or a list of: ${kinds.join(", ")}. "${unknown}" isn't one of them.`);
-  }
-  return suggestions;
-}
-
-// Returns `reactions` if it names emoji for convert and move only, as Slack
-// names them (without colons), and two different ones; else throws. Cade's
-// own reactions, ✅ and 📤, would set Cade off itself, so they're refused.
-export function checkReactions(reactions) {
-  const keys = Object.keys(reactions ?? {});
-  const unknown = keys.find((key) => !["convert", "move"].includes(key));
-  if (unknown || typeof reactions !== "object") throw new Error(`reactions takes "convert" and "move", each an emoji's Slack name.`);
-  const names = Object.values(reactions);
-  const bad = names.find((name) => typeof name !== "string" || !/^[a-z0-9_+'-]+$/.test(name));
-  if (bad !== undefined) throw new Error(`"${bad}" isn't an emoji's Slack name: write it without colons, as in "ticket".`);
-  const taken = names.find((name) => ["white_check_mark", "outbox_tray"].includes(name));
-  if (taken) throw new Error(`"${taken}" is one Cade adds itself, so it can't be a trigger.`);
-  if (names.length === 2 && names[0] === names[1]) throw new Error("reactions needs a different emoji for convert and move.");
-  return reactions;
+// `aiModel` if it's a Workers AI text model's name, else throws.
+export function checkAiModel(model) {
+  if (typeof model === "string" && /^@(cf|hf)\/\S+$/.test(model)) return model;
+  throw new Error(`aiModel is a Workers AI text model's name, such as "@cf/google/gemma-4-26b-a4b-it".`);
 }
 
 // Returns `zone` if it's a time zone Intl knows (an IANA name), else throws.
@@ -165,23 +155,17 @@ export async function uploadConfig() {
   try {
     json = await readFile(FILE, "utf8");
   } catch {
-    throw new Error("No cade.config.json: copy cade.config.example.json to cade.config.json and fill it in.");
+    throw new Error("No cade.config.json: copy cade.config.sample.json to cade.config.json and fill it in.");
   }
   const secrets = readConfig(json);
-  for (const pair of JSON.parse(secrets.CHANNEL_PAIRS)) {
-    const own = ["suggestions", "ai"].filter((key) => pair[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(pair[key])}`).join("");
-    const doc = pair.doc ? `, doc ${pair.doc}` : "";
-    const sheet = pair.sheet ? `, sheet ${pair.sheet}` : "";
-    console.log(`${pair.name}: tasks ${pair.tasks}${doc}${sheet}${own}`);
+  for (const project of JSON.parse(secrets.PROJECTS)) {
+    const own = ["taskStatusChangeDetection", "aiSuggestions", "aiModel", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
+    const doc = project.doc ? `, doc ${project.doc}` : "";
+    const sheet = project.sheet ? `, sheet ${project.sheet}` : "";
+    console.log(`${project.name}: channel ${project.channel}${doc}${sheet}${own}`);
   }
   if (secrets.TIMEZONE) console.log(`timezone: ${secrets.TIMEZONE}`);
   if (secrets.GOOGLE_URL) console.log(`googleUrl: ${secrets.GOOGLE_URL}`);
-  if (secrets.SUGGESTIONS) console.log(`suggestions: ${secrets.SUGGESTIONS}`);
-  if (secrets.REACTIONS) console.log(`reactions: ${secrets.REACTIONS}`);
-  if (secrets.AI_MODEL) {
-    const idle = secrets.AI_MODEL !== "off" && secrets.SUGGESTIONS === "false";
-    console.log(`ai: ${secrets.AI_MODEL}${idle ? " (does nothing where suggestions is false)" : ""}`);
-  }
 
   // `wrangler secret bulk` reads them from a file; it's removed straight after.
   const dir = await mkdtemp(join(tmpdir(), "cade-config-"));

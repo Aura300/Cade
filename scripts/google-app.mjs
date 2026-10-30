@@ -129,9 +129,9 @@ export async function create(args) {
     await writeFile(CONFIG_FILE, withGoogleUrl(await readFile(CONFIG_FILE, "utf8"), url));
     await run("node", ["scripts/config.mjs"]);
   } else {
-    await copyFile(`${ROOT}cade.config.example.json`, CONFIG_FILE);
+    await copyFile(`${ROOT}cade.config.sample.json`, CONFIG_FILE);
     await writeFile(CONFIG_FILE, withGoogleUrl(await readFile(CONFIG_FILE, "utf8"), url));
-    console.log("Made cade.config.json with googleUrl; fill in your channels, then run npm run config.");
+    console.log("Made cade.config.json with googleUrl; fill in your projects, then run npm run config.");
   }
 
   console.log(`

@@ -8,7 +8,7 @@ const USAGE =
 // task's thread, as if it had just been posted: for one Cade missed, such as
 // when it was down, or one whose question was dismissed or has gone. It asks
 // whoever wrote the message, privately, as it would have, and only the
-// suggestions turned on for the channel apply (see `suggestions`). Nothing
+// suggestions turned on for the channel apply (see `taskStatusChangeDetection`). Nothing
 // changes until they answer. Whoever sent it sees how it went.
 export default {
   name: "retry",

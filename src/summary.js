@@ -1,4 +1,4 @@
-import { findPair } from "./channels.js";
+import { findProject } from "./channels.js";
 import { archivedTasks, deleteCanvas, getCanvas, putCanvas } from "./db.js";
 import { byUrgency, groupTasks, threadLink } from "./commands/tasks.js";
 import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
@@ -25,13 +25,13 @@ const TASK_COLUMNS = ["Title", "Status", "Priority", "Due date", "Owner", "Revie
 
 // The canvas's title, which heads the summary.
 export function summaryTitle(env, channel) {
-  const { name } = findPair(env, channel);
+  const { name } = findProject(env, channel);
   return `${name} tasks`;
 }
 
 // The channel's summary, as canvas markdown.
 export async function summaryMarkdown(env, channel) {
-  const group = findPair(env, channel);
+  const group = findProject(env, channel);
   // Links are built from the workspace's address, as `/cade tasks` does.
   const { url } = await callSlack(env, "auth.test", {});
   const updated = `_Updated ${formatTime(env, new Date())}. Cade keeps this up to date._`;
@@ -53,10 +53,10 @@ export async function summaryMarkdown(env, channel) {
   const sheet = sheetEnabled(env, group)
     ? ` [All tasks in the Google Sheet](https://docs.google.com/spreadsheets/d/${sheetId(group.sheet)}/edit).`
     : "";
-  const archived = (await archivedTasks(env, group.tasks, MAX_CLOSED)).map(({ ts, task }) => ({
+  const archived = (await archivedTasks(env, group.channel, MAX_CLOSED)).map(({ ts, task }) => ({
     task,
     incident: task.incident,
-    link: threadLink(url, group.tasks, ts),
+    link: threadLink(url, group.channel, ts),
   }));
   return document(`${updated}${sheet}`, TASK_COLUMNS, { ...sections(tasks, row), archived: archived.map(row) }, "tasks");
 }
@@ -76,12 +76,12 @@ function sections(entries, row) {
 // making its canvas if it has none. A summary is a convenience, so failures
 // are logged rather than failing the command.
 export async function refreshSummary(env, channel, { create = false } = {}) {
-  const group = findPair(env, channel);
+  const group = findProject(env, channel);
   if (!group) return;
   try {
-    if (create || (await getCanvas(env, group.tasks))) await writeSummary(env, group.tasks);
+    if (create || (await getCanvas(env, group.channel))) await writeSummary(env, group.channel);
   } catch (error) {
-    console.warn("Could not update the summary", { channel: group.tasks, error: error.message });
+    console.warn("Could not update the summary", { channel: group.channel, error: error.message });
   }
 }
 

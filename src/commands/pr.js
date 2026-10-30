@@ -38,7 +38,7 @@ export default {
   description: "Link or unlink pull requests (in a task thread)",
   usage: ["@Cade pr add <link>", "@Cade pr remove <link>"],
   section: "task",
-  channel: "tasks",
+  channel: "channel",
   inThread: true,
   async run(command, { env }) {
     const [action = ""] = command.text.split(/\s+/, 1);
