@@ -11,17 +11,17 @@
 //
 // Creating stores the app's signing secret in the Worker with `wrangler secret
 // put`, then asks for the bot token once the app is installed, which only a
-// person can do. The app's ID and settings are saved to .slack-app.json, so
+// person can do. The app's ID and settings are saved to .cade/slack-app.json, so
 // later updates know which app to change.
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { askHidden } from "./prompt.mjs";
 import "./cloudflare.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MANIFEST = `${ROOT}slack/manifest.json`;
-const APP_FILE = `${ROOT}.slack-app.json`;
+const APP_FILE = `${ROOT}.cade/slack-app.json`;
 const DEFAULTS = { name: "Cade", command: "/cade" };
 
 // The manifest for an app called `name`, answering `command`, served by the
@@ -112,8 +112,9 @@ export async function create(args) {
     manifest: JSON.stringify(buildManifest(template, { ...settings, events: false })),
   });
   const app = { appId: created.app_id, ...settings };
+  await mkdir(`${ROOT}.cade`, { recursive: true });
   await writeFile(APP_FILE, `${JSON.stringify(app, null, 2)}\n`);
-  console.log(`Created app ${app.appId}; saved its settings to .slack-app.json.`);
+  console.log(`Created app ${app.appId}; saved its settings to .cade/slack-app.json.`);
 
   console.log("Storing its signing secret in the Worker…");
   await putSecret("SLACK_SIGNING_SECRET", created.credentials.signing_secret);
@@ -146,7 +147,7 @@ export async function update() {
   try {
     app = JSON.parse(await readFile(APP_FILE, "utf8"));
   } catch {
-    throw new Error("No .slack-app.json here: create the app with npm run slack:create first.");
+    throw new Error("No .cade/slack-app.json here: create the app with npm run slack:create first.");
   }
   const token = await configToken();
   const template = JSON.parse(await readFile(MANIFEST, "utf8"));

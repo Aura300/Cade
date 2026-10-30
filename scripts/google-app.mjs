@@ -13,11 +13,11 @@
 // the shared secret into google/Secret.gs (not committed), deploys the web
 // app, then gives the Worker its address (googleUrl in cade.config.json,
 // uploaded with npm run config) and the secret (GOOGLE_SECRET). The script's
-// IDs are saved to .google-app.json, so updates redeploy to the same
+// IDs are saved to .cade/google-app.json, so updates redeploy to the same
 // address. Each group's spreadsheet and doc are linked with npm run group.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access, copyFile, readFile, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import "./cloudflare.mjs";
 
@@ -25,7 +25,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DIR = `${ROOT}google`;
 const SECRET_FILE = `${DIR}/Secret.gs`;
 const MANIFEST_FILE = `${DIR}/appsscript.json`;
-const APP_FILE = `${ROOT}.google-app.json`;
+const APP_FILE = `${ROOT}.cade/google-app.json`;
 const CONFIG_FILE = `${ROOT}cade.config.json`;
 
 // Secret.gs, defining the SECRET Code.gs checks requests against.
@@ -101,7 +101,7 @@ function option(args, name) {
 
 export async function create(args) {
   if (await exists(APP_FILE)) {
-    throw new Error("The Google web app is already set up (.google-app.json). Use npm run google:update to change its script.");
+    throw new Error("The Google web app is already set up (.cade/google-app.json). Use npm run google:update to change its script.");
   }
   const title = option(args, "title") ?? "Cade";
   const manifest = await readFile(MANIFEST_FILE, "utf8");
@@ -120,6 +120,7 @@ export async function create(args) {
   if (!deploymentId) throw new Error("Couldn't find the deployment ID in clasp's output; see npx clasp list-deployments.");
   const url = webAppUrl(deploymentId);
   const app = { scriptId: project.scriptId, deploymentId, url };
+  await mkdir(`${ROOT}.cade`, { recursive: true });
   await writeFile(APP_FILE, `${JSON.stringify(app, null, 2)}\n`);
 
   console.log("Giving the Worker the secret and the address…");
@@ -149,11 +150,15 @@ export async function update() {
   try {
     app = JSON.parse(await readFile(APP_FILE, "utf8"));
   } catch {
-    throw new Error("No .google-app.json here: create the web app with npm run google:create first.");
+    throw new Error("No .cade/google-app.json here: create the web app with npm run google:create first.");
   }
   if (!(await exists(SECRET_FILE))) {
     throw new Error("google/Secret.gs is missing, and the script can't work without it. Restore it, or set up a new web app.");
   }
+  // clasp's own project file is only the script's ID, which .cade/google-app.json
+  // has, so it's made again here when this copy of the folder lacks it.
+  const claspFile = `${DIR}/.clasp.json`;
+  if (!(await exists(claspFile))) await writeFile(claspFile, `${JSON.stringify({ scriptId: app.scriptId, rootDir: "" }, null, 2)}\n`);
   await pushScript(await readFile(MANIFEST_FILE, "utf8"));
   // Same deployment, so the address doesn't change.
   await clasp("update-deployment", app.deploymentId, "--description", "Cade");

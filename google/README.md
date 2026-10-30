@@ -80,7 +80,7 @@ what's new is.
    anyone: the secret is what protects it), then gives the Worker its
    address (`googleUrl` in `cade.config.json`, uploaded with `npm run
    config`) and the secret (`GOOGLE_SECRET`). Its IDs are saved to
-   `.google-app.json` in the project root.
+   `.cade/google-app.json`.
 4. **Approve the script (person).** Open the script link it prints, choose
    `authorize` at the top, click **Run**, and allow access to your
    spreadsheets and docs. Until then, the web app can't use them.

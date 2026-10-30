@@ -2,19 +2,17 @@ node_modules/
 .wrangler/
 .idea
 *.iml
-# The Slack app's ID and settings, written by npm run slack:create.
-.slack-app.json
 # Local settings for npm run dev.
 .dev.vars
-# The Cloudflare account Cade is deployed to (see scripts/cloudflare.mjs).
-.cloudflare.json
+# Tooling state written by the npm scripts: the Cloudflare account, the Slack
+# app and the Google web app (IDs only, no secrets).
+.cade/
 # Your settings, uploaded with npm run config.
 cade.config.json
 # The Google web app: its secret, made by npm run google:create, and clasp's
 # project files.
 google/Secret.gs
 google/.clasp.json
-.google-app.json
 # Demo recording: .demo/ holds logged-in sessions and raw video.
 .demo/
 .playwright-mcp

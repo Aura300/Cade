@@ -130,7 +130,7 @@ again; on a machine without a browser, use an API token instead
 
 **If `whoami` lists several accounts**, give the one for Cade once, with any
 npm script: `CLOUDFLARE_ACCOUNT_ID=<its ID> npm run deploy`. It's saved to
-`.cloudflare.json` (kept out of git), and every npm script uses it from then
+`.cade/cloudflare.json` (kept out of git), and every npm script uses it from then
 on.
 
 ## 3. Name and deploy the Worker
@@ -181,7 +181,7 @@ Interactivity and the slash command, all pointing at your Worker), stores the
 signing secret in the Worker, then turns on Event Subscriptions.
 
 **Expect:** `Created app A…`, wrangler confirming the secret, then an install
-link. The app's ID is saved in `.slack-app.json` (not committed).
+link. The app's ID is saved in `.cade/slack-app.json` (not committed).
 **If it fails:**
 - `invalid_auth` or `token_expired`: get a new token (step 4).
 - Turning on Event Subscriptions fails: check `npm run deploy` succeeded,

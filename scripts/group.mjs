@@ -250,11 +250,11 @@ export async function channelPlan(slack, ask, role, group, options, current) {
 }
 
 // The Slack app's OAuth & Permissions page, where its bot token is: straight
-// to it with the app's ID from .slack-app.json (see slack-app.mjs), or the
+// to it with the app's ID from .cade/slack-app.json (see slack-app.mjs), or the
 // list of apps without it.
 async function tokenPage() {
   try {
-    const { appId } = JSON.parse(await readFile(`${ROOT}.slack-app.json`, "utf8"));
+    const { appId } = JSON.parse(await readFile(`${ROOT}.cade/slack-app.json`, "utf8"));
     if (appId) return `https://api.slack.com/apps/${appId}/oauth`;
   } catch {}
   return "https://api.slack.com/apps (open Cade → OAuth & Permissions)";

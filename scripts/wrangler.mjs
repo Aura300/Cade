@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs wrangler with the account in .cloudflare.json (see cloudflare.mjs), for
+// Runs wrangler with the account in .cade/cloudflare.json (see cloudflare.mjs), for
 // the npm scripts that run it directly: `node scripts/wrangler.mjs deploy`.
 import { spawn } from "node:child_process";
 import "./cloudflare.mjs";
