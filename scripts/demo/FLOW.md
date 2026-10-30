@@ -1,7 +1,7 @@
 # Act 1 flow, observed in the live Slack UI (2026-10-28)
 
-Workspace XTECKLK (`T0CBGKFCPT9`), private channel `alternate-dev` (`C0CCJQ18QN8`),
-also `all-xtecklk` (`C0CCSC58EP2`). Cade is under Apps. There is no `acme-*` channel
+Workspace XTECLK (`T0CBGKFCPT9`), private channel `alternate-dev` (`C0CCJQ18QN8`),
+also `all-xteclk` (`C0CCSC58EP2`). Cade is under Apps. There is no `acme-*` channel
 in this workspace, so the DEMO.md names need mapping to real channels.
 
 ## Confirmed selectors / labels
@@ -25,7 +25,7 @@ Hard-won details:
 - `lib.mjs` `messageAction` is wrong for this UI: it clicks `[data-qa="more_message_actions"]`
   then a "More actions" menuitem. Replace with the sequence above.
 
-## Forms (confirmed on a fresh message in all-xtecklk, then cancelled)
+## Forms (confirmed on a fresh message in all-xteclk, then cancelled)
 
 Clicking **New task** on a message Cade had already moved gives a toast
 "Sorry, that didn't work. Try again?" and no form. Always use a brand-new message.
