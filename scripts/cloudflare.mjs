@@ -6,25 +6,30 @@
 // script runs with CLOUDFLARE_ACCOUNT_ID set, as in
 // `CLOUDFLARE_ACCOUNT_ID=… npm run deploy`; from then on, importing this sets
 // it for wrangler, and the scripts it starts, unless it's set already.
+//
+// A custom domain for the Worker can be added by hand as { "domain" }, such as
+// "api.example.com"; `wrangler.mjs` then deploys to it (see there), so
+// wrangler.toml stays free of anyone's domain.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const FILE = fileURLToPath(new URL("../.cade/cloudflare.json", import.meta.url));
 
-function saved() {
+function read() {
   try {
-    return JSON.parse(readFileSync(FILE, "utf8")).accountId;
+    return JSON.parse(readFileSync(FILE, "utf8"));
   } catch {
-    return undefined;
+    return {};
   }
 }
 
-const accountId = saved();
+export const domain = read().domain;
+const accountId = read().accountId;
 if (!process.env.CLOUDFLARE_ACCOUNT_ID && accountId) {
   process.env.CLOUDFLARE_ACCOUNT_ID = accountId;
 } else if (process.env.CLOUDFLARE_ACCOUNT_ID && !accountId && !process.env.NODE_TEST_CONTEXT) {
   mkdirSync(dirname(FILE), { recursive: true });
-  writeFileSync(FILE, `${JSON.stringify({ accountId: process.env.CLOUDFLARE_ACCOUNT_ID }, null, 2)}\n`);
+  writeFileSync(FILE, `${JSON.stringify({ ...read(), accountId: process.env.CLOUDFLARE_ACCOUNT_ID }, null, 2)}\n`);
   console.log(`Saved Cloudflare account ${process.env.CLOUDFLARE_ACCOUNT_ID} to .cade/cloudflare.json; it needn't be given again.`);
 }
