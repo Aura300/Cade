@@ -66,7 +66,7 @@
       <article class="entry">
         <h3><code>/cade task</code></h3>
         <div class="tags"><span class="where">Dev channel</span><span class="where">Top level</span></div>
-        <p>A form for the title, priority and an optional due date. The task is posted in the dev channel and stays pinned until it's done.</p>
+        <p>A form for the title, priority and an optional due date. The task is posted in the dev channel. With <code>pinning</code> on in <code>cade.config.json</code>, it also stays pinned until it's done.</p>
         <div class="example"><b>Example:</b> “Upgrade Node to 22 on staging”, Medium.</div>
       </article>
 
@@ -128,7 +128,7 @@
         <div class="tags"><span class="where">Dev channel</span></div>
         <p>Cade sets the status and reacts ✅. Statuses are <code>to do</code>, <code>in progress</code>, <code>in review</code>, <code>in testing</code>, <code>client review</code> and <code>done</code>, typed however you like (<code>IN_PROGRESS</code>, <code>in-progress</code>).</p>
         <ul>
-          <li>Done unpins the task; moving it out of Done pins it again.</li>
+          <li>With <code>pinning</code> on, Done unpins the task; moving it out of Done pins it again.</li>
           <li>Client review shows whoever set it a private <b>Ask for approval</b> button (set it again to get it back): pick who approves, the client or whoever handles them. Cade asks them in the task's thread to <b>Approve</b> (the task goes to Done) or <b>Not approve</b> (back to In progress). Only they can click.</li>
         </ul>
       </article>
@@ -246,9 +246,15 @@
       </article>
 
       <article class="entry">
+        <h3>The Home tab</h3>
+        <div class="tags"><span class="where">Cade's app page</span><span class="where">Only you see it</span></div>
+        <p>Open Cade under Apps in Slack and its <b>Home</b> tab shows your open tasks, redrawn each time you open it or press <b>Refresh</b>. <b>My Tasks</b> groups yours by what you do on each: to work on, to review and to test, with the ones waiting on you first and an overdue count. <b>Unassigned</b> lists tasks with no one on them, each with <b>Assign to me</b>. <b>All Tasks</b> lists every open task, most urgent first. A project picker narrows it to one group, and Cade remembers your choice and tab. Closed and older tasks are in the group's Google Sheet, linked from the lists. Needs the app updated with <code>npm run slack:update</code>.</p>
+      </article>
+
+      <article class="entry">
         <h3>The summary canvas</h3>
-        <div class="tags"><span class="where">Dev channel</span><span class="where">Always on</span></div>
-        <p>Every dev channel's canvas holds a table of its tasks, made with the first new task (taking over the canvas the channel has, if any) and kept up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done and an Archived section of the last 50 archived, most recent first, each with its title, status, priority, due date, owner, reviewer and tester. With a Google Sheet linked to the group, the canvas also links to it, for every task. Each title opens its thread. The table replaces what the canvas held, and the canvas is made read-only for the channel, since Cade rewrites it on every change; where Slack doesn't allow that, such as on a free plan, it stays editable, and edits are overwritten.</p>
+        <div class="tags"><span class="where">Dev channel</span><span class="where">Off by default</span></div>
+        <p>With <code>canvas</code> on in <code>cade.config.json</code> (for every group or one), every dev channel's canvas holds a table of its tasks, made with the first new task (taking over the canvas the channel has, if any) and kept up to date as things change: an Open section by priority, then due date, incidents first, then a Closed section of the last 50 done and an Archived section of the last 50 archived, most recent first, each with its title, status, priority, due date, owner, reviewer and tester. With a Google Sheet linked to the group, the canvas also links to it, for every task. Each title opens its thread. The table replaces what the canvas held, and the canvas is made read-only for the channel, since Cade rewrites it on every change; where Slack doesn't allow that, such as on a free plan, it stays editable, and edits are overwritten.</p>
       </article>
 
       <article class="entry">
@@ -296,7 +302,7 @@
       <article class="entry">
         <h3>Paste a pull request</h3>
         <div class="tags"><span class="where">Task thread</span></div>
-        <p>Cade offers to link it. If your message also mentions people who aren't reviewers yet, it offers <b>Link and add reviewer</b> or <b>Just link</b>.</p>
+        <p>Cade privately offers to link it, in the same summary as any other change it read (<b>PRs:</b> …), with <b>Accept</b>, <b>Edit…</b> and <b>Reject</b>. People your message mentions who aren't reviewers yet are added as reviewers, and the task moves to In review.</p>
         <div class="example"><b>Example:</b> “First pass is up: https://github.com/acme/booking-web/pull/128. @Mia can you review this?”</div>
       </article>
 

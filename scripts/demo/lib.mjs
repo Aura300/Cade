@@ -2,8 +2,7 @@
 // the story, each in its own browser window, opened the first time that
 // person acts. Every window is recorded, so private prompts can be shown from
 // the screen they appeared on.
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
-import path from "node:path";
+import { readFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
 import { chromium } from "playwright";
 
 export const SESSION_DIR = new URL("../../.demo/", import.meta.url).pathname;
@@ -13,26 +12,38 @@ const CADE_CONFIG_FILE = new URL("../../cade.config.json", import.meta.url).path
 export const pause = (ms = 1200) => new Promise((r) => setTimeout(r, ms));
 const capitalise = (s) => s[0].toUpperCase() + s.slice(1);
 
-// .demo/sessions.json: { "<key>": { "name": "<Slack display name>", "storageState": {...} | "file.json" } }
-// Keys are the people in DEMO.md (sarah, you, rex, mia, tom); `name` is what
-// Slack's @-picker searches for. storageState is a Playwright state object
-// (what `npm run demo:login -- <key>` saves) or a path relative to .demo/.
-export function readSessions() {
-  return existsSync(SESSIONS_FILE) ? JSON.parse(readFileSync(SESSIONS_FILE, "utf8")) : {};
-}
+// One persistent Chrome profile per person in .demo/profiles/<key>/, filled by
+// `npm run demo:login -- <key>` and reused by every recording, so a person
+// signs in once. Keys are the people in DEMO.md (sarah, randil, rex, mia, tom).
+// .demo/sessions.json (optional): { "<key>": { "name": "<Slack display name>" } }
+// sets what Slack's @-picker searches for when it differs from the key.
+export const PROFILE_DIR = `${SESSION_DIR}profiles/`;
+export const profilePath = (key) => `${PROFILE_DIR}${key}`;
+const VIEWPORT = { width: 1920, height: 1080 };
 
-export function saveSession(key, storageState) {
-  const sessions = readSessions();
-  sessions[key] = { name: sessions[key]?.name ?? capitalise(key), ...sessions[key], storageState };
-  mkdirSync(SESSION_DIR, { recursive: true });
-  writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2) + "\n");
+// Real Chrome, not Playwright's Chromium: Slack and Google show far fewer
+// captchas to it. Each person is their own Chrome process with their own profile.
+export const launchProfile = (key, options = {}) =>
+  chromium.launchPersistentContext(profilePath(key), {
+    channel: "chrome",
+    headless: false,
+    viewport: VIEWPORT,
+    ...options,
+  });
+
+export function readSessions() {
+  const names = existsSync(SESSIONS_FILE) ? JSON.parse(readFileSync(SESSIONS_FILE, "utf8")) : {};
+  const profiles = existsSync(PROFILE_DIR) ? readdirSync(PROFILE_DIR) : [];
+  return Object.fromEntries(
+    [...new Set([...Object.keys(names), ...profiles])].map((key) => [key, { name: names[key]?.name ?? capitalise(key) }]),
+  );
 }
 
 // Channels come from cade.config.json: the dev channel is a group's tasks
-// channel (DEMO_GROUP picks one by name; default is the first). The client
-// channel isn't one Cade is configured on, so it is DEMO_CLIENT_CHANNEL, and
-// DEMO_LEAD_DM is the DM between sarah and you. DEMO_SHEET_URL (optional) is
-// the Google Sheet for Act 6. The workspace is whichever the saved logins
+// channel (DEMO_GROUP picks one by name; default is the first). Cade has no
+// client channel, so sarah's client messages go in that same channel
+// (DEMO_CLIENT_CHANNEL overrides it), and DEMO_LEAD_DM is the DM between sarah
+// and you. DEMO_SHEET_URL (optional) is the Google Sheet for Act 6. The workspace is whichever the saved logins
 // belong to; its team id is read from the URL once Slack loads.
 export function loadConfig() {
   if (!existsSync(CADE_CONFIG_FILE)) throw new Error("cade.config.json is missing.");
@@ -42,23 +53,21 @@ export function loadConfig() {
     workspaceUrl: "https://app.slack.com/client",
     team: null,
     sessions: readSessions(),
-    channels: { dev: group?.tasks, client: process.env.DEMO_CLIENT_CHANNEL },
+    channels: { dev: group?.tasks, client: process.env.DEMO_CLIENT_CHANNEL ?? group?.tasks },
     leadDm: process.env.DEMO_LEAD_DM,
     sheetUrl: process.env.DEMO_SHEET_URL,
   };
 }
 
-const VIEWPORT = { width: 1920, height: 1080 };
 const buttonName = (label) => (typeof label === "string" ? { name: label, exact: true } : { name: label });
 
 export class Cast {
   static async start(config, { videoDir } = {}) {
-    return new Cast(config, await chromium.launch({ headless: false }), videoDir);
+    return new Cast(config, videoDir);
   }
 
-  constructor(config, browser, videoDir) {
+  constructor(config, videoDir) {
     this.config = config;
-    this.browser = browser;
     this.videoDir = videoDir;
     this.people = new Map();
   }
@@ -74,14 +83,9 @@ export class Cast {
   }
 
   async #open(key) {
-    const state = this.config.sessions[key]?.storageState;
-    if (!state) throw new Error(`No session for "${key}": run npm run demo:login -- ${key} (see ${SESSIONS_FILE}).`);
-    const context = await this.browser.newContext({
-      storageState: typeof state === "string" ? path.resolve(SESSION_DIR, state) : state,
-      viewport: VIEWPORT,
-      ...(this.videoDir ? { recordVideo: { dir: this.videoDir, size: VIEWPORT } } : {}),
-    });
-    const page = await context.newPage();
+    if (!existsSync(profilePath(key))) throw new Error(`No profile for "${key}": run npm run demo:login -- ${key}`);
+    const context = await launchProfile(key, this.videoDir ? { recordVideo: { dir: this.videoDir, size: VIEWPORT } } : {});
+    const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(this.config.workspaceUrl);
     await page.waitForURL(/\/client\/T[A-Z0-9]+/);
     this.config.team ??= page.url().match(/\/client\/(T[A-Z0-9]+)/)[1];
@@ -95,9 +99,9 @@ export class Cast {
       const { context, page } = await opened;
       const video = page.video();
       await context.close();
-      if (video && this.videoDir) await video.saveAs((saved[key] = `${this.videoDir}${key}.webm`));
+      // A persistent context has no browser to keep alive for saveAs(), so copy the file once it is flushed.
+      if (video && this.videoDir) copyFileSync(await video.path(), (saved[key] = `${this.videoDir}${key}.webm`));
     }
-    await this.browser.close();
     return saved;
   }
 
@@ -114,7 +118,7 @@ export class Cast {
     }
   }
 
-  // Types into a composer. `@key` for a person in sessions.json becomes their
+  // Types into a composer. `@key` for a person with a profile becomes their
   // name; every @mention (those and @Cade) is accepted with Tab, since typing
   // the whole text straight in doesn't create a real mention.
   async compose(page, box, text) {

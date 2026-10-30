@@ -1,7 +1,7 @@
 // Records the demo clips into docs/videos/ (see DEMO.md and docs/videos/README.md).
 //   npm run demo:record -- 1        (one act)   |   npm run demo:record   (all)
-// Needs ffmpeg on PATH and a session per person in .demo/sessions.json
-// (npm run demo:login -- <name>). Every person's window is recorded: "you" is
+// Needs ffmpeg on PATH and a Chrome profile per person in .demo/profiles/
+// (npm run demo:login -- <name>). Every person's window is recorded: "randil" is
 // act-N-<slug>.mp4, the others act-N-<slug>-<name>.mp4 (private prompts show
 // on the screen of whoever they were for).
 //
@@ -41,13 +41,13 @@ const ACTS = {
       await c.say("sarah", channels.client,
         "Can guests pay a deposit when they book, instead of the full amount upfront? We'd like 20% at booking and the rest 7 days before check-in.");
       // You: ⋯ → Connect to apps → New task, then the form (one group, so no Project picker).
-      await c.messageAction("you", channels.client, "Can guests pay a deposit", /^New task/);
-      await c.newTask("you", { title: DEPOSIT, priority: "High" });
+      await c.messageAction("randil", channels.client, "Can guests pay a deposit", /^New task/);
+      await c.newTask("randil", { title: DEPOSIT, priority: "High" });
       // 2. A follow-up in a DM → Move to existing.
       await c.say("sarah", leadDm, "Also — the deposit % should be configurable per property, some owners want 30%.");
-      await c.messageAction("you", leadDm, "configurable per property", /^Move to existing/);
-      await c.pick("you", "Choose a task", new RegExp(DEPOSIT));
-      await c.click("you", /^move$/i);
+      await c.messageAction("randil", leadDm, "configurable per property", /^Move to existing/);
+      await c.pick("randil", "Choose a task", new RegExp(DEPOSIT));
+      await c.click("randil", /^move$/i);
       await pause(3000);
     },
   },
@@ -56,17 +56,17 @@ const ACTS = {
     file: "act-2-team-picks-it-up",
     async run(c, { channels: { dev } }) {
       // 3. Hand it to its owner.
-      await c.openTask("you", dev, DEPOSIT);
-      await c.reply("you", "@rex please start working on this — first cut by Friday?");
-      await c.prompt("you", "Accept");
+      await c.openTask("randil", dev, DEPOSIT);
+      await c.reply("randil", "@rex please start working on this — first cut by Friday?");
+      await c.prompt("randil", "Accept");
       // 4. The owner says they've started.
       await c.openTask("rex", dev, DEPOSIT);
       await c.reply("rex", "Okay, started working on this");
       await c.prompt("rex", "Accept");
       // 5. The team owns priority and due date.
-      await c.reply("you", "@Cade priority urgent");
+      await c.reply("randil", "@Cade priority urgent");
       await pause(4000);
-      await c.reply("you", "@Cade due 14/11/2026");
+      await c.reply("randil", "@Cade due 14/11/2026");
       await pause(4000);
     },
   },
@@ -96,17 +96,17 @@ const ACTS = {
       await c.reply("tom", "I'm out tomorrow — @mia can you test this instead?");
       await c.prompt("tom", "Accept");
       // 10. Explicit assign / unassign, and Edit.
-      await c.reply("you", "@Cade assign reviewer @rex");
+      await c.reply("randil", "@Cade assign reviewer @rex");
       await pause(5000);
-      await c.reply("you", "@Cade unassign reviewer @rex");
+      await c.reply("randil", "@Cade unassign reviewer @rex");
       await pause(5000);
-      await c.cardMenu("you", dev, DEPOSIT, "Edit");
+      await c.cardMenu("randil", dev, DEPOSIT, "Edit");
       await pause(4000);
-      await c.click("you", "Cancel");
+      await c.click("randil", "Cancel");
       // 13. Progress in plain words, with the task put back in review first;
       // Done is offered and declined, as the release below still needs the task.
-      await c.openTask("you", dev, DEPOSIT);
-      await c.reply("you", "@Cade status in review");
+      await c.openTask("randil", dev, DEPOSIT);
+      await c.reply("randil", "@Cade status in review");
       await pause(6000);
       await c.openTask("mia", dev, DEPOSIT);
       await c.reply("mia", "LGTM");
@@ -117,41 +117,41 @@ const ACTS = {
       // 11. Ship part of it early → partial release. Unverified: the second
       // round, `@Cade deliver`, and the exact modal fields.
       await c.cardMenu("rex", dev, DEPOSIT, "Release");
-      await sendForApproval(c, "rex", { pr: "128", note: "Deposit checkout flow (20% default)", approver: "you" });
-      await c.openTask("you", dev, DEPOSIT);
-      await c.click("you", "Not approve");
+      await sendForApproval(c, "rex", { pr: "128", note: "Deposit checkout flow (20% default)", approver: "randil" });
+      await c.openTask("randil", dev, DEPOSIT);
+      await c.click("randil", "Not approve");
       await pause(5000);
       await c.openTask("rex", dev, DEPOSIT);
       await attempt("deliver", async () => {
         await c.reply("rex", "@Cade deliver");
-        await sendForApproval(c, "rex", { pr: "128", note: "Deposit checkout flow (20% default)", approver: "you" });
+        await sendForApproval(c, "rex", { pr: "128", note: "Deposit checkout flow (20% default)", approver: "randil" });
       });
-      await c.openTask("you", dev, DEPOSIT);
-      await c.click("you", "Approve");
+      await c.openTask("randil", dev, DEPOSIT);
+      await c.click("randil", "Approve");
       await pause(5000);
       // 12. Status. Unverified: the private "Ask for approval" step.
       await c.openTask("tom", dev, DEPOSIT);
       await c.reply("tom", "@Cade status client review");
       await attempt("ask for approval", async () => {
         await c.prompt("tom", /ask for approval/i);
-        await c.pick("tom", "Choose a person", new RegExp(c.name("you")));
+        await c.pick("tom", "Choose a person", new RegExp(c.name("randil")));
         await c.click("tom", /^(send|ask)/i);
         await pause(4000);
       });
       // 14. The client decides: Not approve once, then Approve.
-      await c.openTask("you", dev, DEPOSIT);
-      await c.click("you", "Not approve");
+      await c.openTask("randil", dev, DEPOSIT);
+      await c.click("randil", "Not approve");
       await pause(6000);
       await c.openTask("tom", dev, DEPOSIT);
       await c.reply("tom", "@Cade status client review");
       await attempt("ask for approval (2)", async () => {
         await c.prompt("tom", /ask for approval/i);
-        await c.pick("tom", "Choose a person", new RegExp(c.name("you")));
+        await c.pick("tom", "Choose a person", new RegExp(c.name("randil")));
         await c.click("tom", /^(send|ask)/i);
         await pause(4000);
       });
-      await c.openTask("you", dev, DEPOSIT);
-      await c.click("you", "Approve");
+      await c.openTask("randil", dev, DEPOSIT);
+      await c.click("randil", "Approve");
       await pause(5000);
     },
   },
@@ -161,8 +161,8 @@ const ACTS = {
     async run(c, { channels: { client, dev } }) {
       // 15. Report an incident from the client's message.
       await c.say("sarah", client, "Card payments are failing at checkout for EU customers!");
-      await c.messageAction("you", client, INCIDENT, /^New incident/);
-      await c.click("you", "Report");
+      await c.messageAction("randil", client, INCIDENT, /^New incident/);
+      await c.click("randil", "Report");
       await pause(4000);
       // Incidents are always Urgent and due Immediate.
       await c.openTask("rex", dev, INCIDENT);
@@ -172,9 +172,9 @@ const ACTS = {
       await pause(4000);
       await c.click("rex", "Cancel");
       // 16. Work the incident.
-      await c.openTask("you", dev, INCIDENT);
-      await c.reply("you", "@rex please look into this ASAP, Stripe dashboard shows 3DS failures.");
-      await c.prompt("you", "Accept");
+      await c.openTask("randil", dev, INCIDENT);
+      await c.reply("randil", "@rex please look into this ASAP, Stripe dashboard shows 3DS failures.");
+      await c.prompt("randil", "Accept");
       await c.openTask("rex", dev, INCIDENT);
       await c.reply("rex", "on it");
       await c.prompt("rex", "Accept");
@@ -197,31 +197,31 @@ const ACTS = {
       await c.click("mia", /^move$/i);
       await pause(4000);
       // 19. Track an older message: the seeded "Flaky test…" one (prompt already dismissed).
-      const page = await c.as("you");
+      const page = await c.as("randil");
       await c.open(page, dev, { fresh: true });
       const row = page.getByRole("listitem").filter({ hasText: "Flaky test" }).last();
       await row.hover();
       await row.getByRole("button", { name: /reply in thread/i }).click();
       await page.getByRole("textbox", { name: /^Reply/ }).waitFor();
-      await c.reply("you", "@Cade task");
+      await c.reply("randil", "@Cade task");
       await attempt("@Cade task", async () => {
-        await c.prompt("you", "New task");
-        await c.click("you", /^create$/i);
+        await c.prompt("randil", "New task");
+        await c.click("randil", /^create$/i);
         await pause(3000);
       });
-      await c.reply("you", "@Cade move");
+      await c.reply("randil", "@Cade move");
       await pause(5000);
       // 20. Archive the log rotation card. Unverified: /cade remove's second
       // confirm and the link format (built from the card's message ts).
-      await c.cardMenu("you", dev, LOG_ROTATION, "Archive");
+      await c.cardMenu("randil", dev, LOG_ROTATION, "Archive");
       await pause(4000);
       await attempt("/cade remove", async () => {
         const ts = await c.card(page, LOG_ROTATION).evaluate((el) =>
           (el.closest('[id^="message-list_"]') ?? el.querySelector('[id^="message-list_"]')).id.replace("message-list_", ""));
-        await c.slash("you", dev, `/cade remove https://app.slack.com/archives/${dev}/p${ts.replace(".", "")}`);
-        await c.click("you", /delete task/i);
+        await c.slash("randil", dev, `/cade remove https://app.slack.com/archives/${dev}/p${ts.replace(".", "")}`);
+        await c.click("randil", /delete task/i);
         await pause(1500);
-        await c.click("you", /delete|confirm/i);
+        await c.click("randil", /delete|confirm/i);
         await pause(4000);
       });
     },
@@ -239,30 +239,30 @@ const ACTS = {
         `/cade tasks review @${c.name("mia")}`,
         "/cade tasks -status=in-progress,in-testing -due<@tomorrow",
       ]) {
-        await c.slash("you", dev, cmd);
+        await c.slash("randil", dev, cmd);
         await pause(2000);
       }
       // 22. Standup: Next through each owner, then the unassigned ones.
-      await c.slash("you", dev, "/cade standup");
+      await c.slash("randil", dev, "/cade standup");
       await attempt("standup next", async () => {
-        await c.click("you", /^next/i);
+        await c.click("randil", /^next/i);
         await pause(2500);
-        await c.click("you", /^end$/i);
+        await c.click("randil", /^end$/i);
       });
-      await c.slash("you", dev, "/cade standup -unassigned");
+      await c.slash("randil", dev, "/cade standup -unassigned");
       await pause(3000);
-      await attempt("standup end", () => c.click("you", /^end$/i));
+      await attempt("standup end", () => c.click("randil", /^end$/i));
       await c.openTask("rex", dev, UNASSIGNED_TASK);
       await c.reply("rex", "@Cade assign owner @rex");
       await pause(5000);
       // 23. The Google Sheet.
       if (sheetUrl) {
-        const page = await c.as("you");
+        const page = await c.as("randil");
         await page.goto(sheetUrl);
         await pause(6000);
       }
       // 24. Help.
-      await c.say("you", dev, "@Cade help");
+      await c.say("randil", dev, "@Cade help");
       await pause(6000);
     },
   },
@@ -285,11 +285,11 @@ for (const n of acts) {
     videos = await cast.close(); // flushes the videos
   }
   for (const [key, raw] of Object.entries(videos)) {
-    const base = key === "you" ? act.file : `${act.file}-${key}`;
+    const base = key === "randil" ? act.file : `${act.file}-${key}`;
     const mp4 = `${OUT}${base}.mp4`;
     execFileSync("ffmpeg", ["-y", "-i", raw, "-vf", "scale=1600:-2", "-c:v", "libx264", "-crf", "26",
       "-preset", "slow", "-an", "-movflags", "+faststart", mp4], { stdio: "inherit" });
-    if (key === "you") {
+    if (key === "randil") {
       execFileSync("ffmpeg", ["-y", "-sseof", "-3", "-i", mp4, "-frames:v", "1", `${OUT}${base}.jpg`], { stdio: "inherit" });
     }
     console.log(`Wrote ${mp4}`);

@@ -51,9 +51,9 @@ values).
 | `channels` | **Required** | One entry per group: `{ "name", "tasks", "doc" }`. `name` is the group's name; `tasks` is the dev channel, where the team tracks its tasks and incidents; `doc` (optional) the address of the group's Google Doc, where `/cade brief` writes its executive summaries; `sheet` (optional) the address of the group's own Google Sheet for its tasks (without it, its tasks aren't recorded in a Sheet); `suggestions`, `ai`, `pinning` and `canvas` (optional) the group's own, replacing the ones below for that group only. `npm run group` sets them for you. | `npm run group` (step 8), or in Slack: open each channel → click its name → **About** → **Channel ID** at the bottom (`C…`). |
 | `timezone` | Optional (UTC) | The time zone for the Sheet's **Tracked at** and **Completed at** times, as an IANA name such as `Asia/Colombo`. With `ai` on, it's also how "Friday" or "tomorrow" in a message becomes a due date. | `npm run group` asks for it the first time (step 8). Your team's time zone; [the list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `googleUrl` | Optional | The Google web app's URL (`https://script.google.com/…/exec`), one for every group's Sheet and Doc. Without it, nothing is written to Google, and `/cade brief` and `/cade debrief` don't work. | Set for you by `npm run google:create` (step 7). |
-| `suggestions` | Optional (on) | For every group, unless a group in `channels` sets its own. **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them. `true`, `false` for **commands only** (nothing is read from messages in threads; slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work, and a message posted on its own in a dev channel is still asked about: track it as a task, report it as an incident, or move it to an existing thread), or a list of the kinds to keep: `pr-links` (a pasted PR link: link it, and add the people mentioned as reviewers), `hand-offs` ("@mia can you review this?": a picker for that role, filled with who has it now), `started` ("on it": In progress), `progress` ("lgtm", "done": the next status) and `details` (with `ai` only: "this is urgent", "need it by Friday": the priority and due date, but not an incident's). PR, role and status suggestions come as one private message: a summary of what Cade read, with **Accept**, **Edit…** (the task's Edit form) and **Reject**. Without `ai`, a hand-off asks whoever the request names ("@mia can you review this?"), never someone only cc'd. | Edit by hand, then `npm run config`. |
-| `ai` | Optional (off) | For every group, unless a group in `channels` sets its own, such as `{ "name": "acme", …, "ai": true }`. **AI suggestions**: the proactive agent reads messages in a task's thread with [Workers AI](https://developers.cloudflare.com/workers-ai/) instead of by their phrases, so one message can change several roles, the status, the priority and the due date. `true` for the default model (`@cf/zai-org/glm-4.7-flash`, the quickest and cheapest that read messages well in our tests), a Workers AI text model's name, or `false`. Needs `suggestions` on: with `suggestions` false it does nothing. Cade asks whoever wrote the message, privately, with what it read: **Confirm**, **Change…** (a form with every role, the status, priority and due date) or **Not now**. If the model fails or takes over 8 seconds, the message is read by its phrases instead. PR links are always read by their phrases. Uses the `AI` binding in `wrangler.toml`; Workers AI's usage beyond its free daily allowance is billed to your Cloudflare account. | Edit by hand, then `npm run config`. |
-| `pinning` | Optional (off) | For every group, unless a group in `channels` sets its own `pinning`. Whether open tasks are pinned in their dev channel (and unpinned when done, archived or moved). `true` to pin them; with `false`, or left out, pins are left alone, and tasks already pinned stay pinned. | Edit by hand, then `npm run config`. |
+| `suggestions` | Optional (on) | For every group, unless a group in `channels` sets its own. **The proactive agent**: whether Cade reads messages in the threads it manages (task and incident threads) and offers, privately, to act on them. `true`, `false` for **commands only** (nothing is read from messages in threads; slash and `@Cade` commands, the task card's ⋯ menu, message shortcuts and emoji still work, and a message posted on its own in a dev channel is still asked about: track it as a task, report it as an incident, or move it to an existing thread), or a list of the kinds to keep: `pr-links` (a pasted PR link: link it, and add the people mentioned as reviewers), `hand-offs` ("@mia can you review this?": adds who the request names to that role), `started` ("on it": In progress), `progress` ("lgtm", "done": the next status) and `details` (with `ai` only: "this is urgent", "need it by Friday": the priority and due date, but not an incident's). PR, role and status suggestions come as one private message to whoever wrote the message: a summary of what Cade read, with **Accept**, **Edit…** (the task's Edit form, filled in) and **Reject**. Nothing changes until then. Without `ai`, a hand-off adds whoever the request names ("@mia can you review this?"), never someone only cc'd, and can't remove anyone. | Edit by hand, then `npm run config`. |
+| `ai` | Optional (off) | For every group, unless a group in `channels` sets its own, such as `{ "name": "acme", …, "ai": true }`. **AI suggestions**: the proactive agent reads messages in a task's thread with [Workers AI](https://developers.cloudflare.com/workers-ai/) instead of by their phrases, so one message can change several roles, the status, the priority and the due date. `true` for the default model (`@cf/zai-org/glm-4.7-flash`, the quickest and cheapest that read messages well in our tests), a Workers AI text model's name, or `false`. Needs `suggestions` on: with `suggestions` false it does nothing. Cade asks whoever wrote the message, privately, with what it read: **Accept**, **Edit…** (the task's Edit form, with every role, the status, priority, due date and PRs) or **Reject**. It can also remove people ("take this over from @bob"). If the model fails or takes over 8 seconds, the message is read by its phrases instead. PR links are always read by their phrases. Uses the `AI` binding in `wrangler.toml`; Workers AI's usage beyond its free daily allowance is billed to your Cloudflare account. | Edit by hand, then `npm run config`. |
+| `pinning` | Optional (off) | For every group, unless a group in `channels` sets its own `pinning`. Whether open tasks are pinned in their dev channel (and unpinned when done, archived or moved). `true` to pin them (needs the `pins:write` permission); with `false`, or left out, pins are left alone, and tasks already pinned stay pinned. | Edit by hand, then `npm run config`. |
 | `canvas` | Optional (off) | For every group, unless a group in `channels` sets its own `canvas`. Whether each dev channel has a summary canvas of its tasks, kept up to date. `true` to keep one; with `false`, or left out, none is written and `/cade resync summary` says it is off, and a canvas already made stays as it is. | Edit by hand, then `npm run config`. |
 | `reactions` | Optional | The emoji that convert or move a message when someone adds them to it: `{ "convert": "ticket", "move": "twisted_rightwards_arrows" }`, by Slack name without colons. Those are the defaults. | Edit by hand, then `npm run config`. |
 
@@ -270,8 +270,18 @@ run config` works too (see [Settings](#settings)).
 
 1. In any channel: `/cade help` → only you see the command list.
 2. In the dev channel: `/cade task` → a form; submitting posts the task.
-3. In the task's thread: `@Cade status in progress` → ✅ on your message.
-4. On any message, in a DM too: ⋯ → **More actions** → **New task** →
+3. In the task's thread: `@Cade status in progress` → ✅ on your message. A typed
+   command gets a ✅ rather than a message in the thread; changes made from
+   the card's ⋯ → **Edit**, or by accepting a suggestion, are posted there
+   once, as a change log followed by what it asks of the people it names
+   (see [notifications](https://xteclk.github.io/Cade/notifications.html)).
+4. In the same thread: `@Cade assign owner @someone` → ✅, and the thread asks
+   them to pick it up. Then write a message such as "@someone can you review
+   this?" → only you see a summary with **Accept**, **Edit…** and **Reject**.
+5. Open **Cade** under Apps in the sidebar → the **Home** tab lists your open
+   tasks (**My Tasks**, **Unassigned**, **All Tasks**). If it's blank, run
+   `npm run slack:update` and reinstall the app (step 6).
+6. On any message, in a DM too: ⋯ → **More actions** → **New task** →
    the task form, with a **Project** picker if you have more than one group;
    submitting posts the task and copies the message into its thread.
 
@@ -306,6 +316,9 @@ group` once per group, which drops its old `external` and `incidents`
 channels from `cade.config.json`. Requirements already in a client channel
 are left as they were, and no longer tracked.
 
+After updating, the **Home** tab and any new shortcuts or events come with
+`npm run slack:update`; Slack may then ask you to reinstall the app.
+
 ## Limits to know
 
 - Slack's free plan hides messages older than 90 days, including old tasks'
@@ -335,4 +348,6 @@ are left as they were, and no longer tracked.
 
 Once it's set up, send `@Cade help` or `/cade help` in Slack for the short
 list, and see the [commands guide](https://xteclk.github.io/Cade/commands.html)
-for every command, where it works and what it does.
+for every command, where it works and what it does, and the
+[notifications guide](https://xteclk.github.io/Cade/notifications.html) for who
+is told what when a task changes.

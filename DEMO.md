@@ -35,6 +35,23 @@ with the client; Cade doesn't need to be in it.
 - A second group (say `test`) in `CHANNEL_PAIRS`, so the **Project** picker
   shows; with one group, the shortcuts skip it.
 - Google Sheet open in a browser tab, if set up.
+- In `cade.config.json`: `"pinning": true` and `"canvas": true` (both off by
+  default; the pinned card and the summary canvas only show with them), and
+  `"ai": true` for step 9. Without `ai`, Cade reads phrases and only adds
+  people. Run `npm run config`.
+- The app updated (`npm run slack:update`) so the **Home** tab shows (Act 6).
+
+**What each kind of reply looks like**, so you record the right screen:
+- A typed command (`@Cade assign …`, `status`, `priority`, `due`, `pr add`)
+  gets a ✅ on your message. Cade posts in the thread only to ask people to do
+  something.
+- A change from the card's ⋯ → **Edit**, or from **Accept** on a suggestion, is
+  posted once, in the thread, as a change log ("@you assigned @rex as owner.")
+  and, on the next line, what it asks of the people it names.
+- People your message already mentioned aren't asked again.
+- A suggestion from your own words is **private** to whoever wrote the message:
+  a summary ("Should I update the task? From your message: …") with
+  **Accept · Edit… · Reject**. Record it from the writer's screen.
 
 **Do a full dry run.** Private (ephemeral) messages and forms are only
 visible to the account they're for, so record from that account's screen
@@ -53,7 +70,7 @@ at those moments.
 - The form asks for the **Project** (pick *acme*), with the title prefilled
   from the first line. Shorten it to **"Deposit payments at booking"**,
   priority **High**, due ~3 weeks out → **Create**.
-- **Show:** the task posted and pinned in `#acme-dev`, Sarah's message copied
+- **Show:** the task posted (and pinned, with `pinning` on) in `#acme-dev`, Sarah's message copied
   into its thread with a link back, and, if Cade is in `#acme-client`, the
   original marked :outbox_tray: with "moved this message to the task
   thread… Please carry on the conversation there."
@@ -76,14 +93,18 @@ at those moments.
 In the **Deposit payments** task thread, **You**:
 > @Rex please start working on this — first cut by Friday?
 
-- Cade privately offers to add Rex as owner → **Accept** → Rex is asked
-  in the thread to pick it up; the task stays 📝 To do.
+- Cade shows **You** (privately) *Owners: @Rex (Add)* → **Accept** → the thread
+  reads "@you assigned @Rex as owner."; Rex isn't asked again, as the message
+  already mentioned him. The task stays 📝 To do.
+- *(To see the "could you pick this up when you get a chance? Thanks!" request,
+  use `@Cade assign owner @Rex`: ✅ on the message, then the request.)*
 
 ### 4. The owner says they've started
 **Rex**:
 > Okay, started working on this
 
-- **Accept** → ▶️ In progress.
+- Rex is shown *Status: To do → In progress* → **Accept** → "@Rex set the
+  status to In progress."
 - *Assigning never starts the work; the owner saying so does.*
 
 ### 5. The team owns priority and due date
@@ -92,7 +113,7 @@ In the **Deposit payments** task thread, **You**:
 
 > `@Cade due 14/11/2026`
 
-- **Show:** the card updates; the colour strip follows the priority. Or use
+- **Show:** a ✅ on each message and the card updates; the colour strip follows the priority. Or use
   the card's ⋯ → **Edit**, one form for everything.
 
 ---
@@ -103,8 +124,10 @@ In the **Deposit payments** task thread, **You**:
 **Deposit payments** task thread, **Rex**:
 > First pass is up: https://github.com/acme/booking-web/pull/128 — @Mia can you review this?
 
-- **Link and add reviewer** → PR shown on the card as `booking-web/128`, Mia
-  as reviewer, 👀 In review.
+- Rex is shown *PRs: booking-web/128 (Add) · Reviewers: @Mia (Add) · Status:
+  … → In review* → **Accept** → the thread logs the link, Mia as reviewer and
+  👀 In review; the card shows `booking-web/128`. Mia isn't asked again: the
+  message mentioned her.
 
 ### 7. Explicit commands for PRs
 **Rex**:
@@ -114,17 +137,24 @@ In the **Deposit payments** task thread, **You**:
 
 > `@Cade pr remove https://github.com/acme/booking-web/pull/999`
 
+- Each gets a ✅. Adding #131 also asks Mia, in the thread, to review it;
+  removing gets only the ✅.
+
 ### 8. Hand-off to QA in plain words
 **Mia**:
 > Approved ✅ small nit on rounding, fixed in a follow-up. @Tom please test this on staging
 
-- **Accept** → 🧪 In testing, Tom as tester.
+- Mia is shown *Testers: @Tom (Add) · Status: In review → In testing* →
+  **Accept** → the thread logs it, 🧪 In testing, Tom as tester. Tom isn't
+  asked again: the message mentioned him.
 
 ### 9. Handing work on
 **Tom**:
 > I'm out tomorrow — @Mia can you test this instead?
 
-- **Accept** → Mia is the tester, Tom isn't.
+- With `ai` on, Tom is shown *Testers: @Mia (Add) · @Tom (Remove)* →
+  **Accept** → Mia is the tester, Tom isn't. (Without `ai`, phrases only add
+  people: use the card's ⋯ → **Edit** to remove Tom.)
 
 ### 10. Explicit assign / unassign, and Edit
 **You**:
@@ -132,8 +162,10 @@ In the **Deposit payments** task thread, **You**:
 
 > `@Cade unassign reviewer @Rex`
 
-- The card's ⋯ → **Edit** has every role, the status, priority, due date
-  and PRs in one form.
+- Each gets a ✅, and adding Rex as reviewer asks him in the thread to review
+  the pending PRs. The card's ⋯ → **Edit** has every role, the status,
+  priority, due date and PRs in one form; saving posts one message with all
+  the changes.
 
 ### 11. Ship part of it early → partial release
 **Rex**: the card's ⋯ → **Release** (or `@Cade release` in its thread)
@@ -157,7 +189,8 @@ In the **Deposit payments** task thread, **You**:
 In a task that's 👀 In review, the reviewer (**Mia**):
 > LGTM
 
-→ offers In testing, and the testers are asked. In testing, the tester
+→ a private summary with Status: In review → In testing; **Accept** and the
+testers are asked. In testing, the tester
 (**Tom**):
 > QA passed on staging
 
@@ -189,8 +222,8 @@ sets Client review again → **Approve** → ✅ Done, and the task is unpinned.
 In the incident's thread, **You**:
 > @Rex please look into this ASAP, Stripe dashboard shows 3DS failures.
 
-- Accept → Rex assigned. **Rex**: `on it` → In progress. Then `@Cade status
-  done`.
+- **Accept** → Rex assigned. **Rex**: `on it` → **Accept** → In progress.
+  Then `@Cade status done` → ✅.
 
 ---
 
@@ -240,17 +273,24 @@ moved: see it there."*
 
 > `/cade tasks -status=in-progress,in-testing -due<@tomorrow`
 
-### 22. Standup
+### 22. The Home tab
+Open **Cade** under Apps in the sidebar (**You**, then **Rex** to show it's
+personal). **My Tasks** lists what's waiting on the person to work on, review
+and test, with an overdue count; **Unassigned** has **Assign to me** on each
+task (try it on *Remove legacy coupon code*); **All Tasks** lists everything
+open. Switch the **Project** picker and press **Refresh**.
+
+### 23. Standup
 - `/cade standup` in `#acme-dev` → **Next** through each owner, change a
   status from the menu (it's posted in the task's thread).
 - `/cade standup -unassigned` → give *Remove legacy coupon code* an owner.
 
-### 23. The Google Sheet
+### 24. The Google Sheet
 Switch tabs: every task with status, priority, due date, people, tracked /
 completed times and task links, including the deleted one marked
 **Deleted**.
 
-### 24. Help
+### 25. Help
 > `@Cade help`
 
 ---
@@ -278,12 +318,13 @@ completed times and task links, including the deleted one marked
 | Client review approve / not approve | 12, 14 |
 | Priority / due date, and the card's ⋯ → Edit | 5 |
 | Incident priority is fixed | 15 |
-| Pins follow open / done | 1, 14 |
+| Pins follow open / done (with `pinning` on) | 1, 14 |
 | Archive from the card or `@Cade archive`; admin `/cade remove` with double confirm | 20 |
 | `/cade tasks` + filters | 21 |
-| `/cade standup`, `-unassigned` | 22 |
-| Google Sheet sync | 23 |
-| `@Cade help` | 24 |
+| App Home tab: My Tasks, Unassigned (Assign to me), All Tasks | 22 |
+| `/cade standup`, `-unassigned` | 23 |
+| Google Sheet sync | 24 |
+| `@Cade help` | 25 |
 
 Not shown on camera (mention in voice-over): posts that Slack refuses are
 retried automatically every few minutes.
