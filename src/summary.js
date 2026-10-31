@@ -1,5 +1,14 @@
 import { findProject } from "./channels.js";
-import { archivedTasks, deleteCanvas, getCanvas, putCanvas } from "./db.js";
+import {
+  archivedTasks,
+  clearCanvasDirty,
+  deleteCanvas,
+  dirtyCanvases,
+  getCanvas,
+  getCanvasDirty,
+  markCanvasDirty,
+  putCanvas,
+} from "./db.js";
 import { byUrgency, groupTasks, threadLink } from "./commands/tasks.js";
 import { formatTime, sheetEnabled, sheetId } from "./sheet.js";
 import { callSlack } from "./slack.js";
@@ -72,17 +81,49 @@ function sections(entries, row) {
   return { open: open.map(row), closed: closed.map(row) };
 }
 
-// Rewrites the summary of `channel`'s group; with `create`, for a new task,
-// making its canvas if it has none. A summary is a convenience, so failures
-// are logged rather than failing the command.
+// How long a change waits for others before the summary is rewritten.
+const SETTLE_MS = 5000;
+
+// Marks the summary of `channel`'s group out of date, then rewrites it once
+// changes have stopped for SETTLE_MS: only the latest change's call does, so
+// a burst makes one write, of the final state, and writes can't land out of
+// order. With `create`, for a new task, the channel's row is added if it has
+// none, and the write makes its canvas. If the write doesn't happen, the cron
+// does it (see flushSummaries). A summary is a convenience, so failures are
+// logged rather than failing the command.
 export async function refreshSummary(env, channel, { create = false } = {}) {
   const group = findProject(env, channel);
   if (!group) return;
   try {
-    if (create || (await getCanvas(env, group.channel))) await writeSummary(env, group.channel);
+    const token = crypto.randomUUID();
+    await markCanvasDirty(env, group.channel, token, create);
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    await flushSummary(env, group.channel, token);
   } catch (error) {
     console.warn("Could not update the summary", { channel: group.channel, error: error.message });
   }
+}
+
+// Rewrites the summary if it is still marked with `token`, so not if a later
+// change has marked it again, and marks it up to date.
+async function flushSummary(env, channel, token) {
+  if ((await getCanvasDirty(env, channel)) !== token) return;
+  await writeSummary(env, channel);
+  await clearCanvasDirty(env, channel, token);
+}
+
+// Rewrites every summary still out of date, as its write failed or was cut
+// short. Run by the cron.
+export async function flushSummaries(env) {
+  const dirty = await dirtyCanvases(env);
+  for (const { channel, token } of dirty) {
+    try {
+      await flushSummary(env, channel, token);
+    } catch (error) {
+      console.warn("Could not update the summary", { channel, error: error.message });
+    }
+  }
+  if (dirty.length) console.log("Flushed summaries", { channels: dirty.length });
 }
 
 // Writes the dev channel `channel`'s summary to its canvas, the one Slack
