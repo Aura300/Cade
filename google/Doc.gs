@@ -236,3 +236,26 @@ function addTaskTab(docId, parent, title) {
   const tabId = made.replies[0].addDocumentTab.tabProperties.tabId;
   return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${tabId}`, tabId };
 }
+
+// A task's exported thread: `text` as the whole content of its tab under the
+// `parent` tab. The tab `tabId` is written again if it's still in the doc;
+// otherwise (the first export, or the tab was deleted) a new one called
+// `title` is made. Returns the tab's address and ID.
+function exportTab(docId, parent, title, tabId, text) {
+  let id = tabId;
+  let doc = DocumentApp.openById(docId);
+  let tab = id ? doc.getTab(id) : null;
+  if (!tab) {
+    id = addTaskTab(docId, parent, title).tabId;
+    // The new tab can take a moment to show up to DocumentApp.
+    for (let tries = 0; !tab && tries < 5; tries++) {
+      if (tries) Utilities.sleep(1000);
+      doc = DocumentApp.openById(docId);
+      tab = doc.getTab(id);
+    }
+    if (!tab) throw new Error("couldn't make the export tab");
+  }
+  tab.asDocumentTab().getBody().setText(text);
+  doc.saveAndClose();
+  return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${id}`, tabId: id };
+}

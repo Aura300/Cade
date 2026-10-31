@@ -469,6 +469,8 @@ function taskToRow(task) {
     link: task.link ?? null,
     notes_url: task.notes?.url ?? null,
     notes_tab: task.notes?.tab ?? null,
+    export_url: task.export?.url ?? null,
+    export_tab: task.export?.tab ?? null,
   };
 }
 
@@ -491,5 +493,7 @@ function taskFromRow(row) {
     link: row.link || undefined,
     // The task's page in its project's Google Doc, once made (see notes.js).
     notes: row.notes_url ? { url: row.notes_url, tab: row.notes_tab } : undefined,
+    // Its thread's page in the Doc's Export tab, once exported (see export.js).
+    export: row.export_url ? { url: row.export_url, tab: row.export_tab } : undefined,
   };
 }

@@ -147,7 +147,8 @@ export function taskMessage(task, { archivedBy } = {}) {
 
 // The ⋯ menu on a task's card, so people change it without typing a command
 // in its thread (see menu.js): Edit, one form for everything; Release, while
-// it has PRs not sent for approval; Refresh, to redraw the card; and
+// it has PRs not sent for approval; Refresh, to redraw the card; Export
+// thread, to copy it into the project's Doc (see export.js); and
 // Archive, when it's no longer needed (see archive.js).
 export const TASK_MENU_ACTION = "task:menu";
 
@@ -156,6 +157,7 @@ function taskMenu(task) {
     ["edit", "Edit"],
     task.prs?.length && unsentPrs(task).length && ["release", "Release"],
     ["refresh", "Refresh"],
+    ["export", "Export thread"],
     ["archive", "Archive"],
   ].filter(Boolean);
   return {

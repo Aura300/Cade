@@ -14,6 +14,13 @@
 //                                                    tab for a task's notes,
 //                                                    under the parent tab
 //                                                    (Doc.gs)
+//   doc.export    { docId, parent, title, tabId?, text }
+//                                                  → { url, tabId }, a task's
+//                                                    thread as text in its tab
+//                                                    under the parent tab: the
+//                                                    tab `tabId` if it's still
+//                                                    there, else a new one
+//                                                    (Doc.gs)
 //   doc.read      { docId, tab, key }              → { elements }, a section
 //                                                    as it now reads
 //   doc.create    { title }                        → { id }, a new doc
@@ -24,6 +31,7 @@ const ACTIONS = {
   "sheet.create": (body) => ({ id: createSpreadsheet(body.title) }),
   "doc.write": (body) => ({ url: write(body.docId, body.tab, body.key, body.blocks) }),
   "doc.task": (body) => addTaskTab(body.docId, body.parent, body.title),
+  "doc.export": (body) => exportTab(body.docId, body.parent, body.title, body.tabId, body.text),
   "doc.read": (body) => ({ elements: read(body.docId, body.tab, body.key) }),
   "doc.create": (body) => ({ id: createDoc(body.title) }),
 };

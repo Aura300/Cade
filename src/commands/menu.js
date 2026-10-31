@@ -4,8 +4,9 @@ import { editForm } from "./edit.js";
 import { archiveTask } from "./archive.js";
 import { releaseForm } from "./release.js";
 import { syncNotes } from "../notes.js";
+import { exportThread } from "../export.js";
 
-// The ⋯ menu on a task's card (see taskMenu in tasks.js) has up to four
+// The ⋯ menu on a task's card (see taskMenu in tasks.js) has up to five
 // choices, without a command message in the task's thread:
 //   Edit     one form for the people, status, priority and due date (not on
 //            an incident, whose are fixed) and pull requests (see edit.js);
@@ -17,6 +18,9 @@ import { syncNotes } from "../notes.js";
 //            summary, as `/cade resync` does, and makes the task's notes
 //            page in the project's Doc if it has none (see notes.js):
 //            nothing is posted, so no one is notified.
+//   Export thread  writes the task's thread as text in its own page in the
+//            project's Doc, under the Export tab, and tells whoever chose it
+//            where (see export.js). Doing it again writes the page over.
 //   Archive  archives the task, as `@Cade archive` does (see archive.js),
 //            telling its thread who did.
 // Anything Cade can't do is said only to whoever chose it. Cards posted
@@ -43,6 +47,22 @@ export default {
           (async () => {
             await syncNotes(env, origin.channel, origin.ts, task);
             await saveTask(env, origin.channel, origin.ts, task);
+          })(),
+        );
+        return;
+      }
+      if (choice === "export" && task) {
+        context.waitUntil(
+          (async () => {
+            let text;
+            try {
+              const url = await exportThread(env, origin.channel, origin.ts, task);
+              text = url ? `The thread is <${url}|in the Doc>.` : "This project has no Google Doc to export to.";
+            } catch (error) {
+              console.warn("Could not export the thread", { error: error.message });
+              text = "I couldn't export this thread.";
+            }
+            await callSlack(env, "chat.postEphemeral", { channel: origin.channel, thread_ts: origin.ts, user: payload.user.id, text });
           })(),
         );
         return;
