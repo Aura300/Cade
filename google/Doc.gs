@@ -245,7 +245,7 @@ function addTaskTab(docId, parent, title) {
 // address and ID.
 function exportTab(docId, parent, title, tabId, text) {
   let doc = DocumentApp.openById(docId);
-  let tab = tabId ? doc.getTab(tabId) : null;
+  let tab = tabId ? findTabById(doc, tabId) : null;
   if (!tab) {
     const old = findTab(doc, title);
     const above = old && old.getParentTab();
@@ -257,11 +257,25 @@ function exportTab(docId, parent, title, tabId, text) {
     for (let tries = 0; !tab && tries < 5; tries++) {
       if (tries) Utilities.sleep(1000);
       doc = DocumentApp.openById(docId);
-      tab = doc.getTab(id);
+      tab = findTabById(doc, id);
     }
     if (!tab) throw new Error("couldn't make the export tab");
   }
   tab.asDocumentTab().getBody().setText(text);
   doc.saveAndClose();
   return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${tab.getId()}`, tabId: tab.getId() };
+}
+
+// The tab with this ID, at any depth, or null. (Document.getTab doesn't find
+// tabs under another tab.)
+function findTabById(doc, tabId) {
+  const search = (tabs) => {
+    for (const tab of tabs) {
+      if (tab.getId() === tabId) return tab;
+      const child = search(tab.getChildTabs());
+      if (child) return child;
+    }
+    return null;
+  };
+  return search(doc.getTabs());
 }
