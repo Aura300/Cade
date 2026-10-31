@@ -1167,16 +1167,17 @@ test("Refresh makes the task's empty notes page once, and links it on the card",
   await send("/slack/interactions", cardMenuClick("refresh"), {}, notesEnv);
   const [made] = calls.filter((call) => call.method === "doc");
   assert.deepEqual(made.args, { secret: "google-secret", action: "doc.task", docId: DOC_ID, parent: "Notes", title: "Fix login" });
-  // The card links to it, before who works on it.
+  // The card links to it, right under the title, above the status.
   const card = calls.find((call) => call.method === "chat.update").args;
-  assert.equal(blockText(allBlocks(card).at(-2)), `Extra notes <${NOTES_URL}|here>`);
+  assert.equal(blockText(allBlocks(card)[1]), `Extra notes <${NOTES_URL}|here>`);
+  assert.match(blockText(allBlocks(card)[2]), /^:memo: To do/);
   assert.equal(footerLines(card)[0], "Owner <@UREX>");
 
   // With a page, Refresh leaves the Doc alone, and the link stays.
   calls.length = 0;
   await send("/slack/interactions", cardMenuClick("refresh"), {}, notesEnv);
   assert.ok(!calls.some((call) => call.method === "doc"));
-  assert.equal(blockText(allBlocks(calls.find((call) => call.method === "chat.update").args).at(-2)), `Extra notes <${NOTES_URL}|here>`);
+  assert.equal(blockText(allBlocks(calls.find((call) => call.method === "chat.update").args)[1]), `Extra notes <${NOTES_URL}|here>`);
 });
 
 test("a new task in a project with a Doc gets its notes page, linked on its card", async (t) => {
@@ -1186,7 +1187,7 @@ test("a new task in a project with a Doc gets its notes page, linked on its card
   assert.deepEqual(made.args, { secret: "google-secret", action: "doc.task", docId: DOC_ID, parent: "Notes", title: "Fix login" });
   const update = calls.find((call) => call.method === "chat.update");
   assert.equal(update.args.ts, "100.1");
-  assert.equal(blockText(allBlocks(update.args).at(-2)), `Extra notes <${NOTES_URL}|here>`);
+  assert.equal(blockText(allBlocks(update.args)[1]), `Extra notes <${NOTES_URL}|here>`);
   const { loadTask } = await import("../src/tasks.js");
   assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).notes, { url: NOTES_URL, tab: "t.notes1" });
 });
