@@ -239,14 +239,20 @@ function addTaskTab(docId, parent, title) {
 
 // A task's exported thread: `text` as the whole content of its tab under the
 // `parent` tab. The tab `tabId` is written again if it's still in the doc;
-// otherwise (the first export, or the tab was deleted) a new one called
-// `title` is made. Returns the tab's address and ID.
+// otherwise a tab called `title` already under the parent is (one an earlier
+// export made but didn't get to record, as titles must be unique in a doc, so
+// a second can't be made); otherwise a new one is made. Returns the tab's
+// address and ID.
 function exportTab(docId, parent, title, tabId, text) {
-  let id = tabId;
   let doc = DocumentApp.openById(docId);
-  let tab = id ? doc.getTab(id) : null;
+  let tab = tabId ? doc.getTab(tabId) : null;
   if (!tab) {
-    id = addTaskTab(docId, parent, title).tabId;
+    const old = findTab(doc, title);
+    const above = old && old.getParentTab();
+    if (above && above.getTitle() === parent) tab = old;
+  }
+  if (!tab) {
+    const id = addTaskTab(docId, parent, title).tabId;
     // The new tab can take a moment to show up to DocumentApp.
     for (let tries = 0; !tab && tries < 5; tries++) {
       if (tries) Utilities.sleep(1000);
@@ -257,5 +263,5 @@ function exportTab(docId, parent, title, tabId, text) {
   }
   tab.asDocumentTab().getBody().setText(text);
   doc.saveAndClose();
-  return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${id}`, tabId: id };
+  return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${tab.getId()}`, tabId: tab.getId() };
 }
