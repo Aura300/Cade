@@ -1220,7 +1220,7 @@ test("Export thread writes the thread, names resolved, to the task's page under 
   const [made] = calls.filter((call) => call.method === "doc");
   assert.equal(made.args.action, "doc.export");
   assert.equal(made.args.parent, "Export");
-  assert.equal(made.args.title, "Fix login");
+  assert.equal(made.args.title, "Fix login (thread)");
   assert.equal(made.args.tabId, undefined);
   assert.match(made.args.text, /^Thread: Fix login\n\nRex · .*\nFix login\n\nBob Lee · .*\nOn it @Rex, see the doc \(https:\/\/example.com\/x\) & #dev\n\(attachment: a.png https:\/\/acme.slack.com\/files\/UBOB\/F1\/a.png\)$/);
   // Each person is looked up once, however many messages they wrote.

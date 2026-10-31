@@ -8,22 +8,26 @@ import { callSlack } from "./slack.js";
 // "Export thread" on a task card's ⋯ menu (see menu.js): the task's thread as
 // plain text, in a page of its own in its project's Google Doc, to give to
 // whatever summarizes it. Like a task's notes page (see notes.js) it is a tab
-// under a tab of the Doc, here Export, called the task's title, but Cade
+// under a tab of the Doc, here Export, but Cade
 // writes this one. The task keeps the page's address (`export` on the task,
 // see db.js): exporting again writes the same page over, and makes a new one
 // only if it was deleted. It goes through the Google web app (see google.js,
 // google/Doc.gs).
 export const EXPORT_TAB = "Export";
 
-// The tab's title: the task's own, kept to the 50 characters Google Docs
-// allows in one (longer ones make addDocumentTab fail).
+// The tab's title: the task's own, then " (thread)", as the title of a tab
+// must be unique in the whole doc and the task's notes page (see notes.js) has
+// the task's own. Kept to the 50 characters Google Docs allows in one (longer
+// ones make addDocumentTab fail).
 const TAB_TITLE_MAX = 50;
+const TAB_SUFFIX = " (thread)";
 const PAGE = 200;
 const MAX_PAGES = 5;
 
 export function tabTitle(task) {
+  const room = TAB_TITLE_MAX - TAB_SUFFIX.length;
   const title = task.title.replace(/\s+/g, " ").trim();
-  return title.length > TAB_TITLE_MAX ? `${title.slice(0, TAB_TITLE_MAX - 1).trimEnd()}…` : title;
+  return `${title.length > room ? `${title.slice(0, room - 1).trimEnd()}…` : title}${TAB_SUFFIX}`;
 }
 
 async function readThread(env, channel, ts) {
