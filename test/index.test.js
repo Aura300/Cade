@@ -676,7 +676,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     assert.deepEqual(calls[0].args.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade retry <link>` · `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade brief` · `/cade debrief`",
+      "`/cade task` · `/cade incident` · `/cade retry <link>` · `/cade home` · `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade brief` · `/cade debrief`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move [message link]`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
