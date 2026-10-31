@@ -241,41 +241,42 @@ function addTaskTab(docId, parent, title) {
 // `parent` tab. The tab `tabId` is written again if it's still in the doc;
 // otherwise a tab called `title` already under the parent is (one an earlier
 // export made but didn't get to record, as titles must be unique in a doc, so
-// a second can't be made); otherwise a new one is made. Returns the tab's
-// address and ID.
+// a second can't be made); otherwise a new one is made. It's all done with the
+// Docs API, as addTaskTab is, as DocumentApp is slow to show a new tab and
+// doesn't find tabs under another tab. Returns the tab's address and ID.
 function exportTab(docId, parent, title, tabId, text) {
-  let doc = DocumentApp.openById(docId);
-  let tab = tabId ? findTabById(doc, tabId) : null;
-  if (!tab) {
-    const old = findTab(doc, title);
-    const above = old && old.getParentTab();
-    if (above && above.getTitle() === parent) tab = old;
+  const tabs = Docs.Documents.get(docId, { includeTabsContent: true }).tabs || [];
+  let found = tabId ? findApiTab(tabs, (tab) => tab.tabProperties.tabId === tabId) : null;
+  if (!found) {
+    // Only under the parent: the task's notes page has the task's own title.
+    const above = findApiTab(tabs, (tab) => tab.tabProperties.title === parent);
+    found = above ? (above.childTabs || []).filter((tab) => tab.tabProperties.title === title)[0] : null;
   }
-  if (!tab) {
-    const id = addTaskTab(docId, parent, title).tabId;
-    // The new tab can take a moment to show up to DocumentApp.
-    for (let tries = 0; !tab && tries < 5; tries++) {
-      if (tries) Utilities.sleep(1000);
-      doc = DocumentApp.openById(docId);
-      tab = findTabById(doc, id);
-    }
-    if (!tab) throw new Error("couldn't make the export tab");
+  let id;
+  // The last index of the tab's body, after its last newline, which can't be
+  // deleted; a new tab's body is only that newline.
+  let end = 2;
+  if (found) {
+    id = found.tabProperties.tabId;
+    const content = found.documentTab.body.content;
+    end = content[content.length - 1].endIndex;
+  } else {
+    id = addTaskTab(docId, parent, title).tabId;
   }
-  tab.asDocumentTab().getBody().setText(text);
-  doc.saveAndClose();
-  return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${tab.getId()}`, tabId: tab.getId() };
+  const requests = [];
+  if (end > 2) requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: end - 1, tabId: id } } });
+  requests.push({ insertText: { location: { index: 1, tabId: id }, text } });
+  Docs.Documents.batchUpdate({ requests }, docId);
+  return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${id}`, tabId: id };
 }
 
-// The tab with this ID, at any depth, or null. (Document.getTab doesn't find
-// tabs under another tab.)
-function findTabById(doc, tabId) {
-  const search = (tabs) => {
-    for (const tab of tabs) {
-      if (tab.getId() === tabId) return tab;
-      const child = search(tab.getChildTabs());
-      if (child) return child;
-    }
-    return null;
-  };
-  return search(doc.getTabs());
+// The first tab, at any depth, in the Docs API's list of tabs for which
+// `matches` is true, or null.
+function findApiTab(tabs, matches) {
+  for (const tab of tabs) {
+    if (matches(tab)) return tab;
+    const child = findApiTab(tab.childTabs || [], matches);
+    if (child) return child;
+  }
+  return null;
 }
