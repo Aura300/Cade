@@ -184,18 +184,21 @@ function list({ ready, later, empty }, today, user) {
 }
 
 // A task as a card, in two blocks: its title, linking to its thread, then
-// its priority, status and due date, and below them its owner, reviewers and
-// testers (as on the task's message), in the smaller type of a context block.
+// in the smaller type of a context block a link to its notes page (once it
+// has one), its priority, status and due date, and below them its owner,
+// reviewers and testers (as on the task's message).
 // The title has no button beside it, which would leave a gap under it.
 function card({ task, link, incident, channel, ts }, today, viewer, claim = false) {
   const title = `${incident ? ":rotating_light: " : ""}*<${link}|${escapeSlack(task.title)}>*`;
   const due = task.dueDate && (isOverdue(task, today) ? `:warning: *Overdue* ${task.dueDate}` : `Due ${task.dueDate}`);
   const details = [`${PRIORITIES[task.priority] ?? ""} ${task.priority}`.trim(), STATUSES[task.status], due].filter(Boolean).join("  ·  ");
   const people = peopleLine(task, viewer) || "_Unassigned_";
+  // The link to the task's notes page, right under the title (see notes.js).
+  const notes = task.notes ? `Extra notes <${task.notes.url}|here>\n` : "";
   if (claim) {
     return [
       { type: "section", text: mrkdwn(title) },
-      { type: "context", elements: [mrkdwn(`${details}\n${people}`)] },
+      { type: "context", elements: [mrkdwn(`${notes}${details}\n${people}`)] },
       { type: "actions", elements: [{ type: "button", action_id: `${CLAIM_ACTION}:${channel}:${ts}`, text: plainText("Assign to me") }] },
     ];
   }
@@ -203,7 +206,7 @@ function card({ task, link, incident, channel, ts }, today, viewer, claim = fals
     { type: "section", text: mrkdwn(title) },
     // The blank last line (a braille blank, as Slack trims plain ones) puts
     // a gap before the next card.
-    { type: "context", elements: [mrkdwn(`${details}\n${people}\n\u2800`)] },
+    { type: "context", elements: [mrkdwn(`${notes}${details}\n${people}\n\u2800`)] },
   ];
 }
 
