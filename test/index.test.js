@@ -1265,6 +1265,44 @@ test("/cade export writes a task's thread to the Doc from its link, and says whe
   assert.match(missing.later.text, /isn't to a task/);
 });
 
+test("a task reaching Done exports its thread quietly, and its card then links the export after its notes", async (t) => {
+  const record = ownTask({ owners: ["UREX"] });
+  record.task.notes = { url: "https://docs.google.com/notes", tab: "t.notes1" };
+  const calls = mockSlack(t, {
+    stored: [record],
+    "conversations.replies": () => ({ messages: [{ user: "UREX", ts: "100.1", text: "Fix login" }] }),
+    "users.info": () => ({ user: { profile: { display_name: "Rex" } } }),
+    doc: { ok: true, url: NOTES_URL, tabId: "t.export1" },
+  });
+  await send("/slack/events", threadEvent("<@UBOT> status done"), {}, notesEnv);
+  assert.equal(calls.filter((call) => call.method === "doc").length, 1);
+  assert.equal(calls.find((call) => call.method === "doc").args.action, "doc.export");
+  // Nobody is told.
+  assert.ok(!calls.some((call) => call.method === "chat.postEphemeral"));
+  const card = calls.filter((call) => call.method === "chat.update" && call.args.ts === "100.1").at(-1).args;
+  assert.equal(blockText(allBlocks(card)[1]), `Extra notes <https://docs.google.com/notes|here>  ·  Thread export <${NOTES_URL}|here>`);
+
+  // Not done again, so not exported again; and an open task's card has no export link.
+  const { loadTask } = await import("../src/tasks.js");
+  const stored = await loadTask(notesEnv, "CDEV", "100.1");
+  assert.deepEqual(stored.export, { url: NOTES_URL, tab: "t.export1" });
+  const { taskMessage } = await import("../src/tasks.js");
+  const open = taskMessage({ ...stored, status: "IN_PROGRESS" });
+  assert.ok(!JSON.stringify(open).includes("Thread export"));
+});
+
+test("a task reaching Done isn't exported with exportOnDone off, in a project without a Doc, or when Google fails", async (t) => {
+  const off = { ...notesEnv, CHANNEL_PAIRS: notesEnv.CHANNEL_PAIRS.map((project) => ({ ...project, exportOnDone: false })) };
+  for (const [environment, doc] of [[off, undefined], [{ ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS }, undefined], [notesEnv, () => ({ ok: false, error: "Document is missing" })]]) {
+    const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], "conversations.replies": () => ({ messages: [] }), doc });
+    await send("/slack/events", threadEvent("<@UBOT> status done"), {}, environment);
+    assert.equal(calls.filter((call) => call.method === "doc").length, environment === notesEnv ? 1 : 0);
+    // The task is done either way.
+    assert.ok(calls.some((call) => call.method === "pins.remove"));
+    assert.ok(!JSON.stringify(calls.filter((call) => call.method === "chat.update").at(-1).args).includes("Thread export"));
+  }
+});
+
 test("choosing from a task card's menu opens its form, and an old card's choices open Edit", async (t) => {
   for (const [choice, callbackId] of [
     ["release", "release"],

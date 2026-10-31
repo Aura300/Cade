@@ -33,6 +33,10 @@
 //                 whether open tasks are pinned in the channel (optional, off)
 //   summaryCanvas whether the channel has a summary canvas of its tasks
 //                 (optional, off)
+//   exportOnDone  whether a task's thread is written to the project's Doc,
+//                 under its Export tab, when the task is done (optional,
+//                 on); false to export only from the card's menu or
+//                 `/cade export`. Needs `doc`
 // `npm run group` adds or changes a project here (see group.mjs). Older files
 // with `channels`, each with its channel as `tasks`, and `suggestions` for
 // taskStatusChangeDetection, are still read.
@@ -115,8 +119,8 @@ export function readConfig(json) {
 
 // Features with `true` or `false`, set on each project: activeTasksPinning and summaryCanvas
 // are off unless turned on; taskStatusChangeDetection and
-// newMessageTaskDetection are on unless turned off.
-const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection"];
+// newMessageTaskDetection and exportOnDone are on unless turned off.
+const SWITCHES = ["taskStatusChangeDetection", "activeTasksPinning", "summaryCanvas", "newMessageTaskDetection", "exportOnDone"];
 
 // What a project can set, which used to be allowed at the top of the file.
 const PROJECT_SETTINGS = ["aiSuggestions", "aiModel", ...SWITCHES];
@@ -159,7 +163,7 @@ export async function uploadConfig() {
   }
   const secrets = readConfig(json);
   for (const project of JSON.parse(secrets.PROJECTS)) {
-    const own = ["taskStatusChangeDetection", "aiSuggestions", "aiModel", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
+    const own = ["taskStatusChangeDetection", "aiSuggestions", "aiModel", "newMessageTaskDetection", "activeTasksPinning", "summaryCanvas", "exportOnDone"].filter((key) => project[key] !== undefined).map((key) => `, ${key} ${JSON.stringify(project[key])}`).join("");
     const doc = project.doc ? `, doc ${project.doc}` : "";
     const sheet = project.sheet ? `, sheet ${project.sheet}` : "";
     console.log(`${project.name}: channel ${project.channel}${doc}${sheet}${own}`);

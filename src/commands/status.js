@@ -1,5 +1,6 @@
 import { isQuestion, phraseTest } from "../intents.js";
 import { changeMessage } from "../notify.js";
+import { exportOnDone } from "../export.js";
 import { acknowledged, changeTask } from "./changes.js";
 import { acknowledge, callSlack, dismiss, escapeSlack, mrkdwn, plainText } from "../slack.js";
 import {
@@ -153,10 +154,12 @@ export function setStatusFields(task, status) {
 }
 
 // What follows saving a status change `{ from, to }` made by `user`: the
-// task is pinned or unpinned as it leaves or reaches Done, and Client review
+// task is pinned or unpinned as it leaves or reaches Done, its thread is
+// exported when it reaches it (see exportOnDone), and Client review
 // asks whoever moved it, privately, who approves it (see askApprover).
 export async function afterStatusChange(env, channel, ts, { from, to }, user) {
   if ((from === "DONE") !== (to === "DONE")) await setPinned(env, channel, ts, to !== "DONE");
+  if (to === "DONE" && from !== "DONE") await exportOnDone(env, channel, ts);
   if (to === "CLIENT_REVIEW") await askApprover(env, channel, ts, user);
 }
 
@@ -167,6 +170,7 @@ async function applyStatus(env, channel, ts, task, status) {
   setStatusFields(task, status);
   await saveTask(env, channel, ts, task);
   if ((from === "DONE") !== (status === "DONE")) await setPinned(env, channel, ts, status !== "DONE");
+  if (status === "DONE" && from !== "DONE") await exportOnDone(env, channel, ts);
 }
 
 // A task reaching Client review asks whoever moved it, privately, who

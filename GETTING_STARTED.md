@@ -66,6 +66,7 @@ Each entry in `projects` takes these. Nothing else is set at the top of the file
 | `aiModel` | Optional | The Workers AI text model `aiSuggestions` uses, such as `"@cf/google/gemma-4-26b-a4b-it"`. Without it, the default, `@cf/zai-org/glm-4.7-flash`, the quickest and cheapest that read messages well in our tests. Does nothing unless `aiSuggestions` is `true`. |
 | `activeTasksPinning` | Optional (`false`) | Whether open tasks are pinned in the channel (and unpinned when done, archived or moved). `true` to pin them (needs the `pins:write` permission); with `false`, pins are left alone, and tasks already pinned stay pinned. |
 | `summaryCanvas` | Optional (`false`) | Whether the channel has a summary canvas of its tasks, kept up to date. `true` to keep one; with `false`, none is written and `/cade resync summary` says it is off, and a canvas already made stays as it is. |
+| `exportOnDone` | Optional (`true`) | Whether a task's thread is written to the project's Google Doc when the task is done: a tab of its own under the Doc's **Export** tab, which the card then links as *Thread export*. Needs `doc`. `false` leaves it to the card's ⋯ → **Export thread** and `/cade export <link>`. Nothing is posted when it happens. |
 
 Start from `cade.config.sample.json`, which lists every option; copy it to `cade.config.json`, keep what you need and delete the rest. `npm run config` checks the file
 (names, channel IDs, time zone and URL) and uploads nothing until it's right.

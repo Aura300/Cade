@@ -1,9 +1,10 @@
-import { findProject } from "./channels.js";
+import { findProject, groupDisabled } from "./channels.js";
 import { putTask } from "./db.js";
 import { docId } from "./doc.js";
 import { callGoogle, googleEnabled } from "./google.js";
 import { formatTime } from "./sheet.js";
 import { callSlack } from "./slack.js";
+import { loadTask, saveTask } from "./tasks.js";
 
 // "Export thread" on a task card's ⋯ menu (see menu.js): the task's thread as
 // plain text, in a page of its own in its project's Google Doc, to give to
@@ -116,4 +117,20 @@ export async function exportThread(env, channel, ts, task) {
   task.export = { url, tab: tabId };
   await putTask(env, channel, ts, task);
   return url;
+}
+
+// When a task reaches Done (see afterStatusChange in status.js): exports its
+// thread as the menu's Export thread does, unless the project has turned off
+// `exportOnDone`, and redraws its card, which then links the page. Nothing is
+// said to anyone, and a failure is logged, not thrown, as the task is done
+// either way and Export thread is still there.
+export async function exportOnDone(env, channel, ts) {
+  if (groupDisabled(env, channel, "exportOnDone", "EXPORT_ON_DONE")) return;
+  try {
+    const task = await loadTask(env, channel, ts);
+    if (!task || !(await exportThread(env, channel, ts, task))) return;
+    await saveTask(env, channel, ts, task);
+  } catch (error) {
+    console.warn("Could not export the thread of a task that is done", { ts, error: error.message });
+  }
 }
