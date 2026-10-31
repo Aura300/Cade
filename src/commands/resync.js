@@ -1,5 +1,6 @@
 import { findProject, groupEnabled } from "../channels.js";
 import { escapeSlack, linkedThread, respondLater } from "../slack.js";
+import { syncNotes } from "../notes.js";
 import { writeSummary } from "../summary.js";
 import { loadTask, saveTask } from "../tasks.js";
 
@@ -12,8 +13,10 @@ const LINK = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>|(https?:\/\/\S+)/g;
 // `/cade resync <link> [<link> …]` redraws a task's card from what Cade has
 // stored, and sends it to the Sheet and summary again, for a card that's
 // out of date: one posted before a change to how cards look, such as the ⋯
-// menu, or one a failed update left behind. Nothing changes but the
-// message, so no one is notified, and only whoever sent it sees the reply.
+// menu, or one a failed update left behind. A task in a project with a Doc
+// gets its notes page made, if it has none, as tasks made before pages had
+// none (see notes.js). Nothing changes but the message, so no one is notified, and
+// only whoever sent it sees the reply.
 //
 // `/cade resync summary` in a dev channel rewrites its summary canvas in
 // full, with its title, and makes it read-only again (see summary.js), as
@@ -66,6 +69,7 @@ function resyncSummary(command, context) {
 async function resync(env, { channel, ts }) {
   const task = await loadTask(env, channel, ts);
   if (!task) return "That link isn't to a task I'm tracking.";
+  await syncNotes(env, channel, ts, task);
   await saveTask(env, channel, ts, task);
   const title = escapeSlack(task.title);
   return `Resynced the task ${task.link ? `<${task.link}|${title}>` : `*${title}*`}.`;

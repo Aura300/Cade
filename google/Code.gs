@@ -10,6 +10,10 @@
 //   sheet.create  { title }                        → { id }, a new spreadsheet
 //   doc.write     { docId, tab, key, blocks }      → { url }, a section of the
 //                                                    doc's tab (Doc.gs)
+//   doc.task      { docId, parent, title }         → { url, tabId }, a new empty
+//                                                    tab for a task's notes,
+//                                                    under the parent tab
+//                                                    (Doc.gs)
 //   doc.read      { docId, tab, key }              → { elements }, a section
 //                                                    as it now reads
 //   doc.create    { title }                        → { id }, a new doc
@@ -19,6 +23,7 @@ const ACTIONS = {
   "sheet.row": (body) => (recordRow(body), {}),
   "sheet.create": (body) => ({ id: createSpreadsheet(body.title) }),
   "doc.write": (body) => ({ url: write(body.docId, body.tab, body.key, body.blocks) }),
+  "doc.task": (body) => addTaskTab(body.docId, body.parent, body.title),
   "doc.read": (body) => ({ elements: read(body.docId, body.tab, body.key) }),
   "doc.create": (body) => ({ id: createDoc(body.title) }),
 };

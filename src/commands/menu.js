@@ -3,6 +3,7 @@ import { NOT_A_TASK, TASK_MENU_ACTION, loadTask, saveTask } from "../tasks.js";
 import { editForm } from "./edit.js";
 import { archiveTask } from "./archive.js";
 import { releaseForm } from "./release.js";
+import { syncNotes } from "../notes.js";
 
 // The ⋯ menu on a task's card (see taskMenu in tasks.js) has up to four
 // choices, without a command message in the task's thread:
@@ -13,8 +14,9 @@ import { releaseForm } from "./release.js";
 //   Release  while the task has PRs not sent yet: the form `@Cade release`
 //            opens, to send some of them for approval, a partial release.
 //   Refresh  redraws the card from the stored task, and its Sheet row and
-//            summary, as `/cade resync` does: nothing is posted, so no one
-//            is notified.
+//            summary, as `/cade resync` does, and makes the task's notes
+//            page in the project's Doc if it has none (see notes.js):
+//            nothing is posted, so no one is notified.
 //   Archive  archives the task, as `@Cade archive` does (see archive.js),
 //            telling its thread who did.
 // Anything Cade can't do is said only to whoever chose it. Cards posted
@@ -37,7 +39,12 @@ export default {
       const choice = payload.actions[0].selected_option.value;
       const task = await loadTask(env, origin.channel, origin.ts);
       if (choice === "refresh" && task) {
-        context.waitUntil(saveTask(env, origin.channel, origin.ts, task));
+        context.waitUntil(
+          (async () => {
+            await syncNotes(env, origin.channel, origin.ts, task);
+            await saveTask(env, origin.channel, origin.ts, task);
+          })(),
+        );
         return;
       }
       if (choice === "archive" && task) {

@@ -223,3 +223,16 @@ function findTab(doc, title) {
   };
   return search(doc.getTabs());
 }
+
+// A task's notes page: an empty tab called `title` under the `parent` tab,
+// made if the doc has none, for notes the team writes by hand. Cade never
+// writes in it. Returns the page's address and tab ID.
+function addTaskTab(docId, parent, title) {
+  const { tab: parentTab } = tabFor(docId, parent);
+  const made = Docs.Documents.batchUpdate(
+    { requests: [{ addDocumentTab: { tabProperties: { title, parentTabId: parentTab.getId() } } }] },
+    docId,
+  );
+  const tabId = made.replies[0].addDocumentTab.tabProperties.tabId;
+  return { url: `https://docs.google.com/document/d/${docId}/edit?tab=${tabId}`, tabId };
+}

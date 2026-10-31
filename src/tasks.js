@@ -122,15 +122,16 @@ export function peopleLine(task, viewer) {
 
 export function taskMessage(task, { archivedBy } = {}) {
   // The title, led by its priority, then in small text its status and due date, its
-  // linked pull requests (when it has any) by whether they're approved, and
-  // who works on it and who tracked it. All but the title sit in an
+  // linked pull requests (when it has any) by whether they're approved, then
+  // a link to its notes page (once it has one), and who works on it and who
+  // tracked it. All but the title sit in an
   // attachment, whose strip down the side has the priority's colour. Roles
   // with no one are left out. An archived task's card says who archived it
   // in place of its status, and has no menu, as Cade no longer tracks it.
   const people = peopleLine(task);
   const card = [
     { type: "context", elements: [metaLine(archivedBy ? `:file_cabinet: Archived by <@${archivedBy}>` : STATUSES[task.status], task.dueDate)] },
-    ...(task.prs?.length ? [smallText(prLines(task))] : []),
+    ...(task.prs?.length || task.notes ? [smallText([...(task.prs?.length ? prLines(task) : []), ...(task.notes ? [`Extra notes <${task.notes.url}|here>`] : [])])] : []),
     smallText([people || "_Unassigned_", `${task.incident ? "Reported" : "Tracked"} by <@${task.createdBy}>`]),
   ];
   // Incidents share the dev channel with the rest of the work, so their

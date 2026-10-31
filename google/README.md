@@ -57,6 +57,13 @@ with the day it was written and the group, the period, then **Completed**,
 track**). Every line is a bullet whose title links to its Slack thread, with
 its notes as bullets under it.
 
+Tasks have pages too. A new task in a group with a doc gets an empty tab of
+its own, named after it, under the doc's **Notes** tab (added if the doc has
+none), and its card links it as "Extra notes here". The tab is for notes you
+write by hand: Cade never writes in it. Tasks made before this have none:
+**Refresh** on the card (or `/cade resync <link>`) makes theirs. A task that
+has a page is left alone, so a page whose tab was deleted stays linked.
+
 During the call, add to the section:
 
 - **A bullet of its own, with no link**: a new task in the dev channel.

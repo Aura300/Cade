@@ -1153,6 +1153,56 @@ test("Refresh on a task's card redraws it quietly", async (t) => {
   assert.ok(!calls.some((call) => ["chat.postMessage", "chat.postEphemeral", "views.open"].includes(call.method)));
 });
 
+// The acme project with a Google Doc, for a task's notes page.
+const notesEnv = {
+  ...env,
+  GOOGLE_URL,
+  GOOGLE_SECRET: "google-secret",
+  CHANNEL_PAIRS: env.CHANNEL_PAIRS.map((project) => (project.name === "acme" ? { ...project, doc: `https://docs.google.com/document/d/${DOC_ID}/edit` } : project)),
+};
+const NOTES_URL = `https://docs.google.com/document/d/${DOC_ID}/edit?tab=t.notes1`;
+
+test("Refresh makes the task's empty notes page once, and links it on the card", async (t) => {
+  const calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], doc: { ok: true, url: NOTES_URL, tabId: "t.notes1" } });
+  await send("/slack/interactions", cardMenuClick("refresh"), {}, notesEnv);
+  const [made] = calls.filter((call) => call.method === "doc");
+  assert.deepEqual(made.args, { secret: "google-secret", action: "doc.task", docId: DOC_ID, parent: "Notes", title: "Fix login" });
+  // The card links to it, before who works on it.
+  const card = calls.find((call) => call.method === "chat.update").args;
+  assert.equal(blockText(allBlocks(card).at(-2)), `Extra notes <${NOTES_URL}|here>`);
+  assert.equal(footerLines(card)[0], "Owner <@UREX>");
+
+  // With a page, Refresh leaves the Doc alone, and the link stays.
+  calls.length = 0;
+  await send("/slack/interactions", cardMenuClick("refresh"), {}, notesEnv);
+  assert.ok(!calls.some((call) => call.method === "doc"));
+  assert.equal(blockText(allBlocks(calls.find((call) => call.method === "chat.update").args).at(-2)), `Extra notes <${NOTES_URL}|here>`);
+});
+
+test("a new task in a project with a Doc gets its notes page, linked on its card", async (t) => {
+  const calls = mockSlack(t, { ...createdTask, doc: { ok: true, url: NOTES_URL, tabId: "t.notes1" } });
+  await send("/slack/interactions", interaction(submission({ title: "Fix login", priority: "Low" })), {}, notesEnv);
+  const [made] = calls.filter((call) => call.method === "doc");
+  assert.deepEqual(made.args, { secret: "google-secret", action: "doc.task", docId: DOC_ID, parent: "Notes", title: "Fix login" });
+  const update = calls.find((call) => call.method === "chat.update");
+  assert.equal(update.args.ts, "100.1");
+  assert.equal(blockText(allBlocks(update.args).at(-2)), `Extra notes <${NOTES_URL}|here>`);
+  const { loadTask } = await import("../src/tasks.js");
+  assert.deepEqual((await loadTask(notesEnv, "CDEV", "100.1")).notes, { url: NOTES_URL, tab: "t.notes1" });
+});
+
+test("a task in a project without a Doc has no notes page, and a Google failure doesn't stop Refresh", async (t) => {
+  let calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })] });
+  await send("/slack/interactions", cardMenuClick("refresh"), {}, { ...notesEnv, CHANNEL_PAIRS: env.CHANNEL_PAIRS });
+  assert.ok(!calls.some((call) => call.method === "doc"));
+  assert.ok(!allBlocks(calls.find((call) => call.method === "chat.update").args).some((block) => blockText(block).startsWith("Extra notes")));
+
+  calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], doc: () => ({ ok: false, error: "Document is missing" }) });
+  await send("/slack/interactions", cardMenuClick("refresh"), {}, notesEnv);
+  assert.equal(calls.filter((call) => call.method === "doc").length, 1);
+  assert.equal(footerLines(calls.find((call) => call.method === "chat.update").args)[0], "Owner <@UREX>");
+});
+
 test("choosing from a task card's menu opens its form, and an old card's choices open Edit", async (t) => {
   for (const [choice, callbackId] of [
     ["release", "release"],
@@ -2738,7 +2788,7 @@ test("the Google web app checks SECRET from Secret.gs, and each action has its f
   assert.ok(!all.includes("getScriptProperties"), "no script properties left to set by hand");
   // Each action calls a function one of the files defines.
   const actions = /const ACTIONS = \{([\s\S]*?)\n\};/.exec(code)[1];
-  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["sheet.row", "sheet.create", "doc.write", "doc.read", "doc.create"]);
+  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["sheet.row", "sheet.create", "doc.write", "doc.task", "doc.read", "doc.create"]);
   for (const [, name] of actions.matchAll(/(?:\(|: )([a-zA-Z]+)\(body/g)) {
     assert.match(all, new RegExp(`function ${name}\\(`), name);
   }

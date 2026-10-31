@@ -434,6 +434,8 @@ function taskToRow(task) {
     completed_at: task.completedAt ?? "",
     source_incident: task.incident ? 1 : 0,
     link: task.link ?? null,
+    notes_url: task.notes?.url ?? null,
+    notes_tab: task.notes?.tab ?? null,
   };
 }
 
@@ -454,5 +456,7 @@ function taskFromRow(row) {
     // Whether it is an incident: always urgent and due immediately.
     incident: Boolean(row.source_incident),
     link: row.link || undefined,
+    // The task's page in its project's Google Doc, once made (see notes.js).
+    notes: row.notes_url ? { url: row.notes_url, tab: row.notes_tab } : undefined,
   };
 }
