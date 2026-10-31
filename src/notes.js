@@ -15,10 +15,13 @@ import { taskMessage } from "./tasks.js";
 // app (see google.js, google/Doc.gs).
 export const NOTES_TAB = "Notes";
 
-// The tab's title: the task's own, kept to a length a tab can show.
+// The tab's title: the task's own, kept to the 50 characters Google Docs
+// allows in one (longer ones make addDocumentTab fail).
+const TAB_TITLE_MAX = 50;
+
 function tabTitle(task) {
   const title = task.title.replace(/\s+/g, " ").trim();
-  return title.length > 60 ? `${title.slice(0, 59)}…` : title;
+  return title.length > TAB_TITLE_MAX ? `${title.slice(0, TAB_TITLE_MAX - 1).trimEnd()}…` : title;
 }
 
 // Makes the task's page if it has none, and records its address in
