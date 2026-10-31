@@ -3,6 +3,7 @@ import archive from "./archive.js";
 import assign from "./assign.js";
 import remove from "./delete.js";
 import replace from "./replace.js";
+import exportThread from "./export-thread.js";
 import edit from "./edit.js";
 import { due, priority } from "./details.js";
 import brief from "./brief.js";
@@ -50,7 +51,7 @@ import unassign from "./unassign.js";
 //   }
 // A reply is plain text or a message body such as { text, blocks }.
 // See parse.js for the shape of `command`.
-const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, home, tasks, standup, syncup, brief, debrief];
+const handlers = [track, incident, assign, unassign, status, priority, due, pr, release, archive, remove, replace, move, resync, retry, exportThread, home, tasks, standup, syncup, brief, debrief];
 
 export const commands = Object.fromEntries(
   handlers.flatMap((handler) =>

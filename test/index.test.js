@@ -676,7 +676,7 @@ test("@Cade help, a bare @Cade and unknown commands reply with usage", async (t)
     assert.deepEqual(calls[0].args.text.split("\n"), [
       "Here's what I can do:",
       "*Slash commands*, at the top of a channel:",
-      "`/cade task` · `/cade incident` · `/cade retry <link>` · `/cade home` · `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade brief` · `/cade debrief`",
+      "`/cade task` · `/cade incident` · `/cade retry <link>` · `/cade export <link>` · `/cade home` · `/cade tasks` · `/cade standup` · `/cade syncup` · `/cade brief` · `/cade debrief`",
       "*Messages*, sent in a thread:",
       "• In a message's thread: `@Cade task` · `@Cade incident` · `@Cade move [message link]`",
       "• In a task's thread: `@Cade assign owner @person` · `@Cade unassign owner @person` · `@Cade status in review` · `@Cade priority high` · `@Cade due 31/12/2026` · `@Cade pr add <link>` · `@Cade pr remove <link>` · `@Cade release` · `@Cade archive`",
@@ -1245,6 +1245,24 @@ test("Export thread says so, and writes nothing, in a project without a Doc or w
   calls = mockSlack(t, { stored: [ownTask({ owners: ["UREX"] })], "conversations.replies": () => ({ messages: [] }), doc: () => ({ ok: false, error: "Document is missing" }) });
   await send("/slack/interactions", cardMenuClick("export"), {}, notesEnv);
   assert.match(calls.find((call) => call.method === "chat.postEphemeral").args.text, /couldn't export/);
+});
+
+test("/cade export writes a task's thread to the Doc from its link, and says when it can't", async (t) => {
+  // A task at a timestamp a Slack link can name.
+  const ts = "1700000000.000100";
+  const calls = mockSlack(t, {
+    stored: [{ ...ownTask({ owners: ["UREX"] }), ts }],
+    "conversations.replies": () => ({ messages: [{ user: "UREX", ts, text: "Fix login" }] }),
+    "users.info": () => ({ user: { profile: { display_name: "Rex" } } }),
+    doc: { ok: true, url: NOTES_URL, tabId: "t.export1" },
+  });
+  assert.match((await runTasksCommand("export", "CDEV")).now, /Paste the link to the task/);
+  const link = (stamp) => `<https://acme.slack.com/archives/CDEV/p${stamp.replace(".", "")}>`;
+  const { later } = await runTasksCommand(`export ${link(ts)}`, "CDEV", notesEnv);
+  assert.equal(calls.find((call) => call.method === "doc").args.action, "doc.export");
+  assert.ok(later.text.includes(NOTES_URL));
+  const missing = await runTasksCommand(`export ${link("1700000009.000900")}`, "CDEV", notesEnv);
+  assert.match(missing.later.text, /isn't to a task/);
 });
 
 test("choosing from a task card's menu opens its form, and an old card's choices open Edit", async (t) => {
@@ -2849,7 +2867,7 @@ test("the Google web app checks SECRET from Secret.gs, and each action has its f
   assert.ok(!all.includes("getScriptProperties"), "no script properties left to set by hand");
   // Each action calls a function one of the files defines.
   const actions = /const ACTIONS = \{([\s\S]*?)\n\};/.exec(code)[1];
-  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["sheet.row", "sheet.create", "doc.write", "doc.task", "doc.read", "doc.create"]);
+  assert.deepEqual([...actions.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(([, name]) => name), ["sheet.row", "sheet.create", "doc.write", "doc.task", "doc.export", "doc.read", "doc.create"]);
   for (const [, name] of actions.matchAll(/(?:\(|: )([a-zA-Z]+)\(body/g)) {
     assert.match(all, new RegExp(`function ${name}\\(`), name);
   }
